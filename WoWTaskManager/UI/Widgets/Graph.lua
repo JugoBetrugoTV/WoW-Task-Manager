@@ -31,9 +31,24 @@ local MathU  = WTM.Math
 local Fmt    = WTM.Format
 local RegionPool = WTM.RegionPool
 
-local COLUMN_WIDTH   = 3     -- pixels per rendered column
+-- Pixels per rendered column.
+--
+-- This is the single biggest lever on redraw cost: every column is a pooled
+-- texture that gets repositioned on each draw, and a line segment on top of it.
+-- A live client measured 33 ms/s of UI cost at 3 px columns redrawing twice a
+-- second - an entire 60 FPS frame budget per redraw. Widening the columns and
+-- halving the redraw rate cuts that by roughly two thirds with no visible loss:
+-- the data is downsampled to columns anyway, and 5 px is still finer than the
+-- eye resolves on a scrolling graph.
+local COLUMN_WIDTH   = 5
 local GRID_LINES     = 4
 local MIN_HEADROOM   = 1.15  -- keep the peak off the ceiling
+
+-- Markers are drawn as short ticks along the bottom rather than full-height
+-- rules. At 25 markers over five minutes, full-height rules turned the graph
+-- into a barcode and buried the data they were meant to annotate.
+local MARKER_TICK_HEIGHT = 9
+local MAX_MARKERS_DRAWN  = 40
 
 --------------------------------------------------------------------------
 -- Construction
@@ -43,7 +58,7 @@ function UI.Graph(parent, opts)
     opts = opts or {}
     local graph = UI.Panel(parent, { color = opts.color or "panelBg", border = opts.border ~= false })
     graph.series = {}
-    graph.padding = { left = opts.padLeft or 44, right = 8, top = 10, bottom = 18 }
+    graph.padding = { left = opts.padLeft or 44, right = 8, top = 10, bottom = 20 }
     graph.showGrid = opts.showGrid ~= false
     graph.showAxis = opts.showAxis ~= false
     graph.valueFormat = opts.valueFormat or function(v) return ("%.0f"):format(v) end
@@ -135,6 +150,9 @@ function UI.Graph(parent, opts)
 
     graph.timeLabels = {}
     for i = 1, 4 do
+        -- Justification is set per position at draw time: the first and last
+        -- labels sit on the plot edges, and centring them there pushed half of
+        -- each one outside the graph and into its neighbours.
         local label = UI.Text(graph, "tiny", "textMuted", "CENTER")
         graph.timeLabels[i] = label
     end
@@ -142,16 +160,23 @@ function UI.Graph(parent, opts)
     ------------------------------------------------------------------
     -- Footer: min / avg / max
     ------------------------------------------------------------------
+    -- min/avg/max lives in the HEADER, not the bottom right.
+    --
+    -- At the bottom it sat on top of the "now" and "-3m 20s" axis labels, and
+    -- both became unreadable. There is always free space beside the title.
     graph.footer = UI.Text(graph, "tiny", "textMuted", "RIGHT")
-    graph.footer:SetPoint("BOTTOMRIGHT", -graph.padding.right, 3)
+    graph.footer:SetPoint("TOPRIGHT", -8, -7)
 
     graph.titleText = UI.Text(graph, "heading", "textSecondary")
     graph.titleText:SetPoint("TOPLEFT", 10, -6)
+    graph.titleText:SetPoint("RIGHT", graph.footer, "LEFT", -10, 0)
+    graph.titleText:SetJustifyH("LEFT")
     graph.titleText:SetText(opts.title or "")
-    if opts.title then
-        graph.padding.top = 26
-        plot:SetPoint("TOPLEFT", graph.padding.left, -graph.padding.top)
-    end
+    graph.padding.top = 26
+    plot:SetPoint("TOPLEFT", graph.padding.left, -graph.padding.top)
+
+    -- Scaling to a percentile, when asked for.
+    graph.softCeiling = opts.softCeiling
 
     ------------------------------------------------------------------
     -- Crosshair and hover readout
@@ -223,8 +248,11 @@ function UI.Graph(parent, opts)
     -- Without it the ceiling twitches on every sample and the whole graph
     -- appears to breathe, which makes trends impossible to read.
 
+    local scaleScratch = {}
+
     function graph:ComputeScale()
         local dataMax, dataMin = 0, math.huge
+        local count = 0
         for i = 1, #self.series do
             local series = self.series[i]
             if series.values and not series.hidden then
@@ -232,13 +260,41 @@ function UI.Graph(parent, opts)
                     local v = series.values[j]
                     if v > dataMax then dataMax = v end
                     if v < dataMin then dataMin = v end
+                    count = count + 1
+                    scaleScratch[count] = v
                 end
             end
         end
+        for i = #scaleScratch, count + 1, -1 do scaleScratch[i] = nil end
         if dataMin == math.huge then dataMin = 0 end
         if dataMax <= 0 then dataMax = self.minRange end
 
-        local wanted = MathU.NiceCeil(dataMax * MIN_HEADROOM)
+        self.dataPeak = dataMax
+        self.clipped = false
+
+        local target = dataMax
+
+        -- Soft ceiling.
+        --
+        -- A single 1252 ms freeze in a graph of 8 ms frames makes the axis run
+        -- to 1000 ms and flattens every real variation into the baseline - the
+        -- graph technically contains the data and shows none of it. When
+        -- enabled, the axis is scaled to a high percentile instead, and points
+        -- above it are drawn clamped at the top in the alert colour with the
+        -- true peak stated in the header. Nothing is hidden; the outlier stops
+        -- dictating the scale for everything else.
+        if self.softCeiling and count >= 8 then
+            table.sort(scaleScratch)
+            local index = math.max(1, math.floor(count * self.softCeiling))
+            local percentile = scaleScratch[index] or dataMax
+            if percentile > 0 and dataMax > percentile * 2 then
+                target = percentile * 1.6
+                self.clipped = true
+                self.clipCeiling = target
+            end
+        end
+
+        local wanted = MathU.NiceCeil(target * MIN_HEADROOM)
         if self.fixedMax then wanted = self.fixedMax end
 
         local current = self.scaleMax
@@ -389,6 +445,7 @@ function UI.Graph(parent, opts)
                     series.renderTimes[i]  = times[i]
 
                     local fraction = (value - minValue) / range
+                    local over = fraction > 1
                     if fraction < 0 then fraction = 0 elseif fraction > 1 then fraction = 1 end
                     local x = (i - 1) * columnWidth
                     local y = fraction * height
@@ -396,7 +453,13 @@ function UI.Graph(parent, opts)
                     -- Area fill: one column texture per sample, pooled.
                     if series.fill then
                         local column = self.columnPool:Acquire()
-                        column:SetColorTexture(r, g, b, 0.13)
+                        if over then
+                            -- Clamped at the ceiling: coloured as an alert so a
+                            -- clipped value never reads as a real one.
+                            column:SetColorTexture(Theme:Tone("crit", 0.35))
+                        else
+                            column:SetColorTexture(r, g, b, 0.13)
+                        end
                         column:ClearAllPoints()
                         column:SetWidth(math.max(1, columnWidth + 0.5))
                         column:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", x - columnWidth / 2, 0)
@@ -452,16 +515,23 @@ function UI.Graph(parent, opts)
         if self.markers and self.fromTime and self.toTime then
             local span = self.toTime - self.fromTime
             if span > 0 then
-                for i = 1, #self.markers do
+                -- Newest first, so a cap keeps the most relevant markers.
+                local drawn = 0
+                for i = #self.markers, 1, -1 do
+                    if drawn >= MAX_MARKERS_DRAWN then break end
                     local marker = self.markers[i]
                     local fraction = (marker.t - self.fromTime) / span
                     if fraction >= 0 and fraction <= 1 then
                         local def = WTM.C.MARKERS[marker.kind]
                         local tick = self.markerPool:Acquire()
-                        tick:SetSize(2, height)
-                        tick:SetColorTexture(Theme:Tone(def and def.tone or "muted", 0.28))
+                        -- A short tick along the bottom, not a full-height rule:
+                        -- twenty-odd full-height rules turned the plot into a
+                        -- barcode and buried the line they annotate.
+                        tick:SetSize(2, MARKER_TICK_HEIGHT)
+                        tick:SetColorTexture(Theme:Tone(def and def.tone or "muted", 0.8))
                         tick:ClearAllPoints()
                         tick:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", fraction * width, 0)
+                        drawn = drawn + 1
                     end
                 end
             end
@@ -479,19 +549,36 @@ function UI.Graph(parent, opts)
                 if v > hi then hi = v end
                 sum = sum + v
             end
-            self.footer:SetText(("min %s   avg %s   max %s")
-                :format(self.valueFormat(lo), self.valueFormat(sum / #primary.values), self.valueFormat(hi)))
+            local text = ("min %s   avg %s   max %s")
+                :format(self.valueFormat(lo), self.valueFormat(sum / #primary.values),
+                        self.valueFormat(hi))
+            if self.clipped then
+                -- Say so, rather than letting a clamped point look like a
+                -- point that reached exactly the ceiling.
+                text = ("|cffd29922peak %s clipped|r   %s"):format(self.valueFormat(hi), text)
+            end
+            self.footer:SetText(text)
         else
             self.footer:SetText("")
         end
 
         if self.fromTime and self.toTime and self.showAxis then
             local span = self.toTime - self.fromTime
-            for i = 1, #self.timeLabels do
-                local fraction = (i - 1) / (#self.timeLabels - 1)
+            local count = #self.timeLabels
+            for i = 1, count do
+                local fraction = (i - 1) / (count - 1)
                 local label = self.timeLabels[i]
                 label:ClearAllPoints()
-                label:SetPoint("TOP", plot, "BOTTOMLEFT", fraction * width, -3)
+                if i == 1 then
+                    label:SetJustifyH("LEFT")
+                    label:SetPoint("TOPLEFT", plot, "BOTTOMLEFT", 0, -3)
+                elseif i == count then
+                    label:SetJustifyH("RIGHT")
+                    label:SetPoint("TOPRIGHT", plot, "BOTTOMRIGHT", 0, -3)
+                else
+                    label:SetJustifyH("CENTER")
+                    label:SetPoint("TOP", plot, "BOTTOMLEFT", fraction * width, -3)
+                end
                 local ago = span * (1 - fraction)
                 label:SetText(ago < 1 and "now" or ("-" .. Fmt.Duration(ago)))
                 label:Show()
@@ -577,6 +664,177 @@ function UI.Graph(parent, opts)
     end)
 
     return graph
+end
+
+--------------------------------------------------------------------------
+-- Histogram: the SHAPE of the frame time distribution
+--------------------------------------------------------------------------
+-- Percentiles tell you where the tail is; they do not tell you whether the
+-- distribution is one tight cluster with a few outliers or genuinely bimodal -
+-- which is the difference between "occasional hitch" and "two different
+-- performance states". Only the shape shows that.
+--
+-- Bars are drawn on a square-root scale because a frame time histogram is
+-- extremely top heavy: a linear scale renders every bucket outside the mode as
+-- an invisible sliver.
+
+function UI.Histogram(parent, opts)
+    opts = opts or {}
+    local widget = UI.Panel(parent, {})
+
+    widget.title = UI.Text(widget, "heading", "textSecondary")
+    widget.title:SetPoint("TOPLEFT", 10, -6)
+    widget.title:SetText(opts.title or "DISTRIBUTION")
+
+    widget.summary = UI.Text(widget, "tiny", "textMuted", "RIGHT")
+    widget.summary:SetPoint("TOPRIGHT", -8, -7)
+
+    local plot = CreateFrame("Frame", nil, widget)
+    plot:SetPoint("TOPLEFT", 10, -26)
+    plot:SetPoint("BOTTOMRIGHT", -8, 20)
+    plot:SetClipsChildren(true)
+    widget.plot = plot
+
+    widget.pool = RegionPool.New(plot,
+        function(p)
+            local texture = p:CreateTexture(nil, "ARTWORK")
+            return texture
+        end,
+        function(texture) texture:ClearAllPoints() end)
+
+    widget.axisLabels = {}
+    for i = 1, 5 do
+        local label = UI.Text(widget, "tiny", "textMuted", "CENTER")
+        widget.axisLabels[i] = label
+    end
+
+    widget.marker = plot:CreateTexture(nil, "OVERLAY")
+    widget.marker:SetWidth(1)
+    widget.marker:SetPoint("TOP", plot, "TOP")
+    widget.marker:SetPoint("BOTTOM", plot, "BOTTOM")
+    widget.marker:SetColorTexture(Theme:Tone("warn"))
+    widget.marker:Hide()
+
+    widget.markerLabel = UI.Text(widget, "tiny", "warn", "LEFT")
+    widget.markerLabel:Hide()
+
+    plot:EnableMouse(true)
+    plot:SetScript("OnEnter", function() widget.hovering = true end)
+    plot:SetScript("OnLeave", function()
+        widget.hovering = false
+        UI.HideTooltip()
+    end)
+
+    --- `histogram` is the raw bucket array from Utils/MathUtil, `bucketValue`
+    --- maps a bucket index to its lower bound.
+    function widget:SetHistogram(histogram, bucketValue, markerValue, markerLabel)
+        self.histogram = histogram
+        self.bucketValue = bucketValue
+        self.markerValue = markerValue
+        self.markerText = markerLabel
+        self.dirty = true
+    end
+
+    function widget:Draw()
+        if not self:IsVisible() or not self.histogram then return end
+        local width  = plot:GetWidth() or 0
+        local height = plot:GetHeight() or 0
+        if width < 8 or height < 8 then return end
+
+        self.pool:ReleaseAll()
+
+        local histogram = self.histogram
+        local total = histogram.count or 0
+        if total == 0 then
+            self.summary:SetText("no frames yet")
+            return
+        end
+
+        -- Only draw up to the last non-empty bucket, so an empty tail out to
+        -- 500 ms does not squash the part with data in it.
+        local lastUsed = 1
+        local peak = 0
+        for i = 1, WTM.C.HIST_BUCKETS do
+            if histogram[i] > 0 then lastUsed = i end
+            if histogram[i] > peak then peak = histogram[i] end
+        end
+        if peak == 0 then return end
+
+        local columns = lastUsed
+        local columnWidth = width / columns
+        local rootPeak = math.sqrt(peak)
+
+        for i = 1, columns do
+            local n = histogram[i]
+            if n > 0 then
+                local fraction = math.sqrt(n) / rootPeak
+                local ms = self.bucketValue(i)
+                local bar = self.pool:Acquire()
+                -- Colour by how bad that frame time is, so the tail reads as a
+                -- tail rather than as more of the same.
+                local tone = "ok"
+                if ms >= 100 then tone = "crit"
+                elseif ms >= 50 then tone = "warn"
+                elseif ms >= 33 then tone = "warn" end
+                bar:SetColorTexture(Theme:Tone(tone, ms >= 33 and 0.9 or 0.55))
+                bar:ClearAllPoints()
+                bar:SetWidth(math.max(1, columnWidth - 0.5))
+                bar:SetHeight(math.max(1, fraction * height))
+                bar:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", (i - 1) * columnWidth, 0)
+            end
+        end
+
+        -- Axis: a handful of frame time labels across the used range.
+        local maxMs = self.bucketValue(lastUsed + 1)
+        for i = 1, #self.axisLabels do
+            local fraction = (i - 1) / (#self.axisLabels - 1)
+            local label = self.axisLabels[i]
+            label:ClearAllPoints()
+            if i == 1 then
+                label:SetJustifyH("LEFT")
+                label:SetPoint("TOPLEFT", plot, "BOTTOMLEFT", 0, -3)
+            elseif i == #self.axisLabels then
+                label:SetJustifyH("RIGHT")
+                label:SetPoint("TOPRIGHT", plot, "BOTTOMRIGHT", 0, -3)
+            else
+                label:SetJustifyH("CENTER")
+                label:SetPoint("TOP", plot, "BOTTOMLEFT", fraction * width, -3)
+            end
+            label:SetText(("%.0f ms"):format(fraction * maxMs))
+            label:Show()
+        end
+
+        -- A guide at a value worth comparing against, e.g. the 1% low.
+        if self.markerValue and self.markerValue > 0 and self.markerValue < maxMs then
+            local fraction = self.markerValue / maxMs
+            self.marker:ClearAllPoints()
+            self.marker:SetPoint("TOP", plot, "TOPLEFT", fraction * width, 0)
+            self.marker:SetPoint("BOTTOM", plot, "BOTTOMLEFT", fraction * width, 0)
+            self.marker:Show()
+            self.markerLabel:ClearAllPoints()
+            self.markerLabel:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", fraction * width + 3, 2)
+            self.markerLabel:SetText(self.markerText or "")
+            self.markerLabel:Show()
+        else
+            self.marker:Hide()
+            self.markerLabel:Hide()
+        end
+
+        self.summary:SetText(("%s frames, mode near %.0f ms")
+            :format(WTM.Format.Comma(total), self.bucketValue(
+                (function()
+                    local best, bestIndex = 0, 1
+                    for i = 1, columns do
+                        if histogram[i] > best then best, bestIndex = histogram[i], i end
+                    end
+                    return bestIndex
+                end)())))
+        self.dirty = false
+    end
+
+    widget:SetScript("OnShow", function(self2) self2.dirty = true self2:Draw() end)
+    widget:SetScript("OnSizeChanged", function(self2) self2.dirty = true end)
+    return widget
 end
 
 --------------------------------------------------------------------------

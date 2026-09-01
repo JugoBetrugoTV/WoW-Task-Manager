@@ -58,9 +58,49 @@ end
 local noop = function() end
 local selfReturn = function(self) return self end
 
+--------------------------------------------------------------------------
+-- Strict colour setters
+--------------------------------------------------------------------------
+-- These used to be no-ops that swallowed anything, which let a real bug ship:
+--
+--     obj:SetTextColor(tone and Theme:Tone(tone) or T("primary"))
+--
+-- In Lua, `a and f() or g()` truncates a multi-return to ONE value, so the
+-- call received a single number instead of r, g, b, a. The live client threw
+-- 220 times; the mock never noticed.
+--
+-- Validating argument shape here turns that whole class of mistake into a test
+-- failure instead of a crash in someone's raid.
+local function checkColor(name, self, r, g, b, a, ...)
+    local extra = select("#", ...)
+    if type(r) ~= "number" then
+        error(("%s: expected r,g,b[,a] numbers, got %s (a multi-return truncated by an and/or expression?)")
+            :format(name, type(r)), 3)
+    end
+    if type(g) ~= "number" or type(b) ~= "number" then
+        error(("%s: expected r,g,b[,a] numbers, got r=%s g=%s b=%s - a colour was truncated to %d value(s)")
+            :format(name, type(r), type(g), type(b), (type(g) == "nil") and 1 or 2), 3)
+    end
+    if a ~= nil and type(a) ~= "number" then
+        error(("%s: alpha must be a number, got %s"):format(name, type(a)), 3)
+    end
+    if extra > 0 then
+        error(("%s: too many arguments (%d extra)"):format(name, extra), 3)
+    end
+    for _, v in ipairs({ r, g, b }) do
+        if v < 0 or v > 1 then
+            error(("%s: colour components must be 0..1, got %s"):format(name, tostring(v)), 3)
+        end
+    end
+end
+
+function Region:SetTextColor(...) checkColor("SetTextColor", self, ...) end
+function Region:SetColorTexture(...) checkColor("SetColorTexture", self, ...) end
+function Region:SetVertexColor(...) checkColor("SetVertexColor", self, ...) end
+
 local methods = {
     "SetPoint","SetAllPoints","ClearAllPoints","SetSize","SetWidth","SetHeight",
-    "SetColorTexture","SetTexture","SetTexCoord","SetVertexColor","SetAlpha",
+    "SetTexture","SetTexCoord","SetAlpha",
     "SetJustifyH","SetJustifyV","SetWordWrap","SetNonSpaceWrap","SetMaxLines",
     "SetTextColor","SetShadowColor","SetShadowOffset","SetDrawLayer",
     "SetFrameStrata","SetFrameLevel","SetToplevel","SetClampedToScreen",
@@ -73,7 +113,9 @@ local methods = {
     "SetFocus","HighlightText","SetIgnoreParentScale","SetPropagateKeyboardInput",
     "SetBlendMode","SetDesaturated","SetRotation","SetParent","SetID","SetMouseClickEnabled",
 }
-for _, name in ipairs(methods) do Region[name] = noop end
+for _, name in ipairs(methods) do
+    if not Region[name] then Region[name] = noop end
+end
 
 function Region:Show() self._shown = true end
 function Region:Hide() self._shown = false end
@@ -109,7 +151,12 @@ function Region:GetStringHeight() return 12 end
 function Region:SetScript(k, fn) self._scripts[k] = fn end
 function Region:GetScript(k) return self._scripts[k] end
 function Region:HookScript(k, fn) self._scripts[k .. "_hook"] = fn end
-function Region:RegisterEvent(e)
+-- Only Frames have the event API. FontStrings, Textures and Lines do not, and
+-- code that walks EnumerateFrames has to cope with that - so the mock models
+-- the distinction rather than giving everything every method.
+local FrameMethods = {}
+
+function FrameMethods:RegisterEvent(e)
     if M.knownEvents and not M.knownEvents[e] then
         error("Unknown event: " .. tostring(e), 2)
     end
@@ -118,17 +165,22 @@ function Region:RegisterEvent(e)
     M.listeners[e][self] = true
     return true
 end
-function Region:UnregisterEvent(e)
+function FrameMethods:UnregisterEvent(e)
     self._events[e] = nil
     if M.listeners[e] then M.listeners[e][self] = nil end
 end
-function Region:RegisterAllEvents() self._allEvents = true M.allEventFrames[self] = true end
-function Region:UnregisterAllEvents()
+function FrameMethods:RegisterAllEvents() self._allEvents = true M.allEventFrames[self] = true end
+function FrameMethods:UnregisterAllEvents()
     self._allEvents = nil
     M.allEventFrames[self] = nil
     for e in pairs(self._events) do self:UnregisterEvent(e) end
 end
-function Region:IsEventRegistered(e) return self._events[e] and true or false end
+function FrameMethods:IsEventRegistered(e) return self._events[e] and true or false end
+
+-- Frames get the event methods; other regions deliberately do not.
+local FrameProto = setmetatable({}, { __index = Region })
+for k, v in pairs(FrameMethods) do FrameProto[k] = v end
+FrameProto.__index = FrameProto
 
 local function makeChild(self, kind, name)
     local r = newRegion(kind, self)
@@ -147,11 +199,27 @@ M.allEventFrames = {}
 
 function CreateFrame(kind, name, parent, template)
     local f = newRegion(kind, parent)
+    setmetatable(f, FrameProto)
     f._name = name
     if name then _G[name] = f end
     M.frames[#M.frames + 1] = f
     M.allFrames[#M.allFrames + 1] = f
     return f
+end
+
+-- On a live Retail client EnumerateFrames also yields regions (FontStrings,
+-- Textures), and their GetName does not reliably return a string - a real scan
+-- crashed on a FontString from another addon's XML. The mock reproduces that
+-- so the guard cannot regress: these objects are in the walk, they are not
+-- frames, and one of them returns a non-string from GetName.
+function M.AddHostileRegions()
+    local host = CreateFrame("Frame", "DamageMeterEntry")
+    local label = host:CreateFontString("DamageMeterEntryText")
+    -- Whatever the client is really doing here, the addon must survive it.
+    label.GetName = function(self) return self end
+    local texture = host:CreateTexture("DamageMeterEntryIcon")
+    -- Regions created this way already lack the event API, matching WoW.
+    return label, texture
 end
 
 function EnumerateFrames(previous)
@@ -172,6 +240,45 @@ function M.Fire(event, ...)
         local fn = frame._scripts.OnEvent
         if fn then fn(frame, event, ...) end
     end
+end
+
+--- Fires one script handler on one frame, returning false plus the error when
+--- the handler blows up.
+function M.FireScript(frame, script, ...)
+    local fn = frame._scripts and frame._scripts[script]
+    if not fn then return nil end
+    local ok, err = pcall(fn, frame, ...)
+    return ok, err
+end
+
+--- Fires `script` on every frame that has such a handler.
+---
+--- This exists because tooltips, hover highlights and click handlers are only
+--- reachable by a human moving a mouse - so nothing in a headless suite touched
+--- them, and a crash in one shipped. Walking every handler is the closest a
+--- mock can get to someone hovering the whole UI.
+function M.FireScriptOnAll(script, ...)
+    local ran, failures = 0, {}
+    -- Snapshot first: a handler may create frames, and iterating a growing
+    -- list would never terminate.
+    local snapshot = {}
+    for i = 1, #M.frames do snapshot[i] = M.frames[i] end
+
+    for i = 1, #snapshot do
+        local frame = snapshot[i]
+        if frame._scripts and frame._scripts[script] then
+            ran = ran + 1
+            local ok, err = pcall(frame._scripts[script], frame, ...)
+            if not ok then
+                failures[#failures + 1] = {
+                    frame = frame._name or ("unnamed #" .. i),
+                    script = script,
+                    err = tostring(err),
+                }
+            end
+        end
+    end
+    return ran, failures
 end
 
 --- Runs every OnUpdate handler once.

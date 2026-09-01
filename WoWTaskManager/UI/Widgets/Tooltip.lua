@@ -77,7 +77,19 @@ function UI.TooltipLine(left, right, leftTone, rightTone)
     row.left:SetText(left or "")
     row.left:SetTextColor(Theme:Tone(leftTone or "muted"))
     row.right:SetText(right or "")
-    row.right:SetTextColor(rightTone and Theme:Tone(rightTone) or T("textPrimary"))
+
+    -- Written out rather than as `rightTone and Theme:Tone(rightTone) or
+    -- T("textPrimary")`.
+    --
+    -- In Lua an and/or expression yields exactly ONE value, so that form
+    -- silently truncated r, g, b, a down to r. The live client rejected the
+    -- single argument and threw on every tooltip that had a value with no tone
+    -- - which is most of them.
+    if rightTone then
+        row.right:SetTextColor(Theme:Tone(rightTone))
+    else
+        row.right:SetTextColor(T("textPrimary"))
+    end
     row:Show()
 end
 

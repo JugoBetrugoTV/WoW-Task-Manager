@@ -113,6 +113,16 @@ local defaults = {
             enabled = false,   -- /wtm dev on
         },
 
+        -- The compact always-on readout (/wtm mini).
+        liveMonitor = {
+            shown      = false,
+            sparklines = true,
+            width      = 210,
+            scale      = 1.0,
+            opacity    = 0.85,
+            point      = nil, x = nil, y = nil,
+        },
+
         ui = {
             graphSmoothing = true,
             showGrid       = true,

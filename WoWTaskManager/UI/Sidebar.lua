@@ -102,7 +102,7 @@ function Sidebar:Build(parent)
     -- Footer status
     ------------------------------------------------------------------
     local footer = CreateFrame("Frame", nil, frame)
-    footer:SetHeight(74)
+    footer:SetHeight(94)
     footer:SetPoint("BOTTOMLEFT", 0, 0)
     footer:SetPoint("BOTTOMRIGHT", 0, 0)
     UI.Border(footer, "T", "borderSubtle")
@@ -119,11 +119,25 @@ function Sidebar:Build(parent)
     footer.overhead:SetPoint("TOPLEFT", 18, -30)
     footer.overhead:SetPoint("RIGHT", -12, 0)
     footer.overhead:SetJustifyH("LEFT")
+    footer.overhead:SetWordWrap(false)
+
+    footer.budget = UI.Text(footer, "tiny", "textMuted")
+    footer.budget:SetPoint("TOPLEFT", 18, -44)
+    footer.budget:SetPoint("RIGHT", -12, 0)
+    footer.budget:SetJustifyH("LEFT")
+    footer.budget:SetWordWrap(false)
 
     footer.coverage = UI.Text(footer, "tiny", "textMuted")
-    footer.coverage:SetPoint("TOPLEFT", 18, -44)
+    footer.coverage:SetPoint("TOPLEFT", 18, -60)
     footer.coverage:SetPoint("RIGHT", -12, 0)
     footer.coverage:SetJustifyH("LEFT")
+    footer.coverage:SetWordWrap(false)
+
+    footer.history = UI.Text(footer, "tiny", "textMuted")
+    footer.history:SetPoint("TOPLEFT", 18, -74)
+    footer.history:SetPoint("RIGHT", -12, 0)
+    footer.history:SetJustifyH("LEFT")
+    footer.history:SetWordWrap(false)
 
     footer:EnableMouse(true)
     footer:SetScript("OnEnter", function(self)
@@ -205,12 +219,22 @@ function Sidebar:Refresh()
         footer.state:SetText("Recording")
     end
 
-    footer.overhead:SetText(("overhead %.2f ms/s  -  %.2f%% of a frame")
-        :format(WTM.Overhead.current.samplingMsPerSec, WTM.Overhead:GetFrameBudgetPercent()))
-    footer.overhead:SetTextColor(Theme:Tone(
-        overheadTone == "critical" and "crit" or (overheadTone == "elevated" and "warn" or "muted")))
+    -- One line per fact, and the ms and the percentage now describe the SAME
+    -- number: previously this printed the sampling-only cost next to a
+    -- percentage derived from the total, which disagreed with the dashboard.
+    local tone = overheadTone == "critical" and "crit"
+        or (overheadTone == "elevated" and "warn" or "muted")
 
-    footer.coverage:SetText(("recorder %s  -  history %s")
-        :format(Fmt.Duration(WTM.FlightRecorder:GetCoverageSeconds()),
-                Fmt.Duration(WTM.Recorder:GetCoverage())))
+    footer.overhead:SetText(("overhead %.2f ms/s total")
+        :format(WTM.Overhead.current.totalMsPerSec))
+    footer.overhead:SetTextColor(Theme:Tone(tone))
+
+    footer.budget:SetText(("%.2f%% of a frame at %s fps")
+        :format(WTM.Overhead:GetFrameBudgetPercent(), Fmt.FPS(WTM.FrameTime.current.fps)))
+    footer.budget:SetTextColor(Theme:Tone(tone))
+
+    footer.coverage:SetText(("recorder %s")
+        :format(Fmt.Duration(WTM.FlightRecorder:GetCoverageSeconds())))
+    footer.history:SetText(("history %s")
+        :format(Fmt.Duration(WTM.Recorder:GetCoverage())))
 end

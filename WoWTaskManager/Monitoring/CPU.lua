@@ -208,7 +208,19 @@ function CPU:GetWindowDeltas(out, limit, minMs)
     local list = WTM.Processes.list
     for i = 1, #list do
         local record = list[i]
-        if record.loaded and record.cpuDeltaMs >= minMs then
+
+        -- This addon excludes ITSELF from spike attribution.
+        --
+        -- Detecting a spike is what makes it switch to burst sampling, so its
+        -- own CPU rises immediately after every spike - and it would then show
+        -- up, correctly by the arithmetic and completely backwards in meaning,
+        -- as a leading correlate of the spikes it just detected. A monitor that
+        -- reports its own reaction as the cause of the thing it reacted to is
+        -- worse than useless. Its real cost is measured and reported separately
+        -- under Overhead, where it belongs.
+        local isSelf = (record.name == WTM.name)
+
+        if record.loaded and not isSelf and record.cpuDeltaMs >= minMs then
             local average = self:GetAverage(record)
             out[#out + 1] = {
                 name     = record.name,

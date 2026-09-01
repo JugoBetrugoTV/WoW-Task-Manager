@@ -190,6 +190,7 @@ Processes.attribution = {
     totalFrames  = 0,
     namedFrames  = 0,
     matchedFrames = 0,
+    skippedNonFrames = 0,
     scanCostMs   = 0,
 }
 
@@ -214,6 +215,10 @@ local function BuildPrefixIndex()
 end
 
 local function MatchFrameToAddon(frameName)
+    -- Defensive: callers must pass a string, but this is reached from a walk
+    -- over whatever EnumerateFrames hands back, and that is not always what the
+    -- documentation implies. Failing soft here beats erroring mid-scan.
+    if type(frameName) ~= "string" then return nil end
     local lower = frameName:lower()
     -- Longest prefix wins, so "WeakAurasOptions" is not attributed to a
     -- hypothetical "Weak" addon.
@@ -256,10 +261,32 @@ function Processes:ScanFrames(force)
     for k in pairs(eventListeners) do eventListeners[k] = nil end
 
     local frame = api.EnumerateFrames()
+    local skippedNonFrames = 0
     while frame do
         total = total + 1
-        local ok, frameName = pcall(frame.GetName, frame)
-        if ok and frameName and frameName ~= "" then
+
+        -- EnumerateFrames does not only yield Frames.
+        --
+        -- On a live Retail client it also returns regions - FontStrings,
+        -- Textures - and their GetName does not reliably return a string. An
+        -- earlier version assumed both, and blew up mid-scan on a FontString
+        -- from another addon's XML.
+        --
+        -- Two guards, in order of cheapness: skip anything that cannot register
+        -- events (which is the only property this scan actually needs), then
+        -- require the name to really be a string.
+        local isFrame = type(rawget(frame, "IsEventRegistered")) == "function"
+            or type(frame.IsEventRegistered) == "function"
+
+        local frameName
+        if isFrame then
+            local ok, name = pcall(frame.GetName, frame)
+            if ok and type(name) == "string" then frameName = name end
+        else
+            skippedNonFrames = skippedNonFrames + 1
+        end
+
+        if frameName and frameName ~= "" then
             named = named + 1
             local record = MatchFrameToAddon(frameName)
             if record then
@@ -301,6 +328,7 @@ function Processes:ScanFrames(force)
     a.totalFrames   = total
     a.namedFrames   = named
     a.matchedFrames = matched
+    a.skippedNonFrames = skippedNonFrames
     a.scanCostMs    = Compat.Now() - t0
 
     for i = 1, #self.list do
@@ -328,9 +356,10 @@ end
 function Processes:AttributionSummary()
     local a = self.attribution
     if a.totalFrames == 0 then return "No frame scan has run yet." end
-    local anonymous = a.totalFrames - a.namedFrames
-    return ("%d frames scanned, %d named, %d matched to an addon, %d anonymous (not attributable). Scan cost %.1f ms.")
-        :format(a.totalFrames, a.namedFrames, a.matchedFrames, anonymous, a.scanCostMs)
+    local anonymous = a.totalFrames - a.namedFrames - (a.skippedNonFrames or 0)
+    return ("%d objects walked: %d were not frames, %d named frames, %d matched to an addon, %d anonymous (not attributable). Scan cost %.1f ms.")
+        :format(a.totalFrames, a.skippedNonFrames or 0, a.namedFrames,
+                a.matchedFrames, anonymous, a.scanCostMs)
 end
 
 --------------------------------------------------------------------------
@@ -371,7 +400,9 @@ function Processes:UpdateDerived(record, sessionMinutes)
 
     if cpuPct >= C.HIGH_CPU_PCT then
         record.status = C.STATUS.HIGH_CPU
-    elseif record.spikes >= 3 then
+    -- Never label ourselves a spike source: our CPU rises because a spike was
+    -- detected, not before it. See Monitoring/CPU:GetWindowDeltas.
+    elseif record.spikes >= 3 and record.name ~= WTM.name then
         record.status = C.STATUS.SPIKY
     elseif growth >= growthLimit then
         record.status = C.STATUS.MEM_GROWTH

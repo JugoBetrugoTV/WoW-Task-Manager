@@ -549,6 +549,189 @@ check("incidents capped", #NS.db.global.incidents <= NS.db.profile.retention.max
     #NS.db.global.incidents)
 
 --------------------------------------------------------------------------
+-- Live monitor
+--------------------------------------------------------------------------
+
+do
+    NS.UI.LiveMonitor:Show()
+    check("the live monitor opens", NS.UI.LiveMonitor:IsShown())
+    NS.UI.LiveMonitor:Refresh()
+    check("it shows an FPS value",
+        NS.UI.LiveMonitor.rows.fps.value:GetText() ~= "",
+        NS.UI.LiveMonitor.rows.fps.value:GetText())
+    if not PROFILE_ON then
+        check("it says CPU is off rather than showing zero",
+            NS.UI.LiveMonitor.rows.cpu.value:GetText() == "off",
+            NS.UI.LiveMonitor.rows.cpu.value:GetText())
+    end
+
+    -- It drives the UI task on its own, so closing the main window must not
+    -- stop it updating.
+    NS.UI.MainWindow:Open("dashboard")
+    NS.UI.MainWindow:Close()
+    check("the UI task stays on while the live monitor is visible",
+        NS.Scheduler:GetTask("ui").enabled == true)
+
+    NS.UI.LiveMonitor:Hide()
+    check("the live monitor closes", NS.UI.LiveMonitor:IsShown() == false)
+    check("the UI task stops once nothing is visible",
+        NS.Scheduler:GetTask("ui").enabled == false)
+end
+
+--------------------------------------------------------------------------
+-- Frame time distribution histogram
+--------------------------------------------------------------------------
+
+do
+    NS.UI.MainWindow:Open("performance")
+    NS.UI.MainWindow:ShowPage("performance")
+    NS.UI.MainWindow:InvalidateGraphs()
+    NS.UI.MainWindow:Refresh()
+    local histogram = NS.UI.Pages.performance.histogram
+    check("the performance page has a distribution histogram", histogram ~= nil)
+    if histogram then
+        check("the histogram received data", histogram.histogram ~= nil)
+        check("the histogram reports a frame count",
+            histogram.summary:GetText():find("frames") ~= nil,
+            histogram.summary:GetText())
+    end
+    NS.UI.MainWindow:Close()
+end
+
+--------------------------------------------------------------------------
+-- Graph redraws must be gated
+--------------------------------------------------------------------------
+-- A live client measured 33 ms/s of UI cost from redrawing six graphs twice a
+-- second - an entire 60 FPS frame budget per redraw. Graphs may only redraw
+-- when there is new data, because history buckets are one second apart.
+
+do
+    NS.UI.MainWindow:Open("dashboard")
+    NS.UI.MainWindow:ShowPage("dashboard")
+
+    local draws = 0
+    local dashboard = NS.UI.Pages.dashboard
+    for _, graph in ipairs(dashboard.graphs) do
+        local original = graph.Draw
+        graph.Draw = function(self, ...) draws = draws + 1 return original(self, ...) end
+    end
+
+    -- Twenty refreshes with no time passing and no new buckets.
+    NS.UI.MainWindow:InvalidateGraphs()
+    NS.UI.MainWindow:Refresh()
+    local afterFirst = draws
+    for _ = 1, 20 do NS.UI.MainWindow:Refresh() end
+
+    check("the first refresh does draw the graphs", afterFirst > 0, afterFirst)
+    check("twenty further refreshes with no new data redraw nothing",
+        draws == afterFirst, ("%d -> %d"):format(afterFirst, draws))
+
+    -- New buckets must let it through again.
+    NS.Recorder.revision = NS.Recorder.revision + 1
+    mock.Advance(5)
+    NS.UI.MainWindow:Refresh()
+    check("a new bucket allows a redraw", draws > afterFirst, draws)
+
+    check("the graph update rate is configurable",
+        NS.db.profile.ui.graphUpdateRate ~= nil)
+    NS.UI.MainWindow:Close()
+end
+
+--------------------------------------------------------------------------
+-- This addon never blames itself for the spikes it reacts to
+--------------------------------------------------------------------------
+-- Detecting a spike is what makes it burst-sample, so its own CPU rises right
+-- after every spike. Correlating that with spikes inverts cause and effect.
+
+do
+    local self_ = NS.Processes:Get("WoWTaskManager")
+    if self_ and PROFILE_ON then
+        self_.cpuDeltaMs = 9999
+        self_.cpuPct = 99
+        self_.cpuSamples = 10
+        self_.cpuSumPct = 10
+        local deltas = NS.CPU:GetWindowDeltas(nil, 10, 0.1)
+        local foundSelf = false
+        for _, entry in ipairs(deltas) do
+            if entry.name == "WoWTaskManager" then foundSelf = true end
+        end
+        check("this addon excludes itself from spike CPU attribution", not foundSelf)
+
+        self_.spikes = 10
+        NS.Processes:UpdateDerived(self_, 1)
+        check("this addon never labels itself a spike source",
+            self_.status.key ~= "SPIKY", self_.status.key)
+    end
+end
+
+--------------------------------------------------------------------------
+-- The frame walk must survive whatever EnumerateFrames actually returns
+--------------------------------------------------------------------------
+-- A live client returned FontStrings from EnumerateFrames, and their GetName
+-- did not return a string. The scan crashed. These regions are now part of the
+-- mock so the guard cannot quietly regress.
+
+if not DEGRADED then
+    mock.AddHostileRegions()
+    local ok, err = pcall(NS.Processes.ScanFrames, NS.Processes, true)
+    check("frame scan survives non-Frame objects in the walk", ok, err)
+    check("non-frames are counted, not silently dropped",
+        (NS.Processes.attribution.skippedNonFrames or 0) > 0,
+        NS.Processes.attribution.skippedNonFrames)
+    check("the attribution summary reports them",
+        NS.Processes:AttributionSummary():find("not frames") ~= nil,
+        NS.Processes:AttributionSummary())
+end
+
+--------------------------------------------------------------------------
+-- Hover and click every interactive element
+--------------------------------------------------------------------------
+-- Tooltips and hover handlers are only reachable with a mouse, so nothing else
+-- in this suite touches them. A truncated colour in a tooltip shipped and threw
+-- 220 times in a real client because of exactly that gap.
+
+do
+    -- Visit every page first so their widgets exist to be hovered.
+    for _, key in ipairs(NS.UI.pageOrder) do
+        NS.UI.MainWindow:ShowPage(key)
+        NS.UI.MainWindow:Refresh()
+    end
+    NS.UI.AddonDetail:Open(wa)
+    for _, tab in ipairs({ "overview","cpu","memory","history","events",
+                           "dependencies","diagnostics","metadata" }) do
+        NS.UI.AddonDetail:ShowTab(tab)
+    end
+
+    local enterRan, enterFailures = mock.FireScriptOnAll("OnEnter")
+    check("something actually has a hover handler", enterRan > 10, enterRan)
+    if #enterFailures > 0 then
+        for i = 1, math.min(6, #enterFailures) do
+            local f = enterFailures[i]
+            print(("      OnEnter on %s: %s"):format(f.frame, f.err))
+        end
+    end
+    check(("all %d OnEnter handlers survive"):format(enterRan),
+        #enterFailures == 0, #enterFailures .. " failed")
+
+    local leaveRan, leaveFailures = mock.FireScriptOnAll("OnLeave")
+    check(("all %d OnLeave handlers survive"):format(leaveRan),
+        #leaveFailures == 0, #leaveFailures .. " failed")
+
+    -- Clicking must be safe too, including on rows with no data bound.
+    local clickRan, clickFailures = mock.FireScriptOnAll("OnClick", "LeftButton")
+    if #clickFailures > 0 then
+        for i = 1, math.min(6, #clickFailures) do
+            local f = clickFailures[i]
+            print(("      OnClick on %s: %s"):format(f.frame, f.err))
+        end
+    end
+    check(("all %d OnClick handlers survive"):format(clickRan),
+        #clickFailures == 0, #clickFailures .. " failed")
+
+    NS.UI.AddonDetail:Close()
+end
+
+--------------------------------------------------------------------------
 print(("   %d passed, %d failed, %d lua errors"):format(passed, failed, #mock.errors))
 for i = 1, math.min(5, #mock.errors) do print("   error: " .. mock.errors[i]) end
 os.exit((failed == 0 and #mock.errors == 0) and 0 or 1)

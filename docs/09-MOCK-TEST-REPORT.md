@@ -23,25 +23,25 @@ Gestartet mit `./tools/run-tests.sh` bzw. `./tools/release-check.sh`.
 ## Matrix: 4 Clients x Profiling an/aus x volle/abgeräumte API
 
 ```
-  PASS  Retail-12.1.0      profiling=on  api=normal     137 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=degraded   150 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=normal     139 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=degraded   152 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=normal     137 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=degraded   150 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=normal     139 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=degraded   152 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=normal     137 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=degraded   150 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=normal     139 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=degraded   152 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=normal     137 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=degraded   150 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=normal     139 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=degraded   152 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=normal     158 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=degraded   168 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=normal     159 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=degraded   169 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=normal     158 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=degraded   168 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=normal     159 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=degraded   169 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=normal     158 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=degraded   168 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=normal     159 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=degraded   169 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=normal     158 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=degraded   168 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=normal     159 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=degraded   169 passed, 0 failed, 0 lua errors
 
 syntax check:
-  all 53 files parse
+  all 54 files parse
 
 ```
 
@@ -115,6 +115,21 @@ Abgedeckte Fälle:
 | 7 | Event-Zähler zählte über dem Distinct-Cap nicht mehr mit | Gesamtrate wurde bei > 400 verschiedenen Events zu niedrig gemeldet |
 | 8 | Flush-Markierung prüfte auf den falschen Grund | Am Session-Ende abgeschnittene Incidents sahen vollständig aus |
 | 9 | Sidebar berechnete die komplette Diagnose 2x/Sekunde | Das Monitoring-Tool wäre selbst zum Kostenfaktor geworden |
+
+## Was der erste echte Client-Test geändert hat
+
+Der Mock war an zwei Stellen **zu nachsichtig** und hat dadurch echte Bugs
+durchgelassen. Beides ist jetzt geschlossen:
+
+| Lücke | Folge | Behoben durch |
+|---|---|---|
+| Farb-Setter waren No-Ops und akzeptierten alles | `SetTextColor(x)` mit **einer** Zahl statt r,g,b,a fiel nicht auf — im echten Client 220 Fehler | `checkColor` im Mock validiert Anzahl, Typ und Wertebereich |
+| Nichts hat je etwas mit der Maus berührt | Tooltips und Hover-Handler waren komplett ungetestet — der Fehler steckte in genau so einem Pfad | `mock.FireScriptOnAll("OnEnter" / "OnLeave" / "OnClick")` feuert jeden Handler auf jedem Frame |
+| `EnumerateFrames` lieferte nur Frames | Auf Retail kommen auch FontStrings zurück, deren `GetName` keinen String liefert → Absturz | `mock.AddHostileRegions()` baut genau solche Objekte ein; Frames und Regionen haben jetzt getrennte Metatables wie in WoW |
+
+Der Hover-Sweep hat sofort einen **zweiten**, vorher unbemerkten Bug gefunden:
+der X-Button der Titelleiste rief `Close()` auf dem Frame statt auf dem
+Fenster-Modul und warf, statt zu schliessen.
 
 ## Was der Mock nicht kann
 

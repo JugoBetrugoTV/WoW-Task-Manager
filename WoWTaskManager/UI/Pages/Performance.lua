@@ -107,6 +107,12 @@ function Page:Build(frame)
         self.percentiles[spec.key] = group
     end
 
+    -- The distribution HISTOGRAM: percentiles say where the tail is, the shape
+    -- says whether it is one tight cluster with outliers or two different
+    -- performance states.
+    self.histogram = UI.Histogram(frame, { title = "FRAME TIME DISTRIBUTION" })
+    self.histogram:SetHeight(120)
+
     -- Distribution bar
     self.distribution = CreateFrame("Frame", nil, analyzer)
     self.distribution:SetHeight(16)
@@ -133,8 +139,11 @@ function Page:Build(frame)
     ------------------------------------------------------------------
     -- Graph grid
     ------------------------------------------------------------------
+    self.histogram:SetPoint("TOPLEFT", analyzer, "BOTTOMLEFT", 0, -M.cardGap)
+    self.histogram:SetPoint("TOPRIGHT", analyzer, "BOTTOMRIGHT", 0, -M.cardGap)
+
     local grid = CreateFrame("Frame", nil, frame)
-    grid:SetPoint("TOPLEFT", analyzer, "BOTTOMLEFT", 0, -M.cardGap)
+    grid:SetPoint("TOPLEFT", self.histogram, "BOTTOMLEFT", 0, -M.cardGap)
     grid:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -pad, pad)
     self.grid = grid
 
@@ -145,6 +154,11 @@ function Page:Build(frame)
             valueFormat = spec.format,
             worstIsLow = spec.worstIsLow,
             minRange = 1,
+            -- Scale frame time to the 95th percentile rather than the peak: a
+            -- single 1252 ms freeze otherwise runs the axis to 1000 ms and
+            -- flattens every real 8 ms variation into the baseline. Clipped
+            -- points are drawn in the alert colour and the true peak is stated.
+            softCeiling = (spec.key == "frame") and 0.95 or nil,
             referenceLines = (spec.key == "frame") and {
                 { value = 1000 / 60,  label = "60 fps  16.7 ms" },
                 { value = 1000 / 144, label = "144 fps  6.9 ms" },
@@ -219,6 +233,17 @@ function Page:Refresh()
     self.percentiles.low1.value:SetTextColor(Theme:Tone(
         (stats.avgFPS > 0 and stats.low1 / stats.avgFPS < 0.6) and "warn" or "ok"))
 
+    -- The histogram redraws on the same gate as the graphs.
+    if UI.MainWindow:ShouldRedrawGraphs() then
+        self.histogram:SetHistogram(
+            WTM.FrameTime:GetHistogram(),
+            WTM.Math.HistogramValue,
+            WTM.FrameTime:GetPercentileMs(0.99),
+            ("1%% low  %.0f ms"):format(WTM.FrameTime:GetPercentileMs(0.99)))
+        self.histogram.dirty = true
+        self.histogram:Draw()
+    end
+
     local distribution, total = WTM.FrameTime:GetStutterDistribution(self._dist or {})
     self._dist = distribution
     local tones = { "ok", "warn", "warn", "crit", "crit" }
@@ -255,6 +280,7 @@ function Page:Refresh()
 
     WTM.Context:GetMarkersInRange(fromTime, now, markerScratch)
 
+    local redraw = UI.MainWindow:ShouldRedrawGraphs()
     for i, graph in ipairs(self.graphs) do
         local spec = graph.spec
         local series = self.series[spec.key]
@@ -278,8 +304,10 @@ function Page:Refresh()
 
         graph:SetTimeRange(fromTime, now)
         graph:SetMarkers(markerScratch)
-        graph.dirty = true
-        graph:Draw()
+        if redraw then
+            graph.dirty = true
+            graph:Draw()
+        end
     end
 
     self.coverage:SetText(("history covers %s   -   %d buckets stored")

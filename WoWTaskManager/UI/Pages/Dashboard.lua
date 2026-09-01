@@ -184,6 +184,11 @@ function Page:Build(frame)
             valueFormat = spec.format,
             worstIsLow = spec.worstIsLow,
             minRange = 1,
+            -- Scale frame time to the 95th percentile rather than the peak: a
+            -- single 1252 ms freeze otherwise runs the axis to 1000 ms and
+            -- flattens every real 8 ms variation into the baseline. Clipped
+            -- points are drawn in the alert colour and the true peak is stated.
+            softCeiling = (spec.key == "frame") and 0.95 or nil,
             referenceLines = (spec.key == "frame") and {
                 { value = 1000 / 60,  label = "60 fps  16.7 ms" },
                 { value = 1000 / 144, label = "144 fps  6.9 ms" },
@@ -221,7 +226,8 @@ function Page:Build(frame)
 
     self.incidentCard = UI.Card(footer, "RECENT INCIDENTS", {})
     self.incidentCard:SetPoint("TOPLEFT", self.overheadCard, "TOPRIGHT", M.cardGap, 0)
-    self.incidentCard:SetPoint("BOTTOMRIGHT")
+    self.incidentCard:SetPoint("BOTTOM")
+    self.incidentCard:SetWidth(430)
 
     self.incidentRows = {}
     for i = 1, 4 do
@@ -248,6 +254,48 @@ function Page:Build(frame)
     self.incidentEmpty:SetPoint("TOPLEFT")
     self.incidentEmpty:SetPoint("RIGHT")
     self.incidentEmpty:SetJustifyH("LEFT")
+    self.incidentEmpty:SetWordWrap(true)
+
+    ------------------------------------------------------------------
+    -- Top consumers, filling the remaining footer width
+    ------------------------------------------------------------------
+    self.topCard = UI.Card(footer, "TOP CONSUMERS", {})
+    self.topCard:SetPoint("TOPLEFT", self.incidentCard, "TOPRIGHT", M.cardGap, 0)
+    self.topCard:SetPoint("BOTTOMRIGHT")
+
+    self.topRows = {}
+    for i = 1, 4 do
+        local row = CreateFrame("Button", nil, self.topCard.content)
+        row:SetHeight(16)
+        row:SetPoint("TOPLEFT", 0, -(i - 1) * 16)
+        row:SetWidth(230)
+        row.label = UI.Text(row, "small", "textSecondary")
+        row.label:SetPoint("LEFT")
+        row.value = UI.Text(row, "numericSm", "textPrimary", "RIGHT")
+        row.value:SetPoint("RIGHT")
+        row:SetScript("OnClick", function(self)
+            local record = self.addonName and WTM.Processes:Get(self.addonName)
+            if record then UI.AddonDetail:Open(record) end
+        end)
+        self.topRows[i] = row
+    end
+
+    self.topMemRows = {}
+    for i = 1, 4 do
+        local row = CreateFrame("Button", nil, self.topCard.content)
+        row:SetHeight(16)
+        row:SetPoint("TOPLEFT", 250, -(i - 1) * 16)
+        row:SetWidth(230)
+        row.label = UI.Text(row, "small", "textSecondary")
+        row.label:SetPoint("LEFT")
+        row.value = UI.Text(row, "numericSm", "textPrimary", "RIGHT")
+        row.value:SetPoint("RIGHT")
+        row:SetScript("OnClick", function(self)
+            local record = self.addonName and WTM.Processes:Get(self.addonName)
+            if record then UI.AddonDetail:Open(record) end
+        end)
+        self.topMemRows[i] = row
+    end
 
     self:OnLayout()
 end
@@ -326,6 +374,7 @@ end
 --------------------------------------------------------------------------
 
 local clusterScratch, breakdownScratch = {}, {}
+local topCPUScratch, topMemScratch = {}, {}
 
 function Page:Refresh()
     if not self.cards then return end
@@ -457,6 +506,7 @@ function Page:Refresh()
     end
     local fromTime = now - rangeSeconds
 
+    local redraw = UI.MainWindow:ShouldRedrawGraphs()
     for _, graph in ipairs(self.graphs) do
         local spec = graph.spec
         local unavailable
@@ -479,8 +529,10 @@ function Page:Refresh()
             graph:SetTitle(spec.title)
         end
         graph:SetTimeRange(fromTime, now)
-        graph.dirty = true
-        graph:Draw()
+        if redraw then
+            graph.dirty = true
+            graph:Draw()
+        end
     end
 
     ------------------------------------------------------------------
@@ -506,6 +558,43 @@ function Page:Refresh()
                 WTM.Overhead.current.verdict == "ok" and "ok" or "warn")
         else
             statRow:Hide()
+        end
+    end
+
+    ------------------------------------------------------------------
+    -- Top consumers
+    ------------------------------------------------------------------
+    local topCPU = WTM.CPU:GetTopConsumers(topCPUScratch, #self.topRows)
+    for i, row in ipairs(self.topRows) do
+        local entry = topCPU[i]
+        row:SetShown(entry ~= nil or i == 1)
+        row.addonName = entry and entry.name
+        if entry then
+            row.label:SetText("CPU  " .. Fmt.Truncate(entry.title, 18))
+            row.value:SetText(("%.2f %%"):format(entry.pct))
+            row.value:SetTextColor(Theme:Tone(
+                entry.pct >= C.HIGH_CPU_PCT and "crit"
+                or (entry.pct >= C.ELEVATED_CPU_PCT and "warn" or nil)))
+            if entry.pct < C.ELEVATED_CPU_PCT then row.value:SetTextColor(T("textPrimary")) end
+        elseif i == 1 then
+            row.label:SetText(WTM.CPU.available
+                and "No measurable addon CPU yet" or "CPU: profiling off")
+            row.value:SetText("")
+        end
+    end
+
+    local topMem = WTM.Memory:GetTopConsumers(topMemScratch, #self.topMemRows)
+    for i, row in ipairs(self.topMemRows) do
+        local entry = topMem[i]
+        row:SetShown(entry ~= nil or i == 1)
+        row.addonName = entry and entry.name
+        if entry then
+            row.label:SetText("MEM  " .. Fmt.Truncate(entry.title, 18))
+            row.value:SetText(Fmt.Memory(entry.memKB))
+            row.value:SetTextColor(T("textPrimary"))
+        elseif i == 1 then
+            row.label:SetText("Waiting for the first memory scan")
+            row.value:SetText("")
         end
     end
 

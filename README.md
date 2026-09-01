@@ -6,9 +6,9 @@ Think Windows Task Manager plus Resource Monitor plus a profiler's timeline - bu
 for the WoW client, and built only out of things the addon API can actually
 measure.
 
-![status](https://img.shields.io/badge/status-v0.2.0%20MVP-blue)
+![status](https://img.shields.io/badge/status-v0.3.0-blue)
 ![mock](https://img.shields.io/badge/mock-16%2F16%20scenarios-brightgreen)
-![real client](https://img.shields.io/badge/real%20client-NOT%20TESTED-lightgrey)
+![real client](https://img.shields.io/badge/real%20client-Retail%20verified-brightgreen)
 
 ---
 
@@ -30,7 +30,7 @@ zero, and never as an estimate.
 
 | Client | Mock | Real client |
 |---|:--:|:--:|
-| Retail / Midnight 12.1.0 | MOCK VERIFIED | **NOT TESTED** |
+| Retail / Midnight 12.1.0 | MOCK VERIFIED | **VERIFIED** (12.1.0 build 69497, 2026-09-01) |
 | MoP Classic 5.5.4 | MOCK VERIFIED | **NOT TESTED** |
 | TBC Anniversary 2.5.6 | MOCK VERIFIED | **NOT TESTED** |
 | Classic Era 1.15.9 | MOCK VERIFIED | **NOT TESTED** |
@@ -85,6 +85,7 @@ The same matrix is generated live from API probes and shown under **System**.
 | **Diagnostics** | Automatic session verdict with findings, each carrying its evidence and its correlation strength. |
 | **False positives** | Loading screens, the first seconds after login, `/reload` and zone changes are counted as *suppressed*, not reported as freezes - and the suppressed count stays visible so nothing is quietly swallowed. |
 | **Dev mode** | `/wtm dev` injects spikes, storms and memory growth for testing. Everything injected is flagged `simulated` and rendered as **SIMULATED**. |
+| **Live monitor** | `/wtm mini` — a small movable always-on panel with FPS, frame time, latency, CPU, memory and event rate. Sparklines are opt-in because they are the expensive part. |
 | **Benchmark** | `/wtm benchmark` measures this addon's own cost and reports it. It never generates artificial load. |
 | **Sessions** | Every login is recorded with summary statistics and aggregated time series. |
 
@@ -131,6 +132,7 @@ which one is active.
 /wtm caps            print the runtime capability report
 /wtm overhead        print this addon's own cost
 /wtm reset           reset runtime counters
+/wtm mini            toggle the compact always-on monitor
 /wtm dev             developer tools (all injection marked SIMULATED)
 /wtm benchmark [s]   measure this addon's own overhead and report it
 ```

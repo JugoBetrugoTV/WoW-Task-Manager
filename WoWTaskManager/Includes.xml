@@ -77,5 +77,6 @@
     <Script file="UI\Pages\Sessions.lua"/>
     <Script file="UI\Pages\System.lua"/>
     <Script file="UI\Pages\Settings.lua"/>
+    <Script file="UI\LiveMonitor.lua"/>
     <Script file="UI\AddonDetail.lua"/>
 </Ui>

@@ -12,7 +12,7 @@ WTM.C = C
 C.ADDON_NAME    = ADDON_NAME
 C.ADDON_TITLE   = "WoW Task Manager"
 C.ADDON_SHORT   = "WTM"
-C.VERSION       = "0.2.0"
+C.VERSION       = "0.3.0"
 
 -- SavedVariables schema version.  Bump this whenever the stored shape changes
 -- and add a migration step in Core/Database.lua; never reinterpret old data in
@@ -94,7 +94,11 @@ C.SAMPLE_DEFAULTS = {
     luamem    = { normal = 1.00, burst = 0.50 },
     cpu       = { normal = 2.00, burst = 0.50 },
     network   = { normal = 5.00, burst = 5.00 },
-    memory    = { normal = 15.0, burst = 5.00 },
+    -- Deliberately NOT faster during a burst. UpdateAddOnMemoryUsage walks the
+    -- whole Lua heap and is the single most expensive call this addon makes; a
+    -- live client spent most of its sampling budget here. Memory also does not
+    -- change meaningfully inside a spike window, so bursting it buys nothing.
+    memory    = { normal = 20.0, burst = 20.0 },
     history   = { normal = 1.00, burst = 1.00 },
     ui        = { normal = 0.50, burst = 0.50 },
 }

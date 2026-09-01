@@ -91,6 +91,18 @@ function Page:Build(frame)
     end
 
     -- Legend: which marker kinds this client can actually produce.
+    -- Optional per-addon CPU sub-tracks under the shared axis.
+    self.addonTracksButton = UI.Button(toolbar, "Addon tracks", function(button)
+        Page.showAddonTracks = not Page.showAddonTracks
+        button:SetSelected(Page.showAddonTracks)
+        Page:RebuildAddonTracks()
+        Page:Refresh()
+    end, { height = 22, style = "small" })
+    self.addonTracksButton:SetPoint("LEFT", previous, "RIGHT", 12, 0)
+    self.addonTracksButton.tooltip =
+        "Adds a CPU track per addon beneath the shared axis: the addons you have flagged, or the top CPU consumers if you have flagged none. Requires the scriptProfile CVar."
+    previous = self.addonTracksButton
+
     self.legend = UI.Text(toolbar, "small", "textMuted", "RIGHT")
     self.legend:SetPoint("RIGHT")
     self.legend:SetPoint("LEFT", previous, "RIGHT", 16, 0)
@@ -147,12 +159,22 @@ function Page:Build(frame)
     end
 
     ------------------------------------------------------------------
+    -- Per-addon sub-tracks
+    ------------------------------------------------------------------
+    self.addonTrackHost = CreateFrame("Frame", nil, frame)
+    self.addonTrackHost:SetPoint("TOPLEFT", stack, "BOTTOMLEFT", 0, 0)
+    self.addonTrackHost:SetPoint("TOPRIGHT", stack, "BOTTOMRIGHT", 0, 0)
+    self.addonTrackHost:SetHeight(1)
+    self.addonTracks = {}
+    self.addonSeries = {}
+
+    ------------------------------------------------------------------
     -- Marker lane
     ------------------------------------------------------------------
     local lane = UI.Panel(frame, { color = "panelBg" })
     lane:SetHeight(38)
-    lane:SetPoint("TOPLEFT", stack, "BOTTOMLEFT", 0, -6)
-    lane:SetPoint("TOPRIGHT", stack, "BOTTOMRIGHT", 0, -6)
+    lane:SetPoint("TOPLEFT", self.addonTrackHost, "BOTTOMLEFT", 0, -6)
+    lane:SetPoint("TOPRIGHT", self.addonTrackHost, "BOTTOMRIGHT", 0, -6)
     self.lane = lane
 
     lane.label = UI.Text(lane, "small", "textMuted")
@@ -189,7 +211,103 @@ function Page:Build(frame)
     self.rangeButtons["5m"]:SetSelected(true)
 end
 
-function Page:OnShow() self:Refresh() end
+--- Which addons get their own track: the ones you flagged, or the top CPU
+--- consumers when you have flagged none.
+local ADDON_TRACK_LIMIT = 3
+local ADDON_TRACK_HEIGHT = 40
+
+function Page:PickTrackedAddons(out)
+    out = out or {}
+    for i = #out, 1, -1 do out[i] = nil end
+    if not WTM.CPU.available then return out end
+
+    for _, record in WTM.Processes:Iterate() do
+        if record.loaded and WTM.Database:IsWatched(record.name) and #out < ADDON_TRACK_LIMIT then
+            out[#out + 1] = record
+        end
+    end
+    if #out > 0 then return out end
+
+    local top = WTM.CPU:GetTopConsumers(self._topScratch or {}, ADDON_TRACK_LIMIT)
+    self._topScratch = top
+    for i = 1, #top do
+        local record = WTM.Processes:Get(top[i].name)
+        if record then out[#out + 1] = record end
+    end
+    return out
+end
+
+function Page:RebuildAddonTracks()
+    local records = self:PickTrackedAddons(self._trackedScratch or {})
+    self._trackedScratch = records
+
+    local count = self.showAddonTracks and #records or 0
+    self.addonTrackHost:SetHeight(count > 0 and (count * ADDON_TRACK_HEIGHT) or 1)
+
+    for i = 1, math.max(count, #self.addonTracks) do
+        local track = self.addonTracks[i]
+        if i <= count then
+            if not track then
+                track = UI.Graph(self.addonTrackHost, {
+                    showAxis = false,
+                    showGrid = false,
+                    padLeft = 76,
+                    border = false,
+                    valueFormat = function(v) return ("%.2f %%"):format(v) end,
+                })
+                track:SetHeight(ADDON_TRACK_HEIGHT)
+                UI.Border(track, "B", "borderSubtle")
+                track.nameText = UI.Text(track, "small", "textSecondary")
+                track.nameText:SetPoint("TOPLEFT", 8, -5)
+                track.currentText = UI.Text(track, "numericSm", "textPrimary")
+                track.currentText:SetPoint("TOPLEFT", 8, -20)
+                self.addonTracks[i] = track
+                self.addonSeries[i] = {}
+            end
+            track:ClearAllPoints()
+            track:SetPoint("TOPLEFT", 0, -(i - 1) * ADDON_TRACK_HEIGHT)
+            track:SetPoint("TOPRIGHT", 0, -(i - 1) * ADDON_TRACK_HEIGHT)
+            track:Show()
+            track.record = records[i]
+            -- Detail rings are allocated lazily; a tracked addon needs one.
+            WTM.Processes.EnsureRings(records[i])
+        elseif track then
+            track:Hide()
+            track.record = nil
+        end
+    end
+end
+
+function Page:RefreshAddonTracks()
+    if not self.showAddonTracks then return end
+    local redraw = UI.MainWindow:ShouldRedrawGraphs()
+
+    for i, track in ipairs(self.addonTracks) do
+        local record = track.record
+        if record and track:IsShown() then
+            local values = self.addonSeries[i]
+            for j = #values, 1, -1 do values[j] = nil end
+            local ring = record.cpuRing
+            if ring then
+                for j = 1, ring.count do values[j] = ring:Get(j) end
+            end
+            track:SetSeries(1, values, nil,
+                { label = record.titleClean, colorIndex = 5 + i })
+            track.nameText:SetText(Fmt.Truncate(record.titleClean, 16))
+            track.currentText:SetText(("%.2f %%"):format(record.cpuEma or 0))
+            track.currentText:SetTextColor(Theme:Series(5 + i))
+            if redraw then
+                track.dirty = true
+                track:Draw()
+            end
+        end
+    end
+end
+
+function Page:OnShow()
+    self:RebuildAddonTracks()
+    self:Refresh()
+end
 
 --------------------------------------------------------------------------
 
@@ -256,6 +374,7 @@ function Page:Refresh()
     ------------------------------------------------------------------
     -- Tracks
     ------------------------------------------------------------------
+    local redraw = UI.MainWindow:ShouldRedrawGraphs()
     for _, track in ipairs(self.tracks) do
         local spec = track.spec
         local series = self.series[spec.key]
@@ -282,9 +401,13 @@ function Page:Refresh()
         end
 
         track:SetTimeRange(fromTime, now)
-        track.dirty = true
-        track:Draw()
+        if redraw then
+            track.dirty = true
+            track:Draw()
+        end
     end
+
+    self:RefreshAddonTracks()
 
     ------------------------------------------------------------------
     -- Markers

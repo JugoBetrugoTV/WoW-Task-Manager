@@ -192,8 +192,10 @@ function Page:Refresh()
     self.graph:SetSeries(1, self.series.values, self.series.times,
         { label = "Lua heap", colorIndex = 4 })
     self.graph:SetTimeRange(fromTime, now)
-    self.graph.dirty = true
-    self.graph:Draw()
+    if UI.MainWindow:ShouldRedrawGraphs() then
+        self.graph.dirty = true
+        self.graph:Draw()
+    end
 
     ------------------------------------------------------------------
     -- Growth table

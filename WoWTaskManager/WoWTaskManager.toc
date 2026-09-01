@@ -2,7 +2,7 @@
 ## Title: WoW |cff4c8dffTask Manager|r
 ## Notes: Performance, diagnostics and addon profiling.|nFallback TOC - see WoWTaskManager_<Flavor>.toc for the per-client versions.
 ## Author: JugoBetrugoTV
-## Version: 0.2.0
+## Version: 0.3.0
 ## SavedVariables: WoWTaskManagerDB
 ## X-Category: Development Tools
 ## OptionalDeps: Ace3

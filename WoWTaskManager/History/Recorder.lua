@@ -35,6 +35,11 @@ Recorder.FIELDS = { t = F_T, fps = F_FPS, frameAvgMs = F_AVG, frameMaxMs = F_MAX
 
 Recorder.tiers = {}
 
+-- Bumped whenever a new bucket is closed. The UI uses it to skip redrawing
+-- graphs that cannot have changed - buckets are one second apart, so redrawing
+-- twice a second was doing half its work for nothing.
+Recorder.revision = 0
+
 --------------------------------------------------------------------------
 -- Tier setup
 --------------------------------------------------------------------------
@@ -112,6 +117,7 @@ function Recorder:CloseBucket(tierIndex, bucket)
     local tier = self.tiers[tierIndex]
     local buckets = tier.buckets
     buckets[#buckets + 1] = bucket
+    self.revision = self.revision + 1
     self:Compact(tierIndex)
 end
 

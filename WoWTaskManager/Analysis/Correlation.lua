@@ -161,7 +161,10 @@ function Correlation:Compute(out)
     for i = 1, #list do
         local record = list[i]
         local hits = elevated[record.name]
-        if hits and hits > 0 then
+        -- Excluded for the same reason as in Monitoring/CPU: this addon's own
+        -- CPU rises BECAUSE a spike was detected, so correlating it with spikes
+        -- inverts cause and effect.
+        if hits and hits > 0 and record.name ~= WTM.name then
             local totalWindows  = record.cpuSamples or 0
             local elevatedTotal = record.elevatedSamples or 0
 

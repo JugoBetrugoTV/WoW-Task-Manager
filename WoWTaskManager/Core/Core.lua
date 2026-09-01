@@ -213,6 +213,10 @@ end
 
 commands["incidents"]   = function() OpenPage("incidents") end
 
+commands["mini"] = function()
+    if WTM.UI.LiveMonitor then WTM.UI.LiveMonitor:Toggle() end
+end
+
 commands["reset"] = function()
     WTM.Database:ResetRuntime()
     WTM:Print("Runtime counters reset.")
@@ -243,6 +247,7 @@ commands["help"] = function()
     WTM:Print("  |cff4c8dff/wtm profiling|r      toggle the scriptProfile CVar (needs /reload)")
     WTM:Print("  |cff4c8dff/wtm caps|r           print the runtime capability report")
     WTM:Print("  |cff4c8dff/wtm overhead|r       print this addon's own cost")
+    WTM:Print("  |cff4c8dff/wtm mini|r            toggle the compact always-on monitor")
     WTM:Print("  |cff4c8dff/wtm reset|r          reset runtime counters")
     WTM:Print("  |cff4c8dff/wtm dev|r             developer tools (injection is always marked SIMULATED)")
     WTM:Print("  |cff4c8dff/wtm benchmark [s]|r   measure this addon's own overhead and report it")

@@ -471,6 +471,47 @@ function Page:Build(frame)
         "How often the process list is allowed to change its order. Rows repaint continuously regardless; this only controls re-sorting, which is what makes rows move. Sorting also pauses entirely while the pointer is over the table."))
 
     ------------------------------------------------------------------
+    AddSection("LIVE MONITOR")
+    Add(Checkbox(canvas, "Show the compact live monitor",
+        function() return WTM.UI.LiveMonitor:IsShown() end,
+        function(v)
+            if v then WTM.UI.LiveMonitor:Show() else WTM.UI.LiveMonitor:Hide() end
+        end,
+        "A small always-on panel with FPS, frame time, latency, CPU, memory and event rate. Drag its header to move it. Also toggled with /wtm mini."))
+
+    Add(Checkbox(canvas, "Sparklines in the live monitor",
+        function() return profile.liveMonitor.sparklines end,
+        function(v)
+            profile.liveMonitor.sparklines = v
+            WTM.UI.LiveMonitor:ApplySettings()
+        end,
+        "Sparklines are the expensive part of any graph. Turning them off leaves the numbers, which cost almost nothing."))
+
+    Add(Slider(canvas, "Live monitor width", 150, 400, 10,
+        function() return profile.liveMonitor.width end,
+        function(v)
+            profile.liveMonitor.width = v
+            WTM.UI.LiveMonitor:ApplySettings()
+        end,
+        function(v) return ("%d px"):format(v) end))
+
+    Add(Slider(canvas, "Live monitor opacity", 0.1, 1, 0.05,
+        function() return profile.liveMonitor.opacity end,
+        function(v)
+            profile.liveMonitor.opacity = v
+            WTM.UI.LiveMonitor:ApplySettings()
+        end,
+        function(v) return ("%.0f %%"):format(v * 100) end))
+
+    Add(Slider(canvas, "Live monitor scale", 0.6, 1.6, 0.05,
+        function() return profile.liveMonitor.scale end,
+        function(v)
+            profile.liveMonitor.scale = v
+            WTM.UI.LiveMonitor:ApplySettings()
+        end,
+        function(v) return ("%.2f x"):format(v) end))
+
+    ------------------------------------------------------------------
     AddSection("DIAGNOSTICS")
     Add(Segmented(canvas, "Diagnostic aggressiveness", {
         { key = "conservative", label = "Conservative",

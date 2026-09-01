@@ -74,8 +74,9 @@ local function BuildTopbar(window)
     clientLabel:SetPoint("LEFT", title, "RIGHT", 10, -1)
     clientLabel:SetText(WTM.Compat.flavorName .. " " .. WTM.Compat.version)
 
-    -- Close / minimise
-    local close = UI.Button(topbar, "X", function() window:Close() end,
+    -- Close.  MainWindow owns Close(), not the frame - calling window:Close()
+    -- here meant the titlebar X threw instead of closing the window.
+    local close = UI.Button(topbar, "X", function() MainWindow:Close() end,
         { width = 26, height = 22, style = "small" })
     close:SetPoint("RIGHT", -10, 0)
 
@@ -217,10 +218,23 @@ function MainWindow:Build()
         -- diagnostic window constantly and restoring yesterday's position is
         -- more annoying than helpful.
     end)
-    UI.MakeResizable(window, 900, 560, function()
+    -- Layout has to follow the drag, not just the release: laying out only on
+    -- mouse-up left every panel at its old size while resizing, which is what
+    -- made text run into itself mid-drag.
+    UI.MakeResizable(window, 940, 600, function()
         WTM.db.profile.general.windowWidth  = window:GetWidth()
         WTM.db.profile.general.windowHeight = window:GetHeight()
         if self.currentPage then self:LayoutPage(self.currentPage) end
+        self:InvalidateGraphs()
+    end, function()
+        -- Live, while dragging.
+        if self.currentPage then self:LayoutPage(self.currentPage) end
+        self:InvalidateGraphs()
+    end)
+
+    window:SetScript("OnSizeChanged", function()
+        if MainWindow.currentPage then MainWindow:LayoutPage(MainWindow.currentPage) end
+        MainWindow:InvalidateGraphs()
     end)
 
     -- Sidebar
@@ -246,7 +260,11 @@ function MainWindow:Build()
         MainWindow:StartRefresh()
     end)
     window:SetScript("OnHide", function()
-        MainWindow:StopRefresh()
+        -- The live monitor also drives the UI task, so only stop it when
+        -- nothing at all is on screen.
+        if not (UI.LiveMonitor and UI.LiveMonitor:IsShown()) then
+            MainWindow:StopRefresh()
+        end
         WTM.db.profile.general.lastPage = MainWindow.currentPage
     end)
 
@@ -291,9 +309,46 @@ function MainWindow:ShowPage(key)
     page.frame:Show()
     self.currentPage = key
     UI.Sidebar:SetActive(key)
+    -- A page that was just shown has stale graphs by definition.
+    self:InvalidateGraphs()
 
     if page.OnShow then pcall(page.OnShow, page) end
     self:RefreshCurrentPage()
+end
+
+--- True when graphs on the visible page should actually be redrawn.
+---
+--- Redrawing a graph repositions hundreds of pooled textures, and it is by far
+--- the most expensive thing this addon does - a live client measured 33 ms/s of
+--- UI cost from redrawing six graphs twice a second, which is an entire 60 FPS
+--- frame budget per redraw.
+---
+--- Buckets are one second apart, so redrawing faster than that cannot show new
+--- data. Pages ask this before drawing; text and numbers still update on every
+--- refresh because they are nearly free.
+function MainWindow:ShouldRedrawGraphs()
+    local now = GetTime()
+    local minInterval = WTM.db.profile.ui.graphUpdateRate or 1.0
+    if self.lastGraphDraw and (now - self.lastGraphDraw) < minInterval then
+        return false
+    end
+    -- Nothing new to draw and the window is not being resized.
+    if self.lastGraphRevision == WTM.Recorder.revision and not self.graphsDirty then
+        -- Still redraw occasionally so the time axis keeps scrolling.
+        if self.lastGraphDraw and (now - self.lastGraphDraw) < math.max(2, minInterval * 3) then
+            return false
+        end
+    end
+    self.lastGraphDraw = now
+    self.lastGraphRevision = WTM.Recorder.revision
+    self.graphsDirty = false
+    return true
+end
+
+--- Forces the next refresh to redraw graphs, e.g. after a resize or a page change.
+function MainWindow:InvalidateGraphs()
+    self.graphsDirty = true
+    self.lastGraphDraw = nil
 end
 
 function MainWindow:RefreshCurrentPage()
@@ -323,6 +378,10 @@ function MainWindow:StopRefresh()
 end
 
 function MainWindow:Refresh()
+    -- The compact monitor updates on the same task, and may be visible while
+    -- the main window is closed.
+    if UI.LiveMonitor then UI.LiveMonitor:Refresh() end
+
     if not self.frame or not self.frame:IsShown() then return end
     RefreshTopbar(self.frame)
     UI.Sidebar:Refresh()

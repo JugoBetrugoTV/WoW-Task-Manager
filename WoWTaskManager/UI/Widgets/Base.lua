@@ -463,7 +463,10 @@ function UI.MakeMovable(frame, handle, onStop)
 end
 
 --- Adds a bottom-right resize grip drawn from plain textures.
-function UI.MakeResizable(frame, minWidth, minHeight, onStop)
+--- `onStop` fires when the drag ends, `onUpdate` continuously while dragging.
+--- Laying out only on release leaves every child at its old size for the whole
+--- drag, which is what makes labels collide while a window is being resized.
+function UI.MakeResizable(frame, minWidth, minHeight, onStop, onUpdate)
     frame:SetResizable(true)
     -- The setter was renamed in Retail 10.0; older clients only have the pair
     -- form.  Try both, quietly.
@@ -483,13 +486,21 @@ function UI.MakeResizable(frame, minWidth, minHeight, onStop)
         line:SetColorTexture(T("textMuted", 0.5))
     end
 
+    local resizing
     grip:SetScript("OnMouseDown", function()
         if frame.StartSizing then frame:StartSizing("BOTTOMRIGHT") end
+        resizing = true
     end)
     grip:SetScript("OnMouseUp", function()
         frame:StopMovingOrSizing()
+        resizing = false
         if onStop then onStop() end
     end)
+    if onUpdate then
+        grip:SetScript("OnUpdate", function()
+            if resizing then onUpdate() end
+        end)
+    end
     return grip
 end
 
