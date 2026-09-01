@@ -17,6 +17,16 @@
 
     Copying an incident out of the ring is the only place in the addon that
     allocates meaningfully, and it happens on a spike, not on a timer.
+
+    Edge cases this has to survive, all of which are covered by tests:
+
+      * several spikes in quick succession, each requesting its own capture
+      * overlapping captures whose windows share samples
+      * the ring wrapping mid-capture, so the requested pre-roll no longer
+        exists - the incident is marked TRUNCATED rather than silently short
+      * a loading screen or zone change during the post-roll
+      * logout or /reload while a post-roll is still pending, which flushes
+        what exists instead of losing the incident entirely
 ----------------------------------------------------------------------------]]
 
 local ADDON_NAME, WTM = ...
@@ -81,19 +91,54 @@ end
 function FlightRecorder:RequestCapture(spike)
     if not self.enabled then return nil end
     if not WTM.db.profile.flightRecorder.enabled then return nil end
+    if not self.ring then return nil end
 
     local settings = WTM.db.profile.flightRecorder
+    local now = GetTime()
+
+    -- Several spikes inside one post-roll should not each produce their own
+    -- near-identical incident. If a capture is already pending and this spike
+    -- falls inside its window, extend that capture instead and note the extra
+    -- spike on it.
+    for i = 1, #pendingCaptures do
+        local existing = pendingCaptures[i]
+        if now <= existing.readyAt then
+            existing.extraSpikes = (existing.extraSpikes or 0) + 1
+            if spike and (not existing.spike or spike.frameMs > existing.spike.frameMs) then
+                -- Keep the WORST spike as the incident's subject.
+                existing.spike = spike
+                existing.markTime = spike.t
+            end
+            -- Push the end out so the incident covers the whole burst - but
+            -- only up to a hard ceiling.
+            --
+            -- Without the ceiling a sustained stutter storm keeps extending the
+            -- same pending capture on every spike and it NEVER materialises:
+            -- the one situation where you most want an incident produces none
+            -- at all. The ceiling guarantees every capture completes, and the
+            -- spikes that arrive after it simply open the next one.
+            existing.readyAt = math.min(existing.maxReadyAt,
+                math.max(existing.readyAt, now + settings.postWindow))
+            return existing
+        end
+    end
+
     local capture = {
-        spike     = spike,
-        markSeq   = self.ring.seq,
-        markTime  = GetTime(),
-        readyAt   = GetTime() + settings.postWindow,
-        preWindow = settings.preWindow,
+        spike      = spike,
+        markSeq    = self.ring.seq,
+        markTime   = spike and spike.t or now,
+        readyAt    = now + settings.postWindow,
+        -- Hard ceiling on how far a burst of spikes may push the post-roll out.
+        maxReadyAt = now + settings.postWindow + C.CLUSTER_MAX_SPAN_SEC,
+        preWindow  = settings.preWindow,
         postWindow = settings.postWindow,
+        requestedAt = now,
     }
     pendingCaptures[#pendingCaptures + 1] = capture
     return capture
 end
+
+function FlightRecorder:PendingCount() return #pendingCaptures end
 
 function FlightRecorder:ProcessPendingCaptures()
     if #pendingCaptures == 0 then return end
@@ -102,16 +147,32 @@ function FlightRecorder:ProcessPendingCaptures()
         local capture = pendingCaptures[i]
         if now >= capture.readyAt then
             table.remove(pendingCaptures, i)
-            self:Materialize(capture)
+            self:Materialize(capture, "postroll")
         end
     end
 end
 
 --- Copies the window around a mark out of the ring into a standalone incident.
-function FlightRecorder:Materialize(capture)
+---
+--- `reason` is "postroll" for the normal path and "flush" when the session is
+--- ending while the post-roll is still running; a flushed incident is marked so
+--- nobody reads its short tail as the stutter having ended early.
+function FlightRecorder:Materialize(capture, reason)
     local ring = self.ring
+    if not ring then return nil end
+
     local fromTime = capture.markTime - capture.preWindow
     local toTime   = capture.markTime + capture.postWindow
+
+    -- The ring may have wrapped past the requested pre-roll while we waited
+    -- (a long post window, or a burst of samples). Record what we actually
+    -- have rather than implying the missing seconds were quiet.
+    local oldest = ring.count > 0 and ring:Get(1) or nil
+    local truncatedPre = false
+    if oldest and oldest.t and oldest.t > fromTime then
+        truncatedPre = true
+        fromTime = oldest.t
+    end
 
     local samples = {}
     local n = ring.count
@@ -134,6 +195,11 @@ function FlightRecorder:Materialize(capture)
 
     if #samples == 0 then return nil end
 
+    -- Sample timestamps are stored relative to the spike, so the first and last
+    -- of them are exactly the pre- and post-roll actually captured.
+    local firstRel   = samples[1].t
+    local lastRel    = samples[#samples].t
+
     local incident = {
         id        = (self.nextId or 1),
         at        = capture.markTime,
@@ -141,10 +207,18 @@ function FlightRecorder:Materialize(capture)
         spike     = capture.spike,
         preWindow = capture.preWindow,
         postWindow = capture.postWindow,
+        -- What was actually captured, which is not always what was requested.
+        actualPreSec  = -firstRel,
+        actualPostSec = lastRel,
+        truncatedPre  = truncatedPre or nil,
+        truncatedPost = (reason ~= "postroll") or nil,
+        flushReason   = (reason ~= "postroll") and reason or nil,
+        spikeCount    = 1 + (capture.extraSpikes or 0),
         samples   = samples,
         context   = WTM.Context:Capture(),
         markers   = WTM.Context:GetMarkersInRange(fromTime, toTime),
         clientLabel = Compat:GetClientLabel(),
+        simulated = capture.spike and capture.spike.simulated or nil,
     }
     self.nextId = incident.id + 1
 
@@ -208,6 +282,12 @@ function FlightRecorder:Persist(incident)
     local stored = {
         id      = incident.id,
         epoch   = incident.epoch,
+        truncatedPre  = incident.truncatedPre,
+        truncatedPost = incident.truncatedPost,
+        actualPreSec  = incident.actualPreSec,
+        actualPostSec = incident.actualPostSec,
+        spikeCount    = incident.spikeCount,
+        simulated     = incident.simulated,
         spike   = incident.spike and {
             kind    = incident.spike.kind,
             frameMs = incident.spike.frameMs,
@@ -302,9 +382,29 @@ function FlightRecorder:OnEnable()
     -- and the burst goes to the CPU and event samplers instead, which is where
     -- the extra detail actually lives.
     WTM.Scheduler:Register("flightrecorder", function() FlightRecorder:Record() end,
-        rate, rate, 0.5)
+        rate, rate, 0.5, "sampler")
 
     self:RegisterMessage("WTM_RESET_RUNTIME", "Reset")
+end
+
+--- Materialises every pending capture immediately.  Called at logout and
+--- before a reload: a capture whose post-roll never finished is still the most
+--- interesting 30 seconds of the session, and losing it because the player
+--- typed /reload would be the worst possible time to lose it.
+function FlightRecorder:FlushPending(reason)
+    local flushed = 0
+    for i = #pendingCaptures, 1, -1 do
+        local capture = pendingCaptures[i]
+        table.remove(pendingCaptures, i)
+        if self:Materialize(capture, reason or "flush") then
+            flushed = flushed + 1
+        end
+    end
+    return flushed
+end
+
+function FlightRecorder:OnDisable()
+    self:FlushPending("sessionEnd")
 end
 
 function FlightRecorder:Rebuild()
@@ -312,6 +412,26 @@ function FlightRecorder:Rebuild()
     self.enabled = false
     self:OnEnable()
     self.enabled = wasEnabled
+end
+
+--- Human-readable coverage note for one incident, so a truncated capture is
+--- never mistaken for a quiet run-up.
+function FlightRecorder:DescribeCoverage(incident)
+    if not incident then return "" end
+    local parts = {}
+    parts[#parts + 1] = ("%d samples covering -%.0fs to +%.0fs around the spike")
+        :format(#incident.samples, incident.actualPreSec or 0, incident.actualPostSec or 0)
+    if incident.truncatedPre then
+        parts[#parts + 1] = ("run-up truncated: the ring only held %.0fs of history at capture time, not the %ds requested")
+            :format(incident.actualPreSec or 0, incident.preWindow or 0)
+    end
+    if incident.truncatedPost then
+        parts[#parts + 1] = "post-roll cut short because the session ended"
+    end
+    if (incident.spikeCount or 1) > 1 then
+        parts[#parts + 1] = ("%d spikes fell inside this window"):format(incident.spikeCount)
+    end
+    return table.concat(parts, ". ") .. "."
 end
 
 function FlightRecorder:Reset()

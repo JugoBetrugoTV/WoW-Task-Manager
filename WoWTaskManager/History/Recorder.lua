@@ -231,7 +231,10 @@ function Recorder:GetSeries(fieldName, fromTime, toTime, maxPoints, outValues, o
     -- Decimate by taking the extreme value of each group.  For frame time and
     -- event rate that means the max; for FPS the min.  Averaging here would
     -- hide exactly the events this tool exists to show.
-    local wantMin = (fieldName == "fps")
+    -- FPS is the one series whose worst value is the LOW one; every other
+    -- field's worst value is its maximum.  Keeping the wrong end here erases
+    -- spikes, which is the entire point of the series.
+    local keepMin = (fieldName == "fps")
     local step = n / maxPoints
     local index = 0
     for p = 1, maxPoints do
@@ -241,7 +244,7 @@ function Recorder:GetSeries(fieldName, fromTime, toTime, maxPoints, outValues, o
             local best, bestT = buckets[first][field], buckets[first][F_T]
             for i = first + 1, last do
                 local v = buckets[i][field]
-                if (wantMin and v < best) or (not wantMin and v > best) then
+                if (keepMin and v < best) or (not keepMin and v > best) then
                     best, bestT = v, buckets[i][F_T]
                 end
             end
@@ -309,7 +312,7 @@ end
 function Recorder:OnEnable()
     local intervals = WTM.db.profile.sampling.intervals
     WTM.Scheduler:Register("history", function() Recorder:Sample() end,
-        intervals.history, C.SAMPLE_DEFAULTS.history.burst, 0.85)
+        intervals.history, C.SAMPLE_DEFAULTS.history.burst, 0.85, "sampler")
     self:RegisterMessage("WTM_RESET_RUNTIME", "Reset")
 end
 

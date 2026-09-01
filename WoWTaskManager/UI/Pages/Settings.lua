@@ -132,6 +132,60 @@ local function Slider(parent, label, minValue, maxValue, step, get, set, format,
     return frame
 end
 
+--- Segmented choice control, for the settings that are an enum rather than a
+--- number or a flag.
+local function Segmented(parent, label, options, get, set, description)
+    local frame = CreateFrame("Frame", nil, parent)
+    frame:SetHeight(44)
+
+    local text = UI.Text(frame, "small", "textSecondary")
+    text:SetPoint("TOPLEFT")
+    text:SetText(label)
+
+    local detail = UI.Text(frame, "tiny", "textMuted")
+    detail:SetPoint("TOPRIGHT")
+    detail:SetJustifyH("RIGHT")
+
+    local buttons = {}
+    local previous
+    for _, option in ipairs(options) do
+        local button = UI.Button(frame, option.label, function()
+            set(option.key)
+            frame.Update()
+        end, { height = 22, minWidth = 72, style = "small" })
+        button:SetPoint("BOTTOMLEFT", previous and 0 or 0, 0)
+        if previous then
+            button:ClearAllPoints()
+            button:SetPoint("LEFT", previous, "RIGHT", 4, 0)
+        else
+            button:SetPoint("BOTTOMLEFT")
+        end
+        button.optionKey = option.key
+        button.optionDetail = option.detail
+        buttons[#buttons + 1] = button
+        previous = button
+    end
+
+    function frame.Update()
+        local current = get()
+        for _, button in ipairs(buttons) do
+            button:SetSelected(button.optionKey == current)
+            if button.optionKey == current then
+                detail:SetText(button.optionDetail or "")
+            end
+        end
+    end
+
+    if description then
+        frame:EnableMouse(true)
+        frame:SetScript("OnEnter", function(self) UI.ShowTooltip(self, label, description) end)
+        frame:SetScript("OnLeave", UI.HideTooltip)
+    end
+
+    frame.Update()
+    return frame
+end
+
 --------------------------------------------------------------------------
 
 function Page:Build(frame)
@@ -289,20 +343,36 @@ function Page:Build(frame)
         "Saved incidents are downsampled to 1 Hz on the way into SavedVariables. The full-resolution version stays in memory for the current session."))
 
     ------------------------------------------------------------------
-    AddSection("EVENTS AND MEMORY")
-    Add(Checkbox(canvas, "Monitor events",
-        function() return profile.events.enabled end,
-        function(v)
-            profile.events.enabled = v
-            if v then WTM.Events:StartCapture() else WTM.Events:StopCapture() end
-        end,
-        "Uses a frame with RegisterAllEvents. The handler is a single counter increment, but in a raid it still runs thousands of times a second - this is the switch to turn it off entirely."))
+    AddSection("EVENT MONITORING")
+    Add(Segmented(canvas, "Event monitoring mode", {
+        { key = "OFF",      label = "Off",
+          detail = "no listener registered" },
+        { key = "NORMAL",   label = "Normal",
+          detail = "counts and rates only" },
+        { key = "DETAILED", label = "Detailed",
+          detail = "adds per-event CPU and rate history" },
+    },
+    function() return WTM.Events:GetMode() end,
+    function(mode)
+        local actual, err = WTM.Events:SetMode(mode)
+        if err then WTM:Print(("Event monitoring: %s"):format(err)) end
+        Page:Refresh()
+    end,
+    "Event monitoring uses a frame with RegisterAllEvents. The handler is deliberately tiny, but in a raid it runs thousands of times a second, so how much it does is a choice.\n\nOFF registers no listener at all. NORMAL counts events and computes rates. DETAILED additionally keeps a short per-event rate history and reads per-event handler CPU, which needs the scriptProfile CVar.\n\nWhichever mode is active, its measured cost is shown under Overhead on the dashboard."), 48)
+
+    self.eventModeNote = UI.Text(canvas, "tiny", "textMuted")
+    self.eventModeNote:SetPoint("TOPLEFT", 0, -y)
+    self.eventModeNote:SetWidth(COLUMN)
+    self.eventModeNote:SetJustifyH("LEFT")
+    self.eventModeNote:SetWordWrap(true)
+    y = y + 30
 
     Add(Slider(canvas, "Event storm multiplier", 2, 20, 0.5,
         function() return profile.events.stormMultiplier end,
         function(v) profile.events.stormMultiplier = v end,
         function(v) return ("%.1f x normal"):format(v) end))
 
+    AddSection("MEMORY")
     Add(Slider(canvas, "Memory growth threshold", 64, 4096, 64,
         function() return profile.memory.growthThresholdKBPerMin end,
         function(v) profile.memory.growthThresholdKBPerMin = v end,
@@ -379,6 +449,62 @@ function Page:Build(frame)
         function() return profile.ui.showPeaks end,
         function(v) profile.ui.showPeaks = v end))
 
+    Add(Checkbox(canvas, "Show reference lines on graphs",
+        function() return profile.ui.showReferenceLines end,
+        function(v) profile.ui.showReferenceLines = v end,
+        "Draws faint guides at the frame times that matter: 16.7 ms (60 FPS) and 6.9 ms (144 FPS) on the frame time graph, and the matching FPS lines on the FPS graph."))
+
+    Add(Slider(canvas, "Graph update rate", 0.1, 2, 0.1,
+        function() return profile.ui.graphUpdateRate end,
+        function(v)
+            profile.ui.graphUpdateRate = v
+            profile.sampling.intervals.ui = v
+            WTM.Scheduler:SetInterval("ui", v)
+        end,
+        function(v) return ("%.1f s"):format(v) end,
+        "How often the visible page redraws. Only runs while the window is open, and its measured cost appears under Overhead on the dashboard."))
+
+    Add(Slider(canvas, "Process list re-sort interval", 0.5, 10, 0.5,
+        function() return profile.ui.processResortInterval end,
+        function(v) profile.ui.processResortInterval = v end,
+        function(v) return ("%.1f s"):format(v) end,
+        "How often the process list is allowed to change its order. Rows repaint continuously regardless; this only controls re-sorting, which is what makes rows move. Sorting also pauses entirely while the pointer is over the table."))
+
+    ------------------------------------------------------------------
+    AddSection("DIAGNOSTICS")
+    Add(Segmented(canvas, "Diagnostic aggressiveness", {
+        { key = "conservative", label = "Conservative",
+          detail = "only findings that clear the thresholds" },
+        { key = "balanced",     label = "Balanced",
+          detail = "the default" },
+        { key = "aggressive",   label = "Aggressive",
+          detail = "also lists weak associations, labelled weak" },
+    },
+    function() return profile.diagnostics.aggressiveness end,
+    function(v)
+        profile.diagnostics.aggressiveness = v
+        WTM.Diagnostics:InvalidateCache()
+    end,
+    "How readily findings are reported. This changes what is SHOWN, never how anything is measured or how strongly it is worded: an association is described the same way at every setting, and no setting will make this addon claim causation."), 48)
+
+    ------------------------------------------------------------------
+    AddSection("RESET")
+    local resetRuntimeButton = UI.Button(canvas, "Reset runtime counters", function()
+        WTM.Database:ResetRuntime()
+        WTM:Print("Runtime counters reset. Saved history is untouched.")
+        Page:Refresh()
+    end, { height = 24 })
+    resetRuntimeButton.tooltip = "Clears this session's spikes, incidents, CPU and memory counters and starts measuring again. Saved sessions and incidents are not affected."
+    Add(resetRuntimeButton, 28)
+
+    local resetSettingsButton = UI.Button(canvas, "Reset all settings to defaults", function()
+        WTM.db:ResetProfile()
+        WTM:Print("Settings reset to defaults. Some changes take effect after a reload.")
+        Page:Refresh()
+    end, { height = 24 })
+    resetSettingsButton.tooltip = "Restores every setting on this page. Saved sessions, incidents and history are not affected."
+    Add(resetSettingsButton, 28)
+
     canvas:SetHeight(y + 20)
     canvas:SetWidth(COLUMN)
 end
@@ -389,6 +515,10 @@ function Page:Refresh()
     if not self.controls then return end
     for _, control in ipairs(self.controls) do
         if control.Update then control.Update() end
+    end
+
+    if self.eventModeNote then
+        self.eventModeNote:SetText(WTM.Events:DescribeMode())
     end
 
     local bytes = WTM.Database:EstimateSizeBytes()

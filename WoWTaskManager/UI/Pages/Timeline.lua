@@ -18,9 +18,9 @@ local Fmt   = WTM.Format
 local Page = UI.RegisterPage("timeline", {})
 
 local TRACKS = {
-    { key = "fps",    field = "fps",        label = "FPS",        colorIndex = 1,
+    { key = "fps",    field = "fps",        label = "FPS",        colorIndex = 1, worstIsLow = true,
       format = function(v) return ("%.0f"):format(v) end },
-    { key = "frame",  field = "frameMaxMs", label = "FRAME MS",   colorIndex = 2, invert = true,
+    { key = "frame",  field = "frameMaxMs", label = "FRAME MS",   colorIndex = 2,
       format = function(v) return ("%.0f"):format(v) end },
     { key = "cpu",    field = "cpuMs",      label = "ADDON CPU",  colorIndex = 5,
       format = function(v) return ("%.1f"):format(v) end },
@@ -33,6 +33,28 @@ local TRACKS = {
 }
 
 local TRACK_HEIGHT = 54
+
+-- Zoom presets. Deliberately fewer than the Performance page offers: the
+-- timeline is for locating an event, not for scrubbing a continuum.
+Page.ZOOM_LEVELS = {
+    { key = "60s",     seconds = 60,   label = "60 s"    },
+    { key = "5m",      seconds = 300,  label = "5 min"   },
+    { key = "15m",     seconds = 900,  label = "15 min"  },
+    { key = "session", seconds = 0,    label = "Session" },
+}
+
+-- Every marker kind the timeline can show, with what produces it. Kinds whose
+-- source event does not exist on this client are listed as unavailable in the
+-- legend rather than silently never appearing.
+Page.MARKER_LEGEND = {
+    { kind = "fpsdrop",    label = "Frame spike",  cap = nil },
+    { kind = "eventstorm", label = "Event storm",  cap = "eventRate" },
+    { kind = "netspike",   label = "Latency spike", cap = "latency" },
+    { kind = "combat",     label = "Combat",       cap = "combatMarkers" },
+    { kind = "encounter",  label = "Encounter",    cap = "encounterMarkers" },
+    { kind = "zone",       label = "Zone change",  cap = "zoneMarkers" },
+    { kind = "loading",    label = "Loading",      cap = "loadingMarkers" },
+}
 
 function Page:Build(frame)
     local pad = M.padding
@@ -52,7 +74,7 @@ function Page:Build(frame)
 
     self.rangeButtons = {}
     local previous
-    for _, range in ipairs(C.TIME_RANGES) do
+    for _, range in ipairs(Page.ZOOM_LEVELS) do
         local button = UI.Button(toolbar, range.label, function()
             self.range = range.key
             for key, b in pairs(self.rangeButtons) do b:SetSelected(key == range.key) end
@@ -68,9 +90,25 @@ function Page:Build(frame)
         previous = button
     end
 
+    -- Legend: which marker kinds this client can actually produce.
     self.legend = UI.Text(toolbar, "small", "textMuted", "RIGHT")
     self.legend:SetPoint("RIGHT")
-    self.legend:SetText("click a marker to open its incident")
+    self.legend:SetPoint("LEFT", previous, "RIGHT", 16, 0)
+    self.legend:SetJustifyH("RIGHT")
+
+    local parts = {}
+    for _, entry in ipairs(Page.MARKER_LEGEND) do
+        local available = (not entry.cap) or WTM.Caps:Has(entry.cap)
+        local def = C.MARKERS[entry.kind]
+        if available then
+            parts[#parts + 1] = ("|cff%s%s|r %s")
+                :format(Theme:ToneHex(def and def.tone or "muted"),
+                        def and def.glyph or "|", entry.label)
+        else
+            parts[#parts + 1] = ("|cff5d6675%s unavailable|r"):format(entry.label)
+        end
+    end
+    self.legend:SetText(table.concat(parts, "   "))
 
     ------------------------------------------------------------------
     -- Track stack
@@ -88,7 +126,7 @@ function Page:Build(frame)
             showGrid = true,
             padLeft = 76,
             valueFormat = spec.format,
-            invertBetter = spec.invert,
+            worstIsLow = spec.worstIsLow,
             border = false,
         })
         track:SetHeight(TRACK_HEIGHT)
@@ -186,7 +224,16 @@ local function AcquireMarkerButton(page, index)
     end)
     button:SetScript("OnLeave", UI.HideTooltip)
     button:SetScript("OnClick", function(self)
-        if self.spike then page:ShowIncident(self.spike) end
+        if not self.spike then return end
+        page:ShowIncident(self.spike)
+        -- The full record lives on the Incidents page; jump there with the
+        -- right cluster already selected rather than duplicating it here.
+        if self.spike.clusterId then
+            local cluster = WTM.SpikeDetector:GetCluster(self.spike.clusterId)
+            if cluster then
+                UI.Pages.incidents.selected = cluster
+            end
+        end
     end)
 
     page.markerButtons[index] = button
@@ -198,7 +245,7 @@ function Page:Refresh()
 
     local now = GetTime()
     local rangeSeconds
-    for _, range in ipairs(C.TIME_RANGES) do
+    for _, range in ipairs(Page.ZOOM_LEVELS) do
         if range.key == self.range then rangeSeconds = range.seconds end
     end
     if not rangeSeconds or rangeSeconds == 0 then

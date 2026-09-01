@@ -8,9 +8,14 @@
     a 90 ms hitch.  The `elapsed` argument of OnUpdate is the real delta of the
     frame that just finished, so that is what everything here is built on.
 
-    The per-frame body does:
-        4 float ops, 2 comparisons, 1 array increment.
-    No allocation, no string, no table constructor, no pairs().
+    The per-frame body is kept as small as the measurement allows: it is
+    allocation-free (no table constructor, no string, no closure), touches only
+    upvalues and one array slot, and never iterates.  It does do real work -
+    accumulation, min/max tracking, a histogram index and a threshold test - so
+    it is not free, only bounded and constant.
+
+    Its actual cost is measured, not asserted: Monitoring/Overhead.lua reports
+    it under "frame accounting" and /wtm benchmark prints a per-frame figure.
 ----------------------------------------------------------------------------]]
 
 local ADDON_NAME, WTM = ...
@@ -42,10 +47,23 @@ local sessionMaxMs  = 0
 local pendingSpikeMs = 0
 local pendingSpikeAt = 0
 
--- Rolling baseline of frame time.  A 30 FPS player and a 240 FPS player need
+-- Rolling baseline of frame time. A 30 FPS player and a 240 FPS player need
 -- very different absolute thresholds, so the detector compares against this.
 local baselineMs = nil
 local BASELINE_ALPHA = 0.02
+
+-- How many windows the baseline needs before the RELATIVE spike rule may be
+-- trusted.
+--
+-- The first window seeds the baseline, so if it happens to contain a hitch the
+-- baseline is seeded at the hitch and that spike - plus everything smaller
+-- after it - becomes invisible. Until the baseline has settled, the spike
+-- detector uses the absolute thresholds only, which cannot be poisoned this
+-- way. Seeding from the window's MINIMUM rather than its average is the other
+-- half of the fix: the best frame in a window is a far better estimate of
+-- "normal" than an average that includes the stutter.
+local BASELINE_MIN_SAMPLES = 8
+local baselineSamples = 0
 
 -- One histogram for the whole session.  A second per-window histogram was
 -- tempting for "percentiles over the last minute", but it would double the
@@ -113,7 +131,26 @@ function FrameTime:Sample(delta)
 
     -- Update the baseline from the average, not the max: a single hitch must
     -- not drag the reference up and hide the next one.
-    baselineMs = Math.EMA(baselineMs, avgMs, BASELINE_ALPHA)
+    if baselineMs == nil then
+        -- Seed from the best frame in the window, not its average.
+        baselineMs = (minMs < 1e9 and minMs > 0) and minMs or avgMs
+    else
+        baselineMs = Math.EMA(baselineMs, avgMs, BASELINE_ALPHA)
+    end
+    baselineSamples = baselineSamples + 1
+
+    -- Re-derive the hot-path pre-filter from the live baseline.
+    --
+    -- This is not cosmetic. The pre-filter is the single comparison that
+    -- decides whether a frame is even considered a spike, and it has to track
+    -- the baseline: a 144 Hz player settles at ~7 ms, so their relative-rule
+    -- spikes start around 14 ms - well under the 33 ms absolute floor. Leaving
+    -- the floor at its startup value made every relative spike invisible on
+    -- high-refresh setups.
+    self:RefreshThresholds()
+
+    -- Feed the background heuristic, which needs the window average.
+    if WTM.Suppression then WTM.Suppression:UpdateBackground(avgMs) end
 
     local cur = self.current
     cur.fps         = fps
@@ -180,6 +217,14 @@ end
 
 function FrameTime:GetHistogram() return sessionHist end
 function FrameTime:GetBaseline()  return baselineMs or 0 end
+
+--- True once the rolling baseline has seen enough windows to be compared
+--- against. Before this the spike detector falls back to absolute thresholds.
+function FrameTime:IsBaselineReady()
+    return baselineSamples >= BASELINE_MIN_SAMPLES
+end
+
+function FrameTime:GetBaselineSamples() return baselineSamples end
 
 --- Distribution of frames across the stutter classes, for the analyzer page.
 function FrameTime:GetStutterDistribution(out)
@@ -266,7 +311,7 @@ function FrameTime:OnEnable()
     local intervals = WTM.db.profile.sampling.intervals
     WTM.Scheduler:SetFrameCallback(OnFrame)
     WTM.Scheduler:Register("frametime", function(delta) FrameTime:Sample(delta) end,
-        intervals.frametime, C.SAMPLE_DEFAULTS.frametime.burst, 0)
+        intervals.frametime, C.SAMPLE_DEFAULTS.frametime.burst, 0, "sampler")
     self:RefreshThresholds()
 
     self:RegisterMessage("WTM_RESET_RUNTIME", "Reset")
@@ -276,7 +321,7 @@ function FrameTime:Reset()
     frames, sumMs, maxMs, minMs, windowT = 0, 0, 0, 1e9, 0
     sessionFrames, sessionSumMs, sessionMaxMs = 0, 0, 0
     pendingSpikeMs, pendingSpikeAt = 0, 0
-    baselineMs = nil
+    baselineMs, baselineSamples = nil, 0
     Math.ResetHistogram(sessionHist)
     self.history.fps:Reset()
     self.history.frameMs:Reset()

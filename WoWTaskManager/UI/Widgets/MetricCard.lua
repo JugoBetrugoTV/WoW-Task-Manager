@@ -46,7 +46,7 @@ function UI.MetricCard(parent, opts)
     card.dot:Hide()
 
     -- Sparkline hugging the bottom edge.
-    card.spark = UI.Sparkline(card, opts.colorIndex or 1, opts.invertBetter)
+    card.spark = UI.Sparkline(card, opts.colorIndex or 1, opts.worstIsLow)
     card.spark:SetPoint("BOTTOMLEFT", 1, 1)
     card.spark:SetPoint("BOTTOMRIGHT", -1, 1)
     card.spark:SetHeight(opts.sparkHeight or 22)

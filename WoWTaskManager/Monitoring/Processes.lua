@@ -161,6 +161,14 @@ end
 
 function Processes:Iterate() return ipairs(self.list) end
 
+function Processes:CountLoaded()
+    local n = 0
+    for i = 1, #self.list do
+        if self.list[i].loaded then n = n + 1 end
+    end
+    return n
+end
+
 --- True when the addon is a library-only package (no CPU/memory of its own
 --- worth listing separately).  Purely cosmetic grouping, never used to hide
 --- a real cost.
@@ -380,18 +388,53 @@ end
 -- Sorting
 --------------------------------------------------------------------------
 
+-- Every comparator is STABLE: equal values fall back to the addon name.
+--
+-- Without that, table.sort's ordering of ties is unspecified, so two addons
+-- sitting at 0.00% CPU swap places on every refresh and the list visibly
+-- churns while you are trying to read it. The page additionally throttles how
+-- often it re-sorts and freezes entirely while the mouse is over it.
+local function byName(a, b)
+    return a.titleClean:lower() < b.titleClean:lower()
+end
+
+local function descending(get)
+    return function(a, b)
+        local av, bv = get(a) or 0, get(b) or 0
+        if av ~= bv then return av > bv end
+        return byName(a, b)
+    end
+end
+
+-- Sorting uses the SMOOTHED cpu value, not the raw last-sample value: an addon
+-- that happens to be idle in one 2-second window should not fall twenty rows
+-- and climb back on the next sample.
 local SORTERS = {
-    name     = function(a, b) return a.titleClean:lower() < b.titleClean:lower() end,
-    cpu      = function(a, b) return (a.cpuPct or 0) > (b.cpuPct or 0) end,
-    cpudelta = function(a, b) return (a.cpuDeltaMs or 0) > (b.cpuDeltaMs or 0) end,
-    memory   = function(a, b) return (a.memKB or 0) > (b.memKB or 0) end,
-    memdelta = function(a, b) return (a.memDeltaKB or 0) > (b.memDeltaKB or 0) end,
-    events   = function(a, b) return (a.registeredEvents or 0) > (b.registeredEvents or 0) end,
-    spikes   = function(a, b) return (a.spikes or 0) > (b.spikes or 0) end,
-    score    = function(a, b) return (a.score or 0) < (b.score or 0) end,
-    status   = function(a, b) return (a.status.key or "") < (b.status.key or "") end,
+    name     = byName,
+    cpu      = descending(function(r) return r.cpuEma end),
+    cpudelta = descending(function(r) return r.cpuDeltaMs end),
+    cpuavg   = descending(function(r) return r.cpuSamples > 0 and (r.cpuSumPct / r.cpuSamples) or 0 end),
+    cpupeak  = descending(function(r) return r.cpuPeakPct end),
+    memory   = descending(function(r) return r.memKB end),
+    memdelta = descending(function(r)
+        return r.memStartKB and (r.memKB - r.memStartKB) or 0
+    end),
+    events   = descending(function(r) return r.registeredEvents end),
+    spikes   = descending(function(r) return r.spikes end),
+    score    = function(a, b)
+        local av, bv = a.score or 100, b.score or 100
+        if av ~= bv then return av < bv end
+        return byName(a, b)
+    end,
+    status   = function(a, b)
+        local ak = a.status and a.status.key or ""
+        local bk = b.status and b.status.key or ""
+        if ak ~= bk then return ak < bk end
+        return byName(a, b)
+    end,
 }
-Processes.SORT_KEYS = { "name", "cpu", "cpudelta", "memory", "memdelta", "events", "spikes", "score", "status" }
+Processes.SORT_KEYS = { "name", "status", "cpu", "cpuavg", "cpupeak",
+                        "memory", "memdelta", "events", "spikes", "score" }
 
 --- Fills `out` with records matching `filter`, sorted.  The caller owns `out`
 --- and reuses it between refreshes, so the process page allocates nothing per

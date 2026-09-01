@@ -330,7 +330,7 @@ end
 print("\n-- opening addon detail on every tab --")
 local record = NS.Processes:Get("WeakAuras")
 NS.UI.AddonDetail:Open(record)
-for _, tab in ipairs({ "overview","performance","memory","events","dependencies","history","diagnostics" }) do
+for _, tab in ipairs({ "overview","cpu","memory","history","events","dependencies","diagnostics","metadata" }) do
     NS.UI.AddonDetail:ShowTab(tab)
 end
 NS.Processes:ScanFrames(true)

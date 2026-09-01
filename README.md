@@ -6,7 +6,9 @@ Think Windows Task Manager plus Resource Monitor plus a profiler's timeline - bu
 for the WoW client, and built only out of things the addon API can actually
 measure.
 
-![status](https://img.shields.io/badge/status-v0.1.0%20foundation-blue)
+![status](https://img.shields.io/badge/status-v0.2.0%20MVP-blue)
+![mock](https://img.shields.io/badge/mock-16%2F16%20scenarios-brightgreen)
+![real client](https://img.shields.io/badge/real%20client-NOT%20TESTED-lightgrey)
 
 ---
 
@@ -24,13 +26,37 @@ runtime rather than assumed from the version number, and anything the client doe
 not support is shown as **Unavailable on this client** with the reason - never as a
 zero, and never as an estimate.
 
+### Verification status
+
+| Client | Mock | Real client |
+|---|:--:|:--:|
+| Retail / Midnight 12.1.0 | MOCK VERIFIED | **NOT TESTED** |
+| MoP Classic 5.5.4 | MOCK VERIFIED | **NOT TESTED** |
+| TBC Anniversary 2.5.6 | MOCK VERIFIED | **NOT TESTED** |
+| Classic Era 1.15.9 | MOCK VERIFIED | **NOT TESTED** |
+
+**A passing mock suite is not client support.** `tools/wowmock.lua` behaves the
+way the author believes the client behaves; where that assumption is wrong the
+mock is wrong too, and the test still passes. Nothing moves to REAL CLIENT
+VERIFIED until it has been run in the game. See
+[`docs/07-API-VERIFICATION.md`](docs/07-API-VERIFICATION.md).
+
 ## The one rule
 
 **No measurement is invented.** Every number in the UI comes from a documented WoW
 API. Where the sandbox cannot answer a question, the addon says so:
 
 * Per-addon CPU needs the client's `scriptProfile` CVar. Without it, every CPU
-  figure is a dash and a panel explains why - not a row of zeroes.
+  figure is a dash and a panel explains why - not a row of zeroes. The addon
+  starts and works normally either way, and it never reloads your UI without a
+  click.
+* `GetAddOnCPUUsage` is **cumulative** and sampled on an interval, so CPU
+  attached to a spike is always worded as *"31 ms within a 1.4 s observation
+  window"* - never *"31 ms of this 84 ms frame"*. The API cannot attribute CPU
+  to a single frame and this addon does not pretend otherwise.
+* **Phi is not a probability.** Phi 0.67 does not mean "67% likely"; it is a
+  correlation coefficient shown with its sample count. A release check fails the
+  build if it is ever formatted as a percentage.
 * Mapping an event or a frame to the addon that owns it has **no API**. What the
   addon does instead (name-prefix matching over `EnumerateFrames`) is labelled
   `heuristic` everywhere it appears, and it reports how many frames it could not
@@ -55,15 +81,21 @@ The same matrix is generated live from API probes and shown under **System**.
 | **Events** | Global event rates via `RegisterAllEvents`, storm detection against a rolling per-event baseline, and per-event handler CPU. |
 | **Memory** | Lua heap curve with observed collections, per-addon growth ranking, sustained-growth flagging. |
 | **Timeline** | Six stacked tracks on a shared axis with a marker lane; click a marker to open its incident. |
+| **Incidents** | Spikes close together are coalesced into one *stutter cluster* with its peak, duration and affected frame count. Each opens a full record: timestamp, severity, frame time, FPS equivalent, baseline, latencies, CPU observation window, event rate, storms, memory, combat, zone, instance. |
 | **Diagnostics** | Automatic session verdict with findings, each carrying its evidence and its correlation strength. |
+| **False positives** | Loading screens, the first seconds after login, `/reload` and zone changes are counted as *suppressed*, not reported as freezes - and the suppressed count stays visible so nothing is quietly swallowed. |
+| **Dev mode** | `/wtm dev` injects spikes, storms and memory growth for testing. Everything injected is flagged `simulated` and rendered as **SIMULATED**. |
+| **Benchmark** | `/wtm benchmark` measures this addon's own cost and reports it. It never generates artificial load. |
 | **Sessions** | Every login is recorded with summary statistics and aggregated time series. |
 
 ## Not becoming the problem
 
 A monitor that costs more than what it measures is worse than no monitor, so:
 
-* **One `OnUpdate` in the whole addon.** Its body is a handful of float
-  operations and one array increment. No allocation, no strings, no `pairs()`.
+* **One `OnUpdate` in the whole addon**, with an allocation-free hot path: no
+  table constructor, no string building, no `pairs()`, and no loop whose length
+  depends on how many addons or samples exist. Bounded and constant, not free —
+  and its real cost is measured and shown, never asserted.
 * **One scheduler** staggers every periodic task with phase offsets, so two
   expensive samples never land in the same frame.
 * **Pre-allocated ring buffers.** After startup the flight recorder allocates
@@ -72,8 +104,13 @@ A monitor that costs more than what it measures is worse than no monitor, so:
   each column's extreme rather than its mean - so a 200 ms freeze survives being
   squeezed into one pixel instead of being averaged away.
 * **The UI computes only while visible.**
-* **It measures itself.** Sampling cost per second is shown in the sidebar, and if
-  it stays over budget the addon stretches its own intervals and says so.
+* **Event monitoring is a choice**: OFF registers no listener at all, NORMAL
+  counts and rates, DETAILED adds per-event CPU and rate history. The measured
+  cost of whichever is active is on the dashboard.
+* **It measures itself**, broken down into frame accounting, sampling, event
+  monitoring and UI - each measured with `debugprofilestop`, none modelled or
+  apportioned. If it stays over budget the addon stretches its own intervals and
+  says so.
 
 ## Installation
 
@@ -94,14 +131,21 @@ which one is active.
 /wtm caps            print the runtime capability report
 /wtm overhead        print this addon's own cost
 /wtm reset           reset runtime counters
+/wtm dev             developer tools (all injection marked SIMULATED)
+/wtm benchmark [s]   measure this addon's own overhead and report it
 ```
 
 ## Development
 
 ```
 apt-get install lua5.1      # the addon targets Lua 5.1, same as WoW
-./tools/run-tests.sh
+./tools/run-tests.sh        # 16 scenarios
+./tools/release-check.sh    # TOCs, includes, versions, wording rules, tests
 ```
+
+CI runs both on every push and pull request, plus a Lua 5.1 syntax gate over
+every file (the same version the client runs, so it is a real compatibility
+check) and an advisory luacheck pass.
 
 `tools/wowmock.lua` is a small mock of the WoW API - frames, events, the addon
 and profiling functions, CVars. `tools/test.lua` loads the real addon against it
@@ -114,6 +158,15 @@ that proves the feature-detection promise - `RegisterAllEvents`, `GetNetStats`,
 `EnumerateFrames`, `GetInstanceInfo` and the rest are all removed, and the addon
 has to load, run and report honestly without them.
 
+Two focused suites sit alongside it:
+
+* `tools/test-downsample.lua` - spikes must survive being squeezed into a pixel
+  column, including the exact case of a 5 / 6 / 97 / 5 ms bucket, and every
+  graph and sparkline on every page is checked against its own field.
+* `tools/test-recorder.lua` - flight recorder hardening (spike bursts,
+  overlapping captures, ring wrap-around, logout mid-post-roll), incident
+  coalescing, suppression, event modes and schema migrations.
+
 ## Documentation
 
 | | |
@@ -124,3 +177,6 @@ has to load, run and report honestly without them.
 | [`docs/04-ARCHITECTURE.md`](docs/04-ARCHITECTURE.md) | Layers, data model, sampling and flight recorder design |
 | [`docs/05-LIBRARIES.md`](docs/05-LIBRARIES.md) | Libraries used, and the ones deliberately not used |
 | [`docs/06-UI-CONCEPT.md`](docs/06-UI-CONCEPT.md) | Design system, layout and the graph engine |
+| [`docs/07-API-VERIFICATION.md`](docs/07-API-VERIFICATION.md) | MOCK VERIFIED vs REAL CLIENT VERIFIED, per API |
+| [`docs/08-INSTALL-AND-TEST.md`](docs/08-INSTALL-AND-TEST.md) | Installation and the in-game test checklist, per client |
+| [`docs/09-MOCK-TEST-REPORT.md`](docs/09-MOCK-TEST-REPORT.md) | What the mock suite covers, and the bugs it found |

@@ -383,13 +383,147 @@ for _, key in ipairs(NS.UI.pageOrder) do
 end
 
 NS.UI.AddonDetail:Open(wa)
-for _, tab in ipairs({ "overview","performance","memory","events","dependencies","history","diagnostics" }) do
+for _, tab in ipairs({ "overview","cpu","memory","history","events","dependencies","diagnostics","metadata" }) do
     NS.UI.AddonDetail:ShowTab(tab)
 end
 check("detail overlay opens", NS.UI.AddonDetail:IsOpen())
 NS.UI.AddonDetail:Close()
 NS.UI.MainWindow:Close()
 check("ui task disabled while closed", NS.Scheduler:GetTask("ui").enabled == false)
+
+--------------------------------------------------------------------------
+-- Dashboard MVP requirements
+--------------------------------------------------------------------------
+-- The brief names the metrics the dashboard must show and the graphs it must
+-- draw. Asserting on the built page keeps that contract from quietly eroding.
+
+NS.UI.MainWindow:Open("dashboard")
+NS.UI.MainWindow:Refresh()
+local dashboard = NS.UI.Pages.dashboard
+
+for _, key in ipairs({ "fps", "frame", "low1", "latHome", "latWorld",
+                       "cpu", "memory", "events" }) do
+    check("dashboard has a " .. key .. " tile", dashboard.cards[key] ~= nil)
+end
+
+local graphFields = {}
+for _, graph in ipairs(dashboard.graphs or {}) do
+    graphFields[graph.spec.key] = true
+end
+for _, key in ipairs({ "frame", "fps", "cpu", "latency", "events", "memory" }) do
+    check("dashboard has a " .. key .. " graph", graphFields[key] == true)
+end
+check("frame time is the first graph on the dashboard",
+    dashboard.graphs[1] and dashboard.graphs[1].spec.key == "frame",
+    dashboard.graphs[1] and dashboard.graphs[1].spec.key)
+
+-- Cards for unavailable measurements must explain themselves, not show zeros.
+if not PROFILE_ON then
+    check("the CPU tile reports unavailable rather than zero",
+        dashboard.cards.cpu.unavailable == true)
+    check("the profiling notice is shown",
+        dashboard.profilingNotice:IsShown() == true)
+end
+
+--------------------------------------------------------------------------
+-- Processes MVP requirements
+--------------------------------------------------------------------------
+
+NS.UI.MainWindow:ShowPage("processes")
+NS.UI.MainWindow:Refresh()
+local processes = NS.UI.Pages.processes
+local columnKeys = {}
+for _, column in ipairs(processes.table.columns) do columnKeys[column.key] = true end
+for _, key in ipairs({ "name", "status", "cpu", "cpuavg", "cpupeak",
+                       "memory", "memdelta", "events", "spikes", "score" }) do
+    check("processes has a " .. key .. " column", columnKeys[key] == true)
+end
+
+-- Sorting must be stable: two addons with identical values must not swap.
+do
+    local view = {}
+    NS.Processes:BuildView(view, "cpu", false, nil, true)
+    local firstOrder = {}
+    for i, record in ipairs(view) do firstOrder[i] = record.name end
+    NS.Processes:BuildView(view, "cpu", false, nil, true)
+    local stable = true
+    for i, record in ipairs(view) do
+        if firstOrder[i] ~= record.name then stable = false break end
+    end
+    check("process sorting is stable across identical rebuilds", stable)
+end
+
+-- Re-sorting must pause while the pointer is over the list.
+processes.hovering = true
+processes.lastRebuild = 0
+local orderBefore = {}
+for i, record in ipairs(processes.table.list.data) do orderBefore[i] = record.name end
+processes:Refresh()
+local frozen = true
+for i, record in ipairs(processes.table.list.data) do
+    if orderBefore[i] ~= record.name then frozen = false break end
+end
+check("process order is frozen while hovering", frozen)
+processes.hovering = false
+
+--------------------------------------------------------------------------
+-- Incident record completeness
+--------------------------------------------------------------------------
+
+do
+    local spike = NS.SpikeDetector.spikes[#NS.SpikeDetector.spikes]
+    if spike then
+        for _, field in ipairs({ "t", "kind", "label", "frameMs", "fps",
+                                 "baselineMs", "latHome", "latWorld",
+                                 "eventRate", "context" }) do
+            check("incident record has " .. field, spike[field] ~= nil)
+        end
+        check("incident records its memory total", spike.memoryTotalKB ~= nil)
+        if PROFILE_ON then
+            check("incident records its CPU observation window",
+                spike.cpuWindow ~= nil and spike.cpuWindow.seconds ~= nil)
+        else
+            check("incident says why CPU is missing", spike.cpuUnavailable ~= nil)
+        end
+
+        -- The wording rule: CPU is described against its window, never as part
+        -- of the spiking frame.
+        local described = NS.SpikeDetector:Describe(spike)
+        check("spike description never claims CPU belongs to the frame",
+            not described:lower():find("of this"), described:sub(1, 80))
+        if PROFILE_ON and spike.cpu and #spike.cpu > 0 then
+            check("spike description names the observation window",
+                described:find("observation window") ~= nil)
+        end
+    end
+end
+
+--------------------------------------------------------------------------
+-- Dev mode marks everything it injects
+--------------------------------------------------------------------------
+
+NS.db.profile.dev.enabled = true
+do
+    local injected = NS.Dev:InjectFrameSpike(300)
+    check("an injected spike exists", injected ~= nil)
+    if injected then
+        check("an injected spike is flagged simulated", injected.simulated == true)
+    end
+end
+
+--------------------------------------------------------------------------
+-- Benchmark measures rather than generating load
+--------------------------------------------------------------------------
+
+do
+    local framesBefore = NS.FrameTime:GetSessionStats().frames
+    NS.Dev:Benchmark(3)
+    NS.Dev:FinishBenchmark()
+    check("the benchmark does not fabricate frames",
+        NS.FrameTime:GetSessionStats().frames == framesBefore)
+    check("the benchmark reports a measured total",
+        NS.Overhead.current.totalMsPerSec ~= nil)
+end
 
 --------------------------------------------------------------------------
 -- Retention

@@ -15,8 +15,16 @@
     So this module computes a phi coefficient between "addon was busy" and
     "spike happened" across every spike in the session, reports the sample
     count alongside it, and maps the result onto deliberately hedged language.
-    The strongest phrase available is "Strongly correlated".  There is no code
+    The strongest phrase available is "Strongly correlated". There is no code
     path in this addon that outputs the word "caused".
+
+    PHI IS NOT A PROBABILITY. Phi 0.67 does not mean "67% likely" and it does
+    not mean "responsible for 67% of the spike". It is a correlation
+    coefficient between two yes/no observations, running from -1 to 1, and its
+    only honest reading is "these two things tended to occur together across N
+    samples". The UI therefore shows it as a coefficient with its sample count,
+    never as a percentage of blame - `percent` below exists solely to size a
+    progress bar and is never labelled as a likelihood.
 ----------------------------------------------------------------------------]]
 
 local ADDON_NAME, WTM = ...
@@ -170,7 +178,9 @@ function Correlation:Compute(out)
                 name        = record.name,
                 title       = record.titleClean,
                 phi         = phi,
-                percent     = phi * 100,
+                -- Bar width only. Never rendered with a "%" as though it were
+                -- a likelihood; see the note at the top of this file.
+                barFraction = phi,
                 hits        = hits,
                 spikes      = counted,
                 elevatedTotal = elevatedTotal,
@@ -224,6 +234,9 @@ function Correlation:AnalyzeEvents(out)
             event   = event,
             hits    = count,
             spikes  = counted,
+            -- `share` IS a genuine proportion: the fraction of recorded spike
+            -- windows in which this event was among the busiest. Unlike phi it
+            -- may legitimately be shown as a percentage.
             share   = share,
             percent = share * 100,
             avgRate = rateSum[event] / count,

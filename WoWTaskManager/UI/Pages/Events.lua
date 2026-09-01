@@ -53,7 +53,11 @@ local COLUMNS = {
       tooltip = "Total occurrences since the session started." },
     { key = "cpu", title = "CPU ms", width = 78, justify = "RIGHT",
       value = function(row)
-          local ms = WTM.CPU:GetEventCPU(row.event)
+          -- In DETAILED mode this comes from the cached per-event sample; in
+          -- NORMAL mode it is read on demand. Either way it is total handler
+          -- time across ALL addons, which the API does not break down further.
+          local ms = WTM.Events:GetEventCPU(row.event)
+          if not ms then ms = WTM.CPU:GetEventCPU(row.event) end
           return ms and ("%.0f"):format(ms) or "-"
       end,
       tone = function() return WTM.CPU.available and nil or "muted" end,
@@ -93,22 +97,28 @@ function Page:Build(frame)
     self.attributeButton.tooltip =
         "Scans every named frame and records which of the busiest events it listens for. The event registration itself is exact; matching a frame to an addon is a name-prefix heuristic and anonymous frames cannot be matched at all."
 
-    self.pauseButton = UI.Button(toolbar, "Pause capture", function(button)
-        if WTM.Events:IsCapturing() then
-            WTM.Events:StopCapture()
-            button:SetText("Resume capture")
-        else
-            WTM.Events:StartCapture()
-            button:SetText("Pause capture")
-        end
-    end, { height = 24 })
-    self.pauseButton:SetPoint("LEFT", self.attributeButton, "RIGHT", 8, 0)
-    self.pauseButton.tooltip =
-        "Stops listening to every event. The listener itself is a single counter increment per event, but in a raid that still runs thousands of times a second - this is the switch if you want it gone entirely."
+    -- Mode buttons rather than a pause toggle, so this page and Settings
+    -- cannot disagree about what the event monitor is doing.
+    self.modeButtons = {}
+    local previous = self.attributeButton
+    for _, mode in ipairs(C.EVENT_MODES) do
+        local button = UI.Button(toolbar, mode:sub(1, 1) .. mode:sub(2):lower(), function()
+            local actual, err = WTM.Events:SetMode(mode)
+            if err then WTM:Print(("Event monitoring: %s"):format(err)) end
+            Page:UpdateModeButtons()
+            Page:Rebuild()
+        end, { height = 24, minWidth = 64, style = "small" })
+        button:SetPoint("LEFT", previous, "RIGHT", 4, 0)
+        button.mode = mode
+        button.tooltip = C.EVENT_MODE_LABELS[mode]
+        self.modeButtons[#self.modeButtons + 1] = button
+        previous = button
+    end
+    self.modeAnchor = previous
 
     self.summary = UI.Text(toolbar, "small", "textMuted", "RIGHT")
     self.summary:SetPoint("RIGHT")
-    self.summary:SetPoint("LEFT", self.pauseButton, "RIGHT", 12, 0)
+    self.summary:SetPoint("LEFT", self.modeAnchor, "RIGHT", 12, 0)
 
     ------------------------------------------------------------------
     -- Storm banner
@@ -148,7 +158,16 @@ function Page:Build(frame)
     self.listenerNote:SetWordWrap(true)
 
     self.sortKey = "rate"
+    self:UpdateModeButtons()
     self:LayoutTable()
+end
+
+function Page:UpdateModeButtons()
+    if not self.modeButtons then return end
+    local current = WTM.Events:GetMode()
+    for _, button in ipairs(self.modeButtons) do
+        button:SetSelected(button.mode == current)
+    end
 end
 
 function Page:LayoutTable()
@@ -236,6 +255,15 @@ end
 
 function Page:Refresh()
     if not self.table then return end
+    self:UpdateModeButtons()
+
+    if WTM.Events:GetMode() == "OFF" then
+        self.table:SetEmpty(true,
+            "Event monitoring is OFF. No listener is registered, so nothing is being counted.\n\nSwitch to Normal or Detailed above.")
+        self.summary:SetText(WTM.Events:DescribeMode())
+        self:RefreshListeners()
+        return
+    end
 
     ------------------------------------------------------------------
     -- Storm banner

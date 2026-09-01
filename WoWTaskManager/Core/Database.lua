@@ -55,6 +55,17 @@ local defaults = {
         spikes = {
             enabled  = true,
             debounce = C.SPIKE_DEBOUNCE_SEC,
+            -- Fold spikes arriving close together into one stutter cluster.
+            coalesce       = true,
+            clusterWindow  = C.CLUSTER_WINDOW_SEC,
+            -- Do not report loading screens, login, /reload or zone changes as
+            -- freezes.  They are still counted, as suppressed.
+            suppressLoading = true,
+            suppressWarmup  = true,
+            suppressBackground = true,
+            warmupLogin    = C.WARMUP_LOGIN_SEC,
+            warmupReload   = C.WARMUP_RELOAD_SEC,
+            warmupZone     = C.WARMUP_ZONE_SEC,
             minor    = { absMs = C.SPIKE_DEFAULTS.minor.absMs,   mult = C.SPIKE_DEFAULTS.minor.mult   },
             stutter  = { absMs = C.SPIKE_DEFAULTS.stutter.absMs, mult = C.SPIKE_DEFAULTS.stutter.mult },
             heavy    = { absMs = C.SPIKE_DEFAULTS.heavy.absMs,   mult = C.SPIKE_DEFAULTS.heavy.mult   },
@@ -71,8 +82,9 @@ local defaults = {
         },
 
         events = {
-            enabled          = true,
-            attributeAddons  = false,   -- opt-in: costs a frame walk
+            -- OFF | NORMAL | DETAILED, see C.EVENT_MODES
+            mode             = "NORMAL",
+            attributeAddons  = false,   -- opt-in: costs a full frame walk
             stormMultiplier  = C.EVENT_STORM_MULTIPLIER,
             stormMinRate     = C.EVENT_STORM_MIN_RATE,
         },
@@ -90,11 +102,28 @@ local defaults = {
             saveIncidents = true,
         },
 
+        diagnostics = {
+            -- How readily findings are reported.  "conservative" only surfaces
+            -- what clears the correlation thresholds; "aggressive" also lists
+            -- weak associations, clearly labelled as weak.
+            aggressiveness = "balanced",   -- conservative | balanced | aggressive
+        },
+
+        dev = {
+            enabled = false,   -- /wtm dev on
+        },
+
         ui = {
             graphSmoothing = true,
             showGrid       = true,
             showPeaks      = true,
+            showReferenceLines = true,   -- 60/144 fps and 16.7/6.9 ms guides
             timeRange      = "5m",
+            graphUpdateRate = 0.5,
+            -- How often the process list is allowed to re-sort.  Re-sorting on
+            -- every refresh makes rows leapfrog while you are trying to read
+            -- them, so it is throttled and paused while the mouse is over it.
+            processResortInterval = 2.0,
             processSort    = "cpu",
             processSortAsc = false,
             hiddenAddons   = {},   -- name -> true, excluded from graphs
@@ -103,9 +132,20 @@ local defaults = {
     },
 
     global = {
-        dbVersion = C.DB_VERSION,
+        -- schemaVersion is deliberately NOT defaulted.
+        --
+        -- Defaults are served through a metatable, so a defaulted key answers
+        -- for data that was never actually written. A version stamp that
+        -- reports the current version for an un-migrated database defeats the
+        -- entire point of having one, so it is only ever read with rawget and
+        -- only ever written by a migration.
         sessions  = {},
         incidents = {},
+        clusters  = {},
+        -- Set the first time the addon runs, so the capability report can be
+        -- shown once rather than on every login.
+        firstRunAt = nil,
+        firstRunReportShown = false,
     },
 
     char = {
@@ -127,23 +167,122 @@ function Database:Initialize()
 
     self:Migrate()
     self:Prune()
+
+    if not db.global.firstRunAt then
+        db.global.firstRunAt = time()
+        self.isFirstRun = true
+    end
+
     return db
 end
 
-function Database:Migrate()
-    local g = self.db.global
-    local from = g.dbVersion or 0
-    if from == C.DB_VERSION then return end
+--- Human-readable state of the stored database, shown on the System page.
+function Database:DescribeSchema()
+    if self.schemaFromFuture then
+        return ("Stored database is schema version %d, this addon understands %d. It is being left untouched - update the addon rather than losing the data.")
+            :format(self.schemaVersionFound or 0, C.SCHEMA_VERSION), "crit"
+    end
+    if self.schemaError then
+        return ("Schema migration stopped: %s. Existing data has been left as-is.")
+            :format(self.schemaError), "crit"
+    end
+    if (self.migrationsApplied or 0) > 0 then
+        return ("Schema version %d (upgraded through %d migration%s at login).")
+            :format(C.SCHEMA_VERSION, self.migrationsApplied,
+                    self.migrationsApplied == 1 and "" or "s"), "ok"
+    end
+    return ("Schema version %d."):format(C.SCHEMA_VERSION), "muted"
+end
 
-    if from == 0 then
-        -- Fresh install, or a pre-versioning database.  Nothing to move.
-        g.sessions  = g.sessions or {}
-        g.incidents = g.incidents or {}
+--------------------------------------------------------------------------
+-- Schema migrations
+--------------------------------------------------------------------------
+-- Each entry upgrades the database FROM the version in its key TO that key
+-- plus one.  They run in order, so a database three versions behind is
+-- brought forward one well-defined step at a time rather than being
+-- reinterpreted in place.
+--
+-- Rules for adding one:
+--   * bump C.SCHEMA_VERSION,
+--   * add the step here keyed on the OLD version,
+--   * never delete data you cannot reconstruct - drop it only when the new
+--     shape genuinely cannot represent it, and say so in the comment.
+
+local migrations = {}
+
+--- 1 -> 2: the version key was renamed from `dbVersion` to `schemaVersion`,
+--- and the cluster list was introduced alongside individual incidents.
+migrations[1] = function(global)
+    rawset(global, "schemaVersion", 2)
+    rawset(global, "dbVersion", nil)
+    global.clusters = global.clusters or {}
+    -- Sessions gained spikeCount.suppressed; older ones simply have none,
+    -- which reads correctly as zero rather than as missing.
+    for _, session in ipairs(global.sessions or {}) do
+        if session.spikeCount and session.spikeCount.suppressed == nil then
+            session.spikeCount.suppressed = 0
+        end
+    end
+end
+
+Database.migrations = migrations
+
+--- Returns the version actually STORED in the database, tolerating the
+--- pre-rename key and a database that predates versioning entirely.
+---
+--- Uses rawget throughout: the defaults metatable would otherwise answer with
+--- the current version for a database that has never been migrated, which
+--- would silently skip every migration step.
+function Database:DetectVersion(global)
+    local stored = rawget(global, "schemaVersion")
+    if type(stored) == "number" then return stored end
+
+    local legacy = rawget(global, "dbVersion")
+    if type(legacy) == "number" then return legacy end
+
+    -- No version stamp at all. If there is data it was written before
+    -- versioning existed, so it is version 1; if there is none this is a fresh
+    -- install and starts at the current version.
+    local sessions  = rawget(global, "sessions")
+    local incidents = rawget(global, "incidents")
+    local hasData = (sessions and #sessions > 0) or (incidents and #incidents > 0)
+    return hasData and 1 or C.SCHEMA_VERSION
+end
+
+function Database:Migrate()
+    local global = self.db.global
+    local from = self:DetectVersion(global)
+
+    self.schemaVersionFound = from
+    if from > C.SCHEMA_VERSION then
+        -- The database was written by a NEWER version of the addon.  Migrating
+        -- backwards is not possible, so the data is left untouched and the
+        -- addon runs read-only against it rather than corrupting it.
+        self.schemaFromFuture = true
+        return false
     end
 
-    -- Future migrations chain here, oldest first.
+    local applied = 0
+    while from < C.SCHEMA_VERSION do
+        local step = migrations[from]
+        if not step then
+            -- A gap in the migration chain is a bug, not something to guess
+            -- around.  Stop here and report it rather than half-upgrading.
+            self.schemaError = ("no migration from schema version %d"):format(from)
+            return false
+        end
+        local ok, err = pcall(step, global)
+        if not ok then
+            self.schemaError = ("migration %d -> %d failed: %s"):format(from, from + 1, tostring(err))
+            return false
+        end
+        applied = applied + 1
+        from = from + 1
+    end
 
-    g.dbVersion = C.DB_VERSION
+    rawset(global, "schemaVersion", C.SCHEMA_VERSION)
+    self.migrationsApplied = applied
+    return true
 end
 
 --------------------------------------------------------------------------
@@ -169,6 +308,12 @@ function Database:Prune()
         for i = keepBuckets + 1, #sessions do
             if sessions[i] then sessions[i].buckets = nil end
         end
+    end
+
+    local clusters = g.clusters
+    if clusters then
+        local maxClusters = retention.maxIncidents or C.MAX_SAVED_INCIDENTS
+        while #clusters > maxClusters do table.remove(clusters, 1) end
     end
 
     local incidents = g.incidents
@@ -214,6 +359,7 @@ function Database:WipeHistory()
     local g = self.db.global
     for i = #g.sessions, 1, -1 do g.sessions[i] = nil end
     for i = #g.incidents, 1, -1 do g.incidents[i] = nil end
+    for i = #(g.clusters or {}), 1, -1 do g.clusters[i] = nil end
 end
 
 function Database:WipeAddonHistory(addonName)

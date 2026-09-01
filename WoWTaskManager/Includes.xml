@@ -31,9 +31,11 @@
     <Script file="Core\Capabilities.lua"/>
     <Script file="Core\Database.lua"/>
     <Script file="Core\Scheduler.lua"/>
+    <Script file="Core\Dev.lua"/>
 
     <!-- Monitoring -->
     <Script file="Monitoring\Context.lua"/>
+    <Script file="Monitoring\Suppression.lua"/>
     <Script file="Monitoring\FrameTime.lua"/>
     <Script file="Monitoring\Network.lua"/>
     <Script file="Monitoring\Processes.lua"/>
@@ -67,6 +69,7 @@
     <Script file="UI\Pages\Dashboard.lua"/>
     <Script file="UI\Pages\Processes.lua"/>
     <Script file="UI\Pages\Performance.lua"/>
+    <Script file="UI\Pages\Incidents.lua"/>
     <Script file="UI\Pages\Timeline.lua"/>
     <Script file="UI\Pages\Events.lua"/>
     <Script file="UI\Pages\Memory.lua"/>

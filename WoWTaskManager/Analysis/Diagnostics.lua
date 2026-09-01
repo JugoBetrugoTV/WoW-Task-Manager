@@ -86,7 +86,8 @@ end
 function Diagnostics:Build(out)
     local now = GetTime()
     if cache.at >= 0 and (now - cache.at) < CACHE_TTL
-       and cache.spikeCount == WTM.SpikeDetector.total then
+       and cache.spikeCount == WTM.SpikeDetector.total
+       and cache.aggressiveness == WTM.db.profile.diagnostics.aggressiveness then
         if out and out ~= cache.entries then
             for i = #out, 1, -1 do out[i] = nil end
             for i = 1, #cache.entries do out[i] = cache.entries[i] end
@@ -97,6 +98,7 @@ function Diagnostics:Build(out)
 
     cache.at = now
     cache.spikeCount = WTM.SpikeDetector.total
+    cache.aggressiveness = WTM.db.profile.diagnostics.aggressiveness
     self:Compute(cache.entries)
 
     if out and out ~= cache.entries then
@@ -134,6 +136,12 @@ function Diagnostics:Compute(out)
             table.concat(parts, ", "))
     end
 
+    local suppressed = WTM.Suppression:Describe()
+    if suppressed then
+        AddFinding(out, "muted", "Some frame spikes were not reported", suppressed ..
+            "\nThese happen during loading screens, the first seconds after login, a UI reload or a zone change - the client doing what it is supposed to do. They are counted but not treated as stutter.")
+    end
+
     local stats = WTM.FrameTime:GetSessionStats()
     if stats.avgFPS > 0 and stats.low1 > 0 and (stats.low1 / stats.avgFPS) < 0.6 then
         AddFinding(out, "warn", "Frame pacing is uneven",
@@ -151,13 +159,25 @@ function Diagnostics:Compute(out)
     else
         local correlations, spikeSamples = WTM.Correlation:Analyze()
         if spikeSamples >= C.CORRELATION_MIN_SAMPLES and #correlations > 0 then
-            for i = 1, math.min(3, #correlations) do
+            -- Aggressiveness changes WHAT IS SHOWN, never how it is measured or
+            -- how strongly it is worded. An association reads identically at
+            -- every setting; only the bar for mentioning it moves.
+            local aggressiveness = WTM.db.profile.diagnostics.aggressiveness
+            local threshold = 0.30
+            local limit = 3
+            if aggressiveness == "conservative" then
+                threshold, limit = 0.55, 2
+            elseif aggressiveness == "aggressive" then
+                threshold, limit = 0.15, 5
+            end
+
+            for i = 1, math.min(limit, #correlations) do
                 local entry = correlations[i]
-                if entry.phi >= 0.30 then
+                if entry.phi >= threshold then
                     AddFinding(out, entry.tone,
                         ("%s: %s"):format(entry.title, entry.label),
-                        ("Elevated above its own average in %d of %d spike windows (phi %.2f, peak %+.1f%% CPU). This is an association, not a demonstrated cause.")
-                            :format(entry.hits, entry.spikes, entry.phi, entry.peakExcess),
+                        ("Above its own average CPU in %d of %d spike windows (phi %.2f, peak %+.1f%%). %s")
+                            :format(entry.hits, entry.spikes, entry.phi, entry.peakExcess, C.TXT_PHI_NOTE),
                         { addon = entry.name })
                 end
             end
@@ -218,7 +238,7 @@ function Diagnostics:Compute(out)
             ("%s since login, now at %s. %s")
                 :format(Fmt.MemoryDelta(sessionGrowth),
                         Fmt.Memory(WTM.Memory.current.luaKB),
-                        WTM.Memory:GetGCSummary()))
+                        WTM.Memory:GetHeapDropSummary()))
     end
 
     ------------------------------------------------------------------

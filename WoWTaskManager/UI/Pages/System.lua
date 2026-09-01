@@ -40,7 +40,7 @@ function Page:Build(frame)
     self.infoCard = UI.Card(frame, "CLIENT", {})
     self.infoCard:SetWidth(380)
     self.infoCard:SetPoint("TOPLEFT", pad, -pad)
-    self.infoCard:SetHeight(300)
+    self.infoCard:SetHeight(370)
 
     self.infoRows = {}
     local INFO_KEYS = {
@@ -48,6 +48,8 @@ function Page:Build(frame)
         "Locale", "Realm", "Character",
         "Screen resolution", "UI scale", "Addon folder count", "Loaded addons",
         "Lua memory", "Addon version", "Library backend",
+        "Database schema", "Saved database size", "Event monitoring",
+        "Spike detection", "Baseline",
     }
     for i, label in ipairs(INFO_KEYS) do
         local row = UI.StatRow(self.infoCard.content, label)
@@ -190,6 +192,22 @@ function Page:Refresh()
     set("Lua memory",        Fmt.Memory(WTM.Memory.current.luaKB))
     set("Addon version",     C.VERSION)
     set("Library backend",   WTM.Ace.Describe())
+
+    local schemaText, schemaTone = WTM.Database:DescribeSchema()
+    set("Database schema", schemaText, schemaTone)
+    set("Saved database size", Fmt.Bytes(WTM.Database:EstimateSizeBytes()))
+
+    set("Event monitoring", ("%s - %s"):format(WTM.Events:GetMode(), WTM.Events:DescribeMode()))
+
+    local suppressionText, suppressionTone = WTM.Suppression:Status()
+    set("Spike detection", suppressionText, suppressionTone)
+
+    set("Baseline", WTM.FrameTime:IsBaselineReady()
+        and ("%s settled over %d samples")
+            :format(Fmt.Ms(WTM.FrameTime:GetBaseline()), WTM.FrameTime:GetBaselineSamples())
+        or ("%s settling (%d samples) - absolute thresholds only until it does")
+            :format(Fmt.Ms(WTM.FrameTime:GetBaseline()), WTM.FrameTime:GetBaselineSamples()),
+        WTM.FrameTime:IsBaselineReady() and nil or "warn")
 
     self:BuildCVarRows()
 

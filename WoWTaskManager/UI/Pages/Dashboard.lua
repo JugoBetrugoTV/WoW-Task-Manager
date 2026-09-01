@@ -1,11 +1,23 @@
 --[[--------------------------------------------------------------------------
     WoW Task Manager - UI/Pages/Dashboard.lua
 
-    The overview: six live metric cards, a health verdict, the top CPU and
-    memory consumers, recent incidents, and this addon's own cost.
+    The page you get from typing /wtm. It has to be useful within one second of
+    opening, on any of the four clients, whether or not CPU profiling is on.
 
-    Cards for measurements the client cannot provide put themselves into their
-    "unavailable" state with the reason, rather than showing a zero.
+    Layout:
+        health banner  -  verdict, spike counts, suppressed count, uptime
+        metric row     -  FPS, frame time, 1% low, home/world latency,
+                          addon CPU, addon memory, events/sec
+        graph grid     -  frame time (largest, first), FPS, addon CPU,
+                          latency, events, memory
+        footer         -  measured overhead breakdown and recent incidents
+
+    Frame time leads because it is the measurement everything else is judged
+    against, and because FPS alone hides stutter: 118 FPS with a 90 ms hitch
+    every ten seconds still reads as 118 FPS.
+
+    Cards whose measurement this client cannot provide put themselves into an
+    explained "unavailable" state instead of showing a zero.
 ----------------------------------------------------------------------------]]
 
 local ADDON_NAME, WTM = ...
@@ -19,30 +31,62 @@ local Fmt   = WTM.Format
 
 local Page = UI.RegisterPage("dashboard", {})
 
-local CARD_SPECS = {
-    { key = "fps",     label = "FRAMES PER SECOND", unit = "fps",  colorIndex = 1,
-      tooltip = "Measured from the real per-frame delta, not the client's smoothed GetFramerate value." },
-    { key = "frame",   label = "FRAME TIME", unit = "ms", colorIndex = 2, invert = true,
-      tooltip = "Average time to render one frame in the current sample window. 60 FPS is 16.67 ms, 120 FPS is 8.33 ms." },
-    { key = "latency", label = "WORLD LATENCY", unit = "ms", colorIndex = 3, invert = true,
-      tooltip = "From GetNetStats. The client only refreshes this roughly every 30 seconds, so it is never a live figure." },
-    { key = "memory",  label = "LUA MEMORY", unit = "", colorIndex = 4, invert = true,
-      tooltip = "Total Lua heap across the client and every addon." },
-    { key = "cpu",     label = "ADDON CPU", unit = "%", colorIndex = 5, invert = true,
-      tooltip = "Share of one CPU core spent inside addon Lua. Requires the client's scriptProfile CVar." },
-    { key = "events",  label = "EVENTS", unit = "/s", colorIndex = 6, invert = true,
-      tooltip = "Every event the client fired, counted via a frame with RegisterAllEvents." },
+--------------------------------------------------------------------------
+-- Metric tiles
+--------------------------------------------------------------------------
+
+local CARDS = {
+    { key = "fps", label = "FPS", unit = "", colorIndex = 1, worstIsLow = true,
+      tooltip = "Frames per second, computed from the real per-frame delta rather than the client's smoothed GetFramerate value." },
+    { key = "frame", label = "FRAME TIME", unit = "ms", colorIndex = 2,
+      tooltip = "Average time to render one frame in the current sample window. 60 FPS is 16.67 ms, 120 FPS is 8.33 ms. This is the measurement everything else is judged against." },
+    { key = "low1", label = "1% LOW", unit = "fps", colorIndex = 1, worstIsLow = true,
+      tooltip = "The speed of the worst 1% of frames this session, derived from the frame time histogram. The gap between this and the average is what a stutter actually feels like." },
+    { key = "latHome", label = "HOME LATENCY", unit = "ms", colorIndex = 3,
+      tooltip = "Latency to the realm server, from GetNetStats. The client only refreshes this roughly every 30 seconds, so it is never a live figure." },
+    { key = "latWorld", label = "WORLD LATENCY", unit = "ms", colorIndex = 3,
+      tooltip = "Latency to the world server, from GetNetStats. Same 30-second refresh caveat." },
+    { key = "cpu", label = "ADDON CPU", unit = "%", colorIndex = 5,
+      tooltip = "Share of one CPU core spent inside addon Lua, across every loaded addon. Requires the client's scriptProfile CVar." },
+    { key = "memory", label = "ADDON MEMORY", unit = "", colorIndex = 4,
+      tooltip = "Lua memory attributed to addons by GetAddOnMemoryUsage. The total Lua heap, which includes the client's own use, is on the Memory page." },
+    { key = "events", label = "EVENTS/SEC", unit = "", colorIndex = 6,
+      tooltip = "Every event the client fired, counted through a frame with RegisterAllEvents. Depends on the event monitoring mode." },
 }
+
+--------------------------------------------------------------------------
+-- Graphs.  Frame time first and widest: it is the important one.
+--------------------------------------------------------------------------
+
+local GRAPHS = {
+    { key = "frame",   field = "frameMaxMs", title = "FRAME TIME  (worst frame per bucket)",
+      colorIndex = 2, wide = true,
+      format = function(v) return ("%.0f ms"):format(v) end },
+    { key = "fps",     field = "fps",    title = "FPS", colorIndex = 1, worstIsLow = true,
+      format = function(v) return ("%.0f"):format(v) end },
+    { key = "cpu",     field = "cpuMs",  title = "ADDON CPU", colorIndex = 5,
+      format = function(v) return ("%.1f %%"):format(v) end },
+    { key = "latency", field = "latW",   title = "WORLD LATENCY", colorIndex = 3,
+      format = function(v) return ("%.0f ms"):format(v) end },
+    { key = "events",  field = "events", title = "EVENTS / SEC", colorIndex = 6,
+      format = function(v) return ("%.0f"):format(v) end },
+    { key = "memory",  field = "luaKB",  title = "LUA MEMORY", colorIndex = 4,
+      format = function(v) return Fmt.Memory(v) end },
+}
+
+--------------------------------------------------------------------------
 
 function Page:Build(frame)
     local pad = M.padding
-    self.cards = {}
+    self.cards  = {}
+    self.graphs = {}
+    self.series = {}
 
     ------------------------------------------------------------------
     -- Health banner
     ------------------------------------------------------------------
-    local banner = UI.Panel(frame, { color = "panelBg" })
-    banner:SetHeight(58)
+    local banner = UI.Panel(frame, {})
+    banner:SetHeight(54)
     banner:SetPoint("TOPLEFT", pad, -pad)
     banner:SetPoint("TOPRIGHT", -pad, -pad)
     self.banner = banner
@@ -53,215 +97,319 @@ function Page:Build(frame)
     banner.accent:SetPoint("BOTTOMLEFT")
 
     banner.verdict = UI.Text(banner, "title", "textPrimary")
-    banner.verdict:SetPoint("TOPLEFT", 18, -10)
+    banner.verdict:SetPoint("TOPLEFT", 18, -9)
 
     banner.detail = UI.Text(banner, "small", "textSecondary")
     banner.detail:SetPoint("TOPLEFT", banner.verdict, "BOTTOMLEFT", 0, -4)
-    banner.detail:SetPoint("RIGHT", banner, "RIGHT", -220, 0)
+    banner.detail:SetPoint("RIGHT", banner, "RIGHT", -240, 0)
     banner.detail:SetJustifyH("LEFT")
 
     banner.uptime = UI.Text(banner, "numeric", "textSecondary", "RIGHT")
-    banner.uptime:SetPoint("TOPRIGHT", -18, -12)
+    banner.uptime:SetPoint("TOPRIGHT", -18, -10)
     banner.uptimeLabel = UI.Text(banner, "tiny", "textMuted", "RIGHT")
     banner.uptimeLabel:SetPoint("TOPRIGHT", banner.uptime, "BOTTOMRIGHT", 0, -2)
     banner.uptimeLabel:SetText("SESSION")
 
     ------------------------------------------------------------------
-    -- Metric cards
+    -- Profiling notice: prominent, and never reloads on its own
+    ------------------------------------------------------------------
+    self.profilingNotice = UI.Panel(frame, { color = "panelAlt" })
+    self.profilingNotice:SetHeight(52)
+    self.profilingNotice:SetPoint("TOPLEFT", banner, "BOTTOMLEFT", 0, -10)
+    self.profilingNotice:SetPoint("TOPRIGHT", banner, "BOTTOMRIGHT", 0, -10)
+
+    local notice = self.profilingNotice
+    notice.accent = notice:CreateTexture(nil, "ARTWORK")
+    notice.accent:SetWidth(3)
+    notice.accent:SetPoint("TOPLEFT")
+    notice.accent:SetPoint("BOTTOMLEFT")
+    notice.accent:SetColorTexture(Theme:Tone("warn"))
+
+    notice.title = UI.Text(notice, "heading", "textPrimary")
+    notice.title:SetPoint("TOPLEFT", 16, -10)
+    notice.title:SetText("Addon CPU profiling is disabled")
+
+    notice.body = UI.Text(notice, "small", "textSecondary")
+    notice.body:SetPoint("TOPLEFT", notice.title, "BOTTOMLEFT", 0, -4)
+    notice.body:SetPoint("RIGHT", notice, "RIGHT", -300, 0)
+    notice.body:SetJustifyH("LEFT")
+    notice.body:SetText("Everything else is recording normally. Per-addon CPU needs the client's scriptProfile CVar, which takes effect after a reload.")
+
+    notice.enable = UI.Button(notice, "Enable profiling", function()
+        local ok, err = WTM.Caps:SetCPUProfiling(true)
+        if ok then
+            Page:Refresh()
+            WTM:Print("CPU profiling will be ON after the next |cff4c8dff/reload|r. Nothing has been reloaded for you.")
+        else
+            WTM:Print("Could not enable CPU profiling: " .. tostring(err))
+        end
+    end, { primary = true, height = 24 })
+    notice.enable:SetPoint("RIGHT", -136, 0)
+
+    -- Deliberately a SEPARATE button. Reloading the UI without being asked is
+    -- exactly the kind of thing an addon should never do to someone mid-fight.
+    notice.reload = UI.Button(notice, "Reload UI", function()
+        WTM.Processes:ReloadUI()
+    end, { height = 24 })
+    notice.reload:SetPoint("RIGHT", -16, 0)
+    notice.reload.tooltip = "Reloads the interface so the CVar takes effect. Queued until combat ends if you are fighting. Nothing reloads without this click."
+
+    ------------------------------------------------------------------
+    -- Metric row
     ------------------------------------------------------------------
     local row = CreateFrame("Frame", nil, frame)
-    row:SetHeight(M.cardHeight)
-    row:SetPoint("TOPLEFT", banner, "BOTTOMLEFT", 0, -M.cardGap)
-    row:SetPoint("TOPRIGHT", banner, "BOTTOMRIGHT", 0, -M.cardGap)
+    row:SetHeight(78)
     self.cardRow = row
 
-    for i, spec in ipairs(CARD_SPECS) do
-        local card = UI.MetricCard(row, spec)
+    for _, spec in ipairs(CARDS) do
+        local card = UI.MetricCard(row, {
+            label = spec.label, unit = spec.unit, colorIndex = spec.colorIndex,
+            worstIsLow = spec.worstIsLow, tooltip = spec.tooltip,
+            height = 78, sparkHeight = 16,
+        })
         card:SetPoint("TOP")
         card:SetPoint("BOTTOM")
         self.cards[spec.key] = card
-        card.specIndex = i
     end
 
     ------------------------------------------------------------------
-    -- Bottom: three columns
+    -- Graph grid
     ------------------------------------------------------------------
-    local columns = CreateFrame("Frame", nil, frame)
-    columns:SetPoint("TOPLEFT", row, "BOTTOMLEFT", 0, -M.cardGap)
-    columns:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -pad, pad)
-    self.columns = columns
+    local grid = CreateFrame("Frame", nil, frame)
+    self.grid = grid
 
-    -- Column 1: top CPU
-    self.cpuCard = UI.Card(columns, "TOP CPU", {})
-    self.cpuCard:SetPoint("TOPLEFT")
-    self.cpuCard:SetPoint("BOTTOMLEFT")
-    self.cpuRows = {}
-    for i = 1, 6 do
-        local statRow = UI.StatRow(self.cpuCard.content, "")
-        statRow:SetPoint("TOPLEFT", 0, -(i - 1) * 20)
-        statRow:SetPoint("TOPRIGHT", 0, -(i - 1) * 20)
-        self.cpuRows[i] = statRow
-    end
-    self.cpuNotice = UI.Text(self.cpuCard.content, "small", "textMuted")
-    self.cpuNotice:SetPoint("TOPLEFT")
-    self.cpuNotice:SetPoint("RIGHT")
-    self.cpuNotice:SetJustifyH("LEFT")
-    self.cpuNotice:SetWordWrap(true)
-    self.cpuNotice:Hide()
-
-    self.enableProfilingButton = UI.Button(self.cpuCard.content, "Enable CPU profiling", function()
-        WTM.Caps:ToggleCPUProfiling()
-        Page:Refresh()
-    end, { primary = true, height = 22 })
-    self.enableProfilingButton:SetPoint("BOTTOMLEFT")
-    self.enableProfilingButton:Hide()
-
-    -- Column 2: top memory
-    self.memCard = UI.Card(columns, "TOP MEMORY", {})
-    self.memCard:SetPoint("TOPLEFT", self.cpuCard, "TOPRIGHT", M.cardGap, 0)
-    self.memCard:SetPoint("BOTTOM")
-    self.memRows = {}
-    for i = 1, 6 do
-        local statRow = UI.StatRow(self.memCard.content, "")
-        statRow:SetPoint("TOPLEFT", 0, -(i - 1) * 20)
-        statRow:SetPoint("TOPRIGHT", 0, -(i - 1) * 20)
-        self.memRows[i] = statRow
+    for i, spec in ipairs(GRAPHS) do
+        local graph = UI.Graph(grid, {
+            title = spec.title,
+            valueFormat = spec.format,
+            worstIsLow = spec.worstIsLow,
+            minRange = 1,
+            referenceLines = (spec.key == "frame") and {
+                { value = 1000 / 60,  label = "60 fps  16.7 ms" },
+                { value = 1000 / 144, label = "144 fps  6.9 ms" },
+            } or (spec.key == "fps") and {
+                { value = 60,  label = "60 fps" },
+                { value = 144, label = "144 fps" },
+            } or nil,
+        })
+        graph.spec = spec
+        self.graphs[i] = graph
+        self.series[spec.key] = { values = {}, times = {} }
     end
 
-    -- Column 3: recent incidents
-    self.incidentCard = UI.Card(columns, "RECENT INCIDENTS", {})
-    self.incidentCard:SetPoint("TOPLEFT", self.memCard, "TOPRIGHT", M.cardGap, 0)
+    ------------------------------------------------------------------
+    -- Footer: overhead + incidents
+    ------------------------------------------------------------------
+    local footer = CreateFrame("Frame", nil, frame)
+    footer:SetHeight(104)
+    footer:SetPoint("BOTTOMLEFT", pad, pad)
+    footer:SetPoint("BOTTOMRIGHT", -pad, pad)
+    self.footer = footer
+
+    self.overheadCard = UI.Card(footer, "THIS ADDON'S MEASURED OVERHEAD", {})
+    self.overheadCard:SetPoint("TOPLEFT")
+    self.overheadCard:SetPoint("BOTTOMLEFT")
+    self.overheadCard:SetWidth(380)
+
+    self.overheadRows = {}
+    for i = 1, 5 do
+        local statRow = UI.StatRow(self.overheadCard.content, "")
+        statRow:SetPoint("TOPLEFT", 0, -(i - 1) * 15)
+        statRow:SetPoint("TOPRIGHT", 0, -(i - 1) * 15)
+        self.overheadRows[i] = statRow
+    end
+
+    self.incidentCard = UI.Card(footer, "RECENT INCIDENTS", {})
+    self.incidentCard:SetPoint("TOPLEFT", self.overheadCard, "TOPRIGHT", M.cardGap, 0)
     self.incidentCard:SetPoint("BOTTOMRIGHT")
+
     self.incidentRows = {}
-    for i = 1, 6 do
+    for i = 1, 4 do
         local entry = CreateFrame("Button", nil, self.incidentCard.content)
-        entry:SetHeight(20)
-        entry:SetPoint("TOPLEFT", 0, -(i - 1) * 21)
-        entry:SetPoint("TOPRIGHT", 0, -(i - 1) * 21)
+        entry:SetHeight(16)
+        entry:SetPoint("TOPLEFT", 0, -(i - 1) * 16)
+        entry:SetPoint("TOPRIGHT", 0, -(i - 1) * 16)
         entry.kind = UI.Text(entry, "small", "textPrimary")
         entry.kind:SetPoint("LEFT")
         entry.detail = UI.Text(entry, "numericSm", "textMuted", "RIGHT")
         entry.detail:SetPoint("RIGHT")
-        entry:SetScript("OnClick", function(self)
-            if self.spike then UI.MainWindow:ShowPage("timeline") end
+        entry:SetScript("OnClick", function()
+            UI.MainWindow:ShowPage("incidents")
         end)
         entry:SetScript("OnEnter", function(self)
-            if not self.spike then return end
-            UI.TooltipClear(self.spike.label)
-            for line in WTM.SpikeDetector:Describe(self.spike):gmatch("[^\n]+") do
-                UI.TooltipLine(line)
-            end
-            UI.TooltipShow(self)
+            if not self.cluster then return end
+            UI.Pages.incidents:ShowClusterTooltip(self, self.cluster)
         end)
         entry:SetScript("OnLeave", UI.HideTooltip)
         self.incidentRows[i] = entry
     end
+
     self.incidentEmpty = UI.Text(self.incidentCard.content, "small", "textMuted")
     self.incidentEmpty:SetPoint("TOPLEFT")
-    self.incidentEmpty:SetText("No spikes recorded yet.")
-
-    ------------------------------------------------------------------
-    -- Overhead strip along the very bottom of column 1
-    ------------------------------------------------------------------
-    self.overheadNotice = nil
+    self.incidentEmpty:SetPoint("RIGHT")
+    self.incidentEmpty:SetJustifyH("LEFT")
 
     self:OnLayout()
 end
 
+--------------------------------------------------------------------------
+
 function Page:OnLayout()
     local frame = self.frame
     if not frame then return end
+    local pad = M.padding
+    local width = (frame:GetWidth() or 900) - pad * 2
+    if width <= 0 then return end
 
-    local width = frame:GetWidth() - M.padding * 2
-    local count = #CARD_SPECS
+    -- The profiling notice only occupies space when it is shown.
+    local showNotice = not WTM.CPU.available
+    self.profilingNotice:SetShown(showNotice)
+    local topAnchor = showNotice and self.profilingNotice or self.banner
+
+    self.cardRow:ClearAllPoints()
+    self.cardRow:SetPoint("TOPLEFT", topAnchor, "BOTTOMLEFT", 0, -M.cardGap)
+    self.cardRow:SetPoint("TOPRIGHT", topAnchor, "BOTTOMRIGHT", 0, -M.cardGap)
+
+    local count = #CARDS
     local cardWidth = (width - M.cardGap * (count - 1)) / count
-
     local previous
-    for i, spec in ipairs(CARD_SPECS) do
+    for _, spec in ipairs(CARDS) do
         local card = self.cards[spec.key]
         card:ClearAllPoints()
         card:SetPoint("TOP")
         card:SetPoint("BOTTOM")
         card:SetWidth(cardWidth)
-        if previous then
-            card:SetPoint("LEFT", previous, "RIGHT", M.cardGap, 0)
-        else
-            card:SetPoint("LEFT")
-        end
+        if previous then card:SetPoint("LEFT", previous, "RIGHT", M.cardGap, 0)
+        else card:SetPoint("LEFT") end
         previous = card
     end
 
-    local columnWidth = (width - M.cardGap * 2) / 3
-    self.cpuCard:SetWidth(columnWidth)
-    self.memCard:SetWidth(columnWidth)
+    self.grid:ClearAllPoints()
+    self.grid:SetPoint("TOPLEFT", self.cardRow, "BOTTOMLEFT", 0, -M.cardGap)
+    self.grid:SetPoint("TOPRIGHT", self.cardRow, "BOTTOMRIGHT", 0, -M.cardGap)
+    self.grid:SetPoint("BOTTOM", self.footer, "TOP", 0, -M.cardGap)
+
+    local gridWidth  = width
+    local gridHeight = self.grid:GetHeight() or 260
+    if gridHeight <= 0 then gridHeight = 260 end
+
+    -- Frame time takes the full first row; the other five share two rows.
+    local rowGap = M.cardGap
+    local frameHeight = math.max(80, (gridHeight - rowGap * 2) * 0.42)
+    local smallHeight = math.max(60, (gridHeight - rowGap * 2 - frameHeight) / 2)
+    local smallWidth  = (gridWidth - rowGap * 2) / 3
+
+    local frameGraph = self.graphs[1]
+    frameGraph:ClearAllPoints()
+    frameGraph:SetPoint("TOPLEFT", self.grid, "TOPLEFT")
+    frameGraph:SetPoint("TOPRIGHT", self.grid, "TOPRIGHT")
+    frameGraph:SetHeight(frameHeight)
+
+    for i = 2, #self.graphs do
+        local index = i - 2
+        local column = index % 3
+        local rowIndex = math.floor(index / 3)
+        local graph = self.graphs[i]
+        graph:ClearAllPoints()
+        graph:SetSize(smallWidth, smallHeight)
+        graph:SetPoint("TOPLEFT", self.grid, "TOPLEFT",
+            column * (smallWidth + rowGap),
+            -(frameHeight + rowGap + rowIndex * (smallHeight + rowGap)))
+    end
+end
+
+function Page:OnShow()
+    self:OnLayout()
+    self:Refresh()
 end
 
 --------------------------------------------------------------------------
 
-local cpuScratch, memScratch, spikeScratch = {}, {}, {}
+local clusterScratch, breakdownScratch = {}, {}
 
 function Page:Refresh()
-    local ft   = WTM.FrameTime.current
+    if not self.cards then return end
+
+    local ft    = WTM.FrameTime.current
+    local stats = WTM.FrameTime:GetSessionStats()
+    local net   = WTM.Network.current
+    local mem   = WTM.Memory.current
     local cards = self.cards
 
     ------------------------------------------------------------------
-    -- Cards
+    -- Tiles
     ------------------------------------------------------------------
-    local stats = WTM.FrameTime:GetSessionStats()
-
-    cards.fps:SetValue(Fmt.FPS(ft.fps), "fps",
+    cards.fps:SetValue(Fmt.FPS(ft.fps), "",
         ft.fps >= 55 and "ok" or (ft.fps >= 30 and "warn" or "crit"))
-    cards.fps:SetSub(("1%% low %s   avg %s"):format(Fmt.FPS(stats.low1), Fmt.FPS(stats.avgFPS)))
+    cards.fps:SetSub(("avg %s"):format(Fmt.FPS(stats.avgFPS)))
     cards.fps:SetRing(WTM.FrameTime.history.fps)
 
     cards.frame:SetValue(("%.1f"):format(ft.avgMs), "ms",
         ft.avgMs <= 20 and "ok" or (ft.avgMs <= 40 and "warn" or "crit"))
-    cards.frame:SetSub(("worst %s   baseline %s"):format(Fmt.Ms(stats.maxMs), Fmt.Ms(ft.baselineMs)))
+    cards.frame:SetSub(("worst %s"):format(Fmt.Ms(stats.maxMs)))
     cards.frame:SetRing(WTM.FrameTime.history.frameMs)
 
-    if WTM.Caps:Has("latency") then
-        local net = WTM.Network.current
-        cards.latency:SetAvailable()
-        cards.latency:SetValue(tostring(net.latencyWorld), "ms",
-            net.latencyWorld <= 80 and "ok" or (net.latencyWorld <= 200 and "warn" or "crit"))
-        cards.latency:SetSub(WTM.Network:IsStale()
-            and ("home %d ms   reading is stale"):format(net.latencyHome)
-            or ("home %d ms"):format(net.latencyHome))
-        cards.latency:SetRing(WTM.Network.history.world)
-    else
-        cards.latency:SetUnavailable(WTM.Caps:Note("latency") or C.TXT_UNAVAILABLE_CLIENT)
-    end
+    local low1 = stats.low1
+    local ratio = (stats.avgFPS > 0) and (low1 / stats.avgFPS) or 1
+    cards.low1:SetValue(Fmt.FPS(low1), "fps",
+        ratio >= 0.7 and "ok" or (ratio >= 0.5 and "warn" or "crit"))
+    cards.low1:SetSub(("0.1%% low %s"):format(Fmt.FPS(stats.low01)))
+    cards.low1:SetRing(WTM.FrameTime.history.fps)
 
-    local mem = WTM.Memory.current
-    cards.memory:SetValue(Fmt.Memory(mem.luaKB), "")
-    cards.memory:SetSub(("%s since login   %s addons")
-        :format(Fmt.MemoryDelta(mem.luaKB - mem.luaStartKB), Fmt.Memory(mem.addonSumKB)))
-    cards.memory:SetRing(WTM.Memory.history.lua)
+    if WTM.Caps:Has("latency") then
+        cards.latHome:SetAvailable()
+        cards.latWorld:SetAvailable()
+        cards.latHome:SetValue(tostring(net.latencyHome), "ms",
+            net.latencyHome <= 80 and "ok" or (net.latencyHome <= 200 and "warn" or "crit"))
+        cards.latWorld:SetValue(tostring(net.latencyWorld), "ms",
+            net.latencyWorld <= 80 and "ok" or (net.latencyWorld <= 200 and "warn" or "crit"))
+        local staleNote = WTM.Network:IsStale()
+            and "reading is stale" or ("updated %s"):format(Fmt.Ago(GetTime() - net.lastChangeAt))
+        cards.latHome:SetSub(staleNote)
+        cards.latWorld:SetSub(staleNote)
+        cards.latHome:SetRing(WTM.Network.history.home)
+        cards.latWorld:SetRing(WTM.Network.history.world)
+    else
+        local why = WTM.Caps:Note("latency") or C.TXT_UNAVAILABLE_CLIENT
+        cards.latHome:SetUnavailable(why)
+        cards.latWorld:SetUnavailable(why)
+    end
 
     if WTM.CPU.available then
         cards.cpu:SetAvailable()
         local pct = WTM.CPU.current.totalPct
         cards.cpu:SetValue(("%.1f"):format(pct), "%",
             pct <= 8 and "ok" or (pct <= 20 and "warn" or "crit"))
-        cards.cpu:SetSub(("%d addons measured"):format(#WTM.Processes.list))
+        cards.cpu:SetSub(("across %d loaded addons"):format(WTM.Processes:CountLoaded()))
     else
         cards.cpu:SetUnavailable(WTM.CPU.reason or C.TXT_REQUIRES_PROFILING)
     end
 
-    if WTM.Events.available then
+    if WTM.Caps:Has("addonMemory") then
+        cards.memory:SetAvailable()
+        cards.memory:SetValue(Fmt.Memory(mem.addonSumKB), "")
+        cards.memory:SetSub(("heap %s"):format(Fmt.Memory(mem.luaKB)))
+        cards.memory:SetRing(WTM.Memory.history.lua)
+    else
+        cards.memory:SetUnavailable(C.TXT_UNAVAILABLE_CLIENT)
+    end
+
+    if WTM.Events:GetMode() ~= "OFF" and WTM.Events.available then
         cards.events:SetAvailable()
-        cards.events:SetValue(Fmt.Comma(math.floor(WTM.Events.current.perSecond)), "/s")
-        cards.events:SetSub(("%d distinct   peak %s")
-            :format(WTM.Events:GetDistinctCount(), Fmt.Rate(WTM.Events.current.peakPerSecond)))
+        cards.events:SetValue(Fmt.Comma(math.floor(WTM.Events.current.perSecond)), "")
+        cards.events:SetSub(("%d distinct, %s mode")
+            :format(WTM.Events:GetDistinctCount(), WTM.Events:GetMode():lower()))
         cards.events:SetRing(WTM.Events.history)
     else
-        cards.events:SetUnavailable(WTM.Events.reason or C.TXT_UNAVAILABLE_CLIENT)
+        cards.events:SetUnavailable(WTM.Events.available
+            and "Event monitoring is off - enable it in Settings"
+            or (WTM.Events.reason or C.TXT_UNAVAILABLE_CLIENT))
     end
 
     for _, card in pairs(cards) do card:Refresh() end
 
     ------------------------------------------------------------------
-    -- Health banner
+    -- Banner
     ------------------------------------------------------------------
     local health, score, info = WTM.Diagnostics:ComputeHealth()
     self.banner.accent:SetColorTexture(Theme:Tone(health.tone))
@@ -269,73 +417,121 @@ function Page:Refresh()
     self.banner.verdict:SetTextColor(Theme:Tone(health.tone))
 
     local counts = WTM.SpikeDetector.counts
-    self.banner.detail:SetText(("%d spikes  (%d freeze, %d heavy, %d stutter, %d minor)   -   %.1f per minute   -   health score %d/100")
-        :format(WTM.SpikeDetector.total, counts.freeze, counts.heavy, counts.stutter, counts.minor,
-                info.spikesPerMinute, score))
+    local detail = ("%d spikes (%d freeze, %d heavy, %d stutter, %d minor)  -  %.1f/min  -  health %d/100")
+        :format(WTM.SpikeDetector.total, counts.freeze, counts.heavy,
+                counts.stutter, counts.minor, info.spikesPerMinute, score)
+    local suppressedNote = WTM.Suppression:Describe()
+    if suppressedNote then detail = detail .. "  -  " .. suppressedNote end
+    self.banner.detail:SetText(detail)
     self.banner.uptime:SetText(Fmt.Duration(info.duration))
 
     ------------------------------------------------------------------
-    -- Top CPU
+    -- Profiling notice
     ------------------------------------------------------------------
-    if WTM.CPU.available then
-        self.cpuNotice:Hide()
-        self.enableProfilingButton:Hide()
-        local top = WTM.CPU:GetTopConsumers(cpuScratch, #self.cpuRows)
-        for i, statRow in ipairs(self.cpuRows) do
-            local entry = top[i]
-            statRow:SetShown(entry ~= nil)
-            if entry then
-                statRow:SetLabel(Fmt.Truncate(entry.title, 22))
-                statRow:Set(("%.2f %%"):format(entry.pct),
-                    entry.pct >= C.HIGH_CPU_PCT and "crit"
-                    or (entry.pct >= C.ELEVATED_CPU_PCT and "warn" or nil))
-            end
+    local showNotice = not WTM.CPU.available
+    if showNotice ~= self.profilingNotice:IsShown() then
+        self:OnLayout()
+    end
+    if showNotice then
+        local canToggle = WTM.Caps:Has("toggleProfiling")
+        self.profilingNotice.enable:SetEnabledState(canToggle,
+            WTM.Caps:Note("toggleProfiling"))
+        if WTM.Caps.pendingProfilingReload then
+            self.profilingNotice.title:SetText("CPU profiling enabled - reload to apply")
+            self.profilingNotice.body:SetText("The scriptProfile CVar is set. Per-addon CPU starts being measured after a reload; nothing reloads until you click.")
         end
-        if #top == 0 then
-            self.cpuRows[1]:Show()
-            self.cpuRows[1]:SetLabel("No measurable addon CPU yet")
-            self.cpuRows[1]:Set("")
-        end
-    else
-        for _, statRow in ipairs(self.cpuRows) do statRow:Hide() end
-        self.cpuNotice:SetText(
-            "Per-addon CPU time needs the client's scriptProfile CVar, which takes effect after a reload. It has a cost of its own, so leave it off when you are not measuring.")
-        self.cpuNotice:Show()
-        self.enableProfilingButton:SetShown(WTM.Caps:Has("toggleProfiling"))
     end
 
     ------------------------------------------------------------------
-    -- Top memory
+    -- Graphs
     ------------------------------------------------------------------
-    local topMem = WTM.Memory:GetTopConsumers(memScratch, #self.memRows)
-    for i, statRow in ipairs(self.memRows) do
-        local entry = topMem[i]
-        statRow:SetShown(entry ~= nil)
+    local now = GetTime()
+    local rangeSeconds = 300
+    for _, range in ipairs(C.TIME_RANGES) do
+        if range.key == (WTM.db.profile.ui.timeRange or "5m") then
+            rangeSeconds = range.seconds
+        end
+    end
+    if rangeSeconds == 0 then
+        rangeSeconds = math.max(60, now - (WTM.state.sessionStart or now))
+    end
+    local fromTime = now - rangeSeconds
+
+    for _, graph in ipairs(self.graphs) do
+        local spec = graph.spec
+        local unavailable
+        if spec.key == "cpu" and not WTM.CPU.available then
+            unavailable = WTM.CPU.reason or C.TXT_REQUIRES_PROFILING
+        elseif spec.key == "latency" and not WTM.Caps:Has("latency") then
+            unavailable = C.TXT_UNAVAILABLE_CLIENT
+        elseif spec.key == "events" and WTM.Events:GetMode() == "OFF" then
+            unavailable = "Event monitoring is off"
+        end
+
+        if unavailable then
+            graph:ClearSeries()
+            graph:SetTitle(spec.title .. "   -   " .. unavailable)
+        else
+            local series = self.series[spec.key]
+            WTM.Recorder:GetSeries(spec.field, fromTime, now, 300, series.values, series.times)
+            graph:SetSeries(1, series.values, series.times,
+                { label = spec.title, colorIndex = spec.colorIndex })
+            graph:SetTitle(spec.title)
+        end
+        graph:SetTimeRange(fromTime, now)
+        graph.dirty = true
+        graph:Draw()
+    end
+
+    ------------------------------------------------------------------
+    -- Overhead breakdown
+    ------------------------------------------------------------------
+    local breakdown = WTM.Overhead:GetBreakdown(breakdownScratch)
+    for i, statRow in ipairs(self.overheadRows) do
+        local entry = breakdown[i]
         if entry then
-            statRow:SetLabel(Fmt.Truncate(entry.title, 22))
-            statRow:Set(Fmt.Memory(entry.memKB))
+            statRow:Show()
+            statRow:SetLabel(entry.label)
+            if entry.measured then
+                statRow:Set(("%.3f ms/s"):format(entry.ms))
+            else
+                statRow:Set("not measured", "muted")
+            end
+        elseif i == #self.overheadRows then
+            statRow:Show()
+            statRow:SetLabel("|cffe6e9efTotal measured|r")
+            statRow:Set(("%.3f ms/s  (%.2f%% of a frame)")
+                :format(WTM.Overhead.current.totalMsPerSec,
+                        WTM.Overhead:GetFrameBudgetPercent()),
+                WTM.Overhead.current.verdict == "ok" and "ok" or "warn")
+        else
+            statRow:Hide()
         end
-    end
-    if #topMem == 0 then
-        self.memRows[1]:Show()
-        self.memRows[1]:SetLabel("Waiting for the first memory scan")
-        self.memRows[1]:Set("")
     end
 
     ------------------------------------------------------------------
-    -- Recent incidents
+    -- Recent incidents (clusters)
     ------------------------------------------------------------------
-    local spikes = WTM.SpikeDetector:GetRecent(spikeScratch, #self.incidentRows)
-    self.incidentEmpty:SetShown(#spikes == 0)
+    local clusters = WTM.SpikeDetector:GetClusters(clusterScratch, #self.incidentRows)
+    self.incidentEmpty:SetShown(#clusters == 0)
+    if #clusters == 0 then
+        self.incidentEmpty:SetText(WTM.SpikeDetector.suppressed > 0
+            and ("No stutter recorded. %s"):format(WTM.Suppression:Describe() or "")
+            or "No frame time spikes recorded yet.")
+    end
     for i, entry in ipairs(self.incidentRows) do
-        local spike = spikes[i]
-        entry:SetShown(spike ~= nil)
-        entry.spike = spike
-        if spike then
-            entry.kind:SetText(spike.label)
+        local cluster = clusters[i]
+        entry:SetShown(cluster ~= nil)
+        entry.cluster = cluster
+        if cluster then
+            entry.kind:SetText(("%s%s"):format(
+                cluster.simulated and "|cffd29922SIMULATED|r " or "", cluster.label))
             entry.kind:SetTextColor(Theme:Tone(
-                spike.kind == "freeze" and "crit" or (spike.kind == "heavy" and "crit" or "warn")))
-            entry.detail:SetText(("%s   %s"):format(Fmt.Ms(spike.frameMs), Fmt.Ago(GetTime() - spike.t)))
+                (cluster.kind == "freeze" or cluster.kind == "heavy") and "crit" or "warn"))
+            entry.detail:SetText(("peak %s  %d frame%s  %s")
+                :format(Fmt.Ms(cluster.peakMs), cluster.frames,
+                        cluster.frames == 1 and "" or "s",
+                        Fmt.Ago(GetTime() - cluster.endedAt)))
         end
     end
 end

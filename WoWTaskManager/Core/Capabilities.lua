@@ -6,10 +6,16 @@
     because of a value in here.
 
     States:
-        "yes"      available and exact
-        "partial"  available but heuristic / approximate
-        "profile"  needs the scriptProfile CVar (and a reload)
-        "no"       not possible on this client
+        "yes"      AVAILABLE          available and exact
+        "partial"  HEURISTIC          available but approximate; how it is
+                                      derived is always stated
+        "profile"  REQUIRES PROFILING needs the scriptProfile CVar and a reload
+        "no"       NOT POSSIBLE       cannot be done through the addon API
+
+    Nothing here is decided from the client version. Every entry is the result
+    of actually probing for the function, the event or the CVar on the machine
+    it is running on - which is why a client that gains or loses an API in a
+    patch changes this report without any code change.
 ----------------------------------------------------------------------------]]
 
 local ADDON_NAME, WTM = ...
@@ -303,16 +309,74 @@ Caps.GROUPS = {
                                         "graphicsAPI", "osCPU", "osMemory", "fileAccess", "protectedActions" } },
 }
 
+-- The vocabulary used everywhere a capability is shown, so the UI, the chat
+-- report and the docs cannot drift apart.
+Caps.STATE_LABEL = {
+    yes     = "AVAILABLE",
+    partial = "HEURISTIC",
+    profile = "REQUIRES PROFILING",
+    no      = "NOT POSSIBLE",
+}
+Caps.STATE_TONE = {
+    yes = "ok", partial = "warn", profile = "warn", no = "muted",
+}
+
 local STATE_TEXT = {
-    yes     = "|cff3fb950available|r",
-    partial = "|cffd29922heuristic|r",
-    profile = "|cffd29922needs scriptProfile|r",
-    no      = "|cff5d6675unavailable|r",
+    yes     = "|cff3fb950AVAILABLE|r",
+    partial = "|cffd29922HEURISTIC|r",
+    profile = "|cffd29922REQUIRES PROFILING|r",
+    no      = "|cff5d6675NOT POSSIBLE|r",
 }
 Caps.STATE_TEXT = STATE_TEXT
 
+--------------------------------------------------------------------------
+-- First-run report
+--------------------------------------------------------------------------
+-- The headline capabilities, in the order someone reading it for the first
+-- time cares about. Printed once on a fresh install and available any time
+-- with /wtm caps.
+
+Caps.HEADLINE = {
+    "frameTime", "addonMemory", "addonCPU", "eventRate", "eventCPU",
+    "latency", "addonEnableDisable", "addonUnload", "osCPU",
+}
+
+--- Returns an array of { label, state, stateText, note } for the headline set.
+function Caps:GetHeadlineReport(out)
+    out = out or {}
+    for i = #out, 1, -1 do out[i] = nil end
+    for _, key in ipairs(self.HEADLINE) do
+        local state, note = self:Get(key)
+        out[#out + 1] = {
+            key   = key,
+            label = self.LABELS[key] or key,
+            state = state,
+            stateLabel = self.STATE_LABEL[state] or state,
+            tone  = self.STATE_TONE[state] or "muted",
+            note  = note,
+        }
+    end
+    return out
+end
+
+--- Printed once, on the first login after installing.  Says what this client
+--- can and cannot do before the user goes looking for a feature that was never
+--- possible.
+function Caps:PrintFirstRunReport()
+    WTM:Print(("First run on %s. Checking what this client actually supports:")
+        :format(Compat:GetClientLabel()))
+    for _, entry in ipairs(self:GetHeadlineReport()) do
+        WTM:Print(("   %-26s %s"):format(entry.label, STATE_TEXT[entry.state] or entry.state))
+    end
+    if not self.cpuProfiling and self:Has("toggleProfiling") then
+        WTM:Print("Addon CPU needs the client's scriptProfile CVar. Open |cff4c8dff/wtm|r and use the button on the dashboard, or type |cff4c8dff/wtm profiling|r.")
+    end
+    WTM:Print("Full matrix: |cff4c8dff/wtm caps|r, or the System page.")
+end
+
 function Caps:PrintReport()
     WTM:Print(("Capability report - %s"):format(Compat:GetClientLabel()))
+    WTM:Print("|cff5d6675Every line below was probed on this client at login, not inferred from its version.|r")
     for _, group in ipairs(self.GROUPS) do
         WTM:Print(("|cff9aa4b5%s|r"):format(group.title))
         for _, key in ipairs(group.keys) do

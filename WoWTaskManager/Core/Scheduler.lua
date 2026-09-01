@@ -4,7 +4,8 @@
     The one and only OnUpdate in this addon.
 
     Everything periodic goes through here so that:
-      * the per-frame cost is a fixed, tiny number of arithmetic ops,
+      * the per-frame cost is bounded and constant - it does not grow with the
+        number of addons, tasks or samples,
       * two expensive tasks can never land in the same frame (phase offsets),
       * one switch turns all sampling off,
       * every task's cost is measured, so the addon can police itself.
@@ -29,15 +30,28 @@ local running     = false
 local burstUntil  = 0
 
 -- Cost accounting, read by Monitoring/Overhead.lua.
+--
+-- Costs are attributed to a CATEGORY as well as a task, because "this addon
+-- uses 1.8 ms/s" is much less useful than knowing whether that is sampling,
+-- event monitoring or drawing the UI - each of which the user can turn down
+-- independently.
 Scheduler.cost = {
     windowStart  = 0,
     totalMs      = 0,
     lastTotalMs  = 0,
     msPerSec     = 0,
     perTask      = {},
+    perCategory  = {},      -- category -> ms accumulated in the current window
+    categoryMsPerSec = {},  -- category -> ms/s over the last closed window
     throttled    = false,
     throttleLevel = 0,
 }
+
+Scheduler.CATEGORIES = { "frame", "sampler", "events", "ui" }
+for _, category in ipairs(Scheduler.CATEGORIES) do
+    Scheduler.cost.perCategory[category] = 0
+    Scheduler.cost.categoryMsPerSec[category] = 0
+end
 
 --------------------------------------------------------------------------
 -- Task registration
@@ -49,7 +63,9 @@ Scheduler.cost = {
 --- burst     seconds between runs while a spike burst is active
 --- phase     0..1, fraction of the interval to offset the first run by, so
 ---           expensive tasks do not stack up in the same frame
-function Scheduler:Register(name, fn, normal, burst, phase)
+--- category  which bucket this task's cost belongs to: "sampler", "events" or
+---           "ui".  Defaults to "sampler".
+function Scheduler:Register(name, fn, normal, burst, phase, category)
     local task = tasksByName[name]
     if not task then
         task = { name = name }
@@ -60,6 +76,7 @@ function Scheduler:Register(name, fn, normal, burst, phase)
     task.fn        = fn
     task.normal    = normal
     task.burst     = burst or normal
+    task.category  = category or "sampler"
     task.enabled   = true
     task.nextRun   = GetTime() + (normal * (phase or 0))
     task.lastRun   = GetTime()
@@ -117,9 +134,38 @@ function Scheduler:SetFrameCallback(fn) frameCallback = fn end
 local costWindow = 0
 local costAccum  = 0
 
+-- The per-frame callback's own cost is measured by SAMPLING it, not by timing
+-- every frame: two debugprofilestop() calls per frame would cost more than the
+-- work they are measuring and would corrupt the very number we want. Timing one
+-- frame in FRAME_COST_SAMPLE_EVERY gives a usable average for a fraction of a
+-- percent of the overhead.
+local FRAME_COST_SAMPLE_EVERY = 64
+local frameCounter    = 0
+local frameCostSumMs  = 0
+local frameCostSamples = 0
+
+--- Average measured cost of the per-frame callback, in milliseconds.
+function Scheduler:GetFrameCallbackCostMs()
+    if frameCostSamples == 0 then return nil end
+    return frameCostSumMs / frameCostSamples
+end
+
+function Scheduler:GetFrameCallbackSamples() return frameCostSamples end
+
 local function OnUpdate(_, elapsed)
     -- 1. Per-frame accounting (never skipped, never conditional).
-    if frameCallback then frameCallback(elapsed) end
+    if frameCallback then
+        frameCounter = frameCounter + 1
+        if frameCounter >= FRAME_COST_SAMPLE_EVERY then
+            frameCounter = 0
+            local t0 = Now()
+            frameCallback(elapsed)
+            frameCostSumMs = frameCostSumMs + (Now() - t0)
+            frameCostSamples = frameCostSamples + 1
+        else
+            frameCallback(elapsed)
+        end
+    end
 
     -- 2. Task dispatch.
     local now = GetTime()
@@ -139,6 +185,10 @@ local function OnUpdate(_, elapsed)
             local t0 = Now()
             local ok, err = pcall(task.fn, delta)
             local spent = Now() - t0
+
+            local category = Scheduler.cost.perCategory
+            local key = task.category or "sampler"
+            category[key] = (category[key] or 0) + spent
 
             local stats = Scheduler.cost.perTask[task.name]
             stats.lastMs  = spent
@@ -170,6 +220,19 @@ local function OnUpdate(_, elapsed)
         cost.lastTotalMs = costAccum
         cost.msPerSec = costAccum / costWindow
         cost.totalMs = cost.totalMs + costAccum
+
+        for category, ms in pairs(cost.perCategory) do
+            cost.categoryMsPerSec[category] = ms / costWindow
+            cost.perCategory[category] = 0
+        end
+        -- The frame callback is not a scheduler task, so its measured average
+        -- is converted into a per-second figure from the observed frame rate.
+        local perFrame = Scheduler:GetFrameCallbackCostMs()
+        if perFrame then
+            local fps = WTM.FrameTime and WTM.FrameTime.current.fps or 0
+            cost.categoryMsPerSec.frame = perFrame * fps
+        end
+
         costAccum, costWindow = 0, 0
     end
 end
@@ -248,4 +311,19 @@ function Scheduler:ResetCost()
     for _, stats in pairs(cost.perTask) do
         stats.totalMs, stats.calls, stats.lastMs, stats.avgMs, stats.maxMs = 0, 0, 0, 0, 0
     end
+    for category in pairs(cost.perCategory) do
+        cost.perCategory[category] = 0
+        cost.categoryMsPerSec[category] = 0
+    end
+    frameCostSumMs, frameCostSamples, frameCounter = 0, 0, 0
+end
+
+--- Total measured overhead per second: scheduler tasks plus the per-frame
+--- callback. Everything in it is measured with debugprofilestop; nothing is
+--- modelled or apportioned.
+function Scheduler:GetTotalOverheadMsPerSec()
+    local cost = Scheduler.cost
+    local total = cost.msPerSec or 0
+    total = total + (cost.categoryMsPerSec.frame or 0)
+    return total
 end

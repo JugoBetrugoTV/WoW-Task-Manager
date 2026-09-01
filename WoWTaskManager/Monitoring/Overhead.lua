@@ -10,9 +10,21 @@
       * automatically stretches the sampling intervals when we exceed budget,
       * and says so in the UI instead of quietly degrading.
 
-    Note the honest caveat that is surfaced in the UI: turning on the client's
-    scriptProfile CVar has a cost of its own that this addon cannot measure and
-    is not responsible for. It is the client's profiler, not ours.
+    Everything reported here is MEASURED with debugprofilestop, never modelled:
+
+        frame accounting   the per-frame callback, timed on a sampled subset of
+                           frames (timing every frame would cost more than the
+                           work being timed and would corrupt the figure)
+        sampling           every scheduler task in the "sampler" category
+        event monitoring   the RegisterAllEvents handler and its rate task
+        UI                 redrawing the visible page, zero while it is closed
+
+    There is no "estimated module cost" anywhere. If a component cannot be
+    measured it is reported as not measured rather than apportioned.
+
+    One honest caveat surfaced in the UI: turning on the client's scriptProfile
+    CVar has a cost of its own which this addon cannot measure and is not
+    responsible for. It is the client's profiler, not ours.
 ----------------------------------------------------------------------------]]
 
 local ADDON_NAME, WTM = ...
@@ -26,7 +38,12 @@ local Overhead = WTM:NewModule("Overhead")
 WTM.Overhead = Overhead
 
 Overhead.current = {
-    samplingMsPerSec = 0,
+    samplingMsPerSec = 0,   -- scheduler tasks only
+    totalMsPerSec    = 0,   -- scheduler tasks + the per-frame callback
+    frameMsPerSec    = 0,
+    eventsMsPerSec   = 0,
+    uiMsPerSec       = 0,
+    frameCostMs      = nil, -- measured average per frame, nil until sampled
     cpuPct           = 0,
     memKB            = 0,
     memGrowthKBPerMin = 0,
@@ -42,8 +59,14 @@ local overBudgetSince = nil
 function Overhead:Sample()
     local cur = self.current
     local cost = WTM.Scheduler.cost
+    local perCategory = cost.categoryMsPerSec
 
-    cur.samplingMsPerSec = cost.msPerSec
+    cur.samplingMsPerSec = perCategory.sampler or 0
+    cur.eventsMsPerSec   = perCategory.events or 0
+    cur.uiMsPerSec       = perCategory.ui or 0
+    cur.frameMsPerSec    = perCategory.frame or 0
+    cur.frameCostMs      = WTM.Scheduler:GetFrameCallbackCostMs()
+    cur.totalMsPerSec    = WTM.Scheduler:GetTotalOverheadMsPerSec()
 
     local record = WTM.Processes:Get(ADDON_NAME)
     if record then
@@ -52,12 +75,12 @@ function Overhead:Sample()
         cur.memGrowthKBPerMin = record.memGrowthKBPerMin or 0
     end
 
-    self.history:Push(cur.samplingMsPerSec)
+    self.history:Push(cur.totalMsPerSec)
 
     local budget = WTM.db.profile.sampling.overheadBudgetMs or C.OVERHEAD_BUDGET_MS_PER_SEC
-    if cur.samplingMsPerSec >= C.OVERHEAD_CRITICAL_MS_PER_SEC then
+    if cur.totalMsPerSec >= C.OVERHEAD_CRITICAL_MS_PER_SEC then
         cur.verdict = "critical"
-    elseif cur.samplingMsPerSec >= budget then
+    elseif cur.totalMsPerSec >= budget then
         cur.verdict = "elevated"
     else
         cur.verdict = "ok"
@@ -76,7 +99,7 @@ function Overhead:UpdateThrottle(budget)
     end
 
     local now = GetTime()
-    local over = self.current.samplingMsPerSec > budget
+    local over = self.current.totalMsPerSec > budget
 
     if over then
         overBudgetSince = overBudgetSince or now
@@ -93,7 +116,7 @@ function Overhead:UpdateThrottle(budget)
         -- Recover slowly: drop one throttle level at a time once we have been
         -- comfortably under budget.
         if WTM.Scheduler.cost.throttleLevel > 0
-           and self.current.samplingMsPerSec < budget * 0.5 then
+           and self.current.totalMsPerSec < budget * 0.5 then
             self.recoverSince = self.recoverSince or now
             if (now - self.recoverSince) >= BUDGET_WINDOW * 3 then
                 WTM.Scheduler:ApplyThrottle(WTM.Scheduler.cost.throttleLevel - 1)
@@ -133,11 +156,39 @@ function Overhead:GetTaskBreakdown(out)
     return out
 end
 
+--- Measured breakdown, newest first. Categories with no measurement yet are
+--- returned with `measured = false` rather than a zero.
+function Overhead:GetBreakdown(out)
+    out = out or {}
+    for i = #out, 1, -1 do out[i] = nil end
+    local cur = self.current
+    local rows = {
+        { key = "frame",   label = "Frame accounting", ms = cur.frameMsPerSec,
+          measured = cur.frameCostMs ~= nil,
+          note = cur.frameCostMs
+              and ("%.4f ms per frame, averaged over %d timed frames")
+                  :format(cur.frameCostMs, WTM.Scheduler:GetFrameCallbackSamples())
+              or "not yet sampled" },
+        { key = "sampler", label = "Sampling tasks", ms = cur.samplingMsPerSec, measured = true,
+          note = "frame time, CPU, memory, network, history, spike detection" },
+        { key = "events",  label = "Event monitoring", ms = cur.eventsMsPerSec, measured = true,
+          note = ("mode: %s"):format(WTM.Events:GetMode()) },
+        { key = "ui",      label = "UI updates", ms = cur.uiMsPerSec, measured = true,
+          note = (WTM.UI.MainWindow and WTM.UI.MainWindow:IsOpen())
+              and "window open" or "window closed - no cost" },
+    }
+    for i = 1, #rows do out[i] = rows[i] end
+    return out
+end
+
 function Overhead:Describe()
     local Fmt = WTM.Format
     local cur = self.current
     local parts = {
-        ("sampling %.2f ms/s"):format(cur.samplingMsPerSec),
+        ("total %.2f ms/s"):format(cur.totalMsPerSec),
+        ("sampling %.2f"):format(cur.samplingMsPerSec),
+        ("events %.2f"):format(cur.eventsMsPerSec),
+        ("ui %.2f"):format(cur.uiMsPerSec),
         ("memory %s"):format(Fmt.Memory(cur.memKB)),
     }
     if WTM.CPU.available then
@@ -155,18 +206,22 @@ end
 --- frame budget, because "0.4% of a frame" is the question people are actually
 --- asking when they look at a monitor's overhead.
 function Overhead:GetFrameBudgetPercent()
-    local perFrame = self.current.samplingMsPerSec / 60
-    return perFrame / 16.67 * 100
+    -- Against the frame rate actually being achieved, not an assumed 60.
+    local fps = WTM.FrameTime.current.fps
+    if not fps or fps <= 0 then fps = 60 end
+    local frameMs = 1000 / fps
+    local perFrame = self.current.totalMsPerSec / fps
+    return perFrame / frameMs * 100
 end
 
 function Overhead:GetWarning()
     local cur = self.current
     if cur.verdict == "critical" then
-        return ("This addon is using %.1f ms/s of sampling time, which is more than a diagnostic tool should cost. Increase the sampling intervals in Settings.")
-            :format(cur.samplingMsPerSec), "crit"
+        return ("This addon is measuring %.1f ms/s of its own overhead, which is more than a diagnostic tool should cost. Raise the sampling intervals, or set event monitoring to a cheaper mode, in Settings.")
+            :format(cur.totalMsPerSec), "crit"
     elseif cur.verdict == "elevated" then
-        return ("Sampling cost is %.1f ms/s, above the %.1f ms/s budget.%s")
-            :format(cur.samplingMsPerSec, WTM.db.profile.sampling.overheadBudgetMs,
+        return ("Measured overhead is %.1f ms/s, above the %.1f ms/s budget.%s")
+            :format(cur.totalMsPerSec, WTM.db.profile.sampling.overheadBudgetMs,
                     cur.throttleLevel > 0 and " Intervals have been stretched automatically." or ""), "warn"
     end
     return nil
@@ -181,7 +236,7 @@ function Overhead:OnInitialize()
 end
 
 function Overhead:OnEnable()
-    WTM.Scheduler:Register("overhead", function() Overhead:Sample() end, 2.0, 2.0, 0.9)
+    WTM.Scheduler:Register("overhead", function() Overhead:Sample() end, 2.0, 2.0, 0.9, "sampler")
     self:RegisterMessage("WTM_RESET_RUNTIME", "Reset")
 end
 

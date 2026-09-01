@@ -22,10 +22,10 @@ local MathU = WTM.Math
 local Page = UI.RegisterPage("performance", {})
 
 local GRAPHS = {
-    { key = "fps",     field = "fps",        title = "FPS",              colorIndex = 1,
+    { key = "fps",     field = "fps",        title = "FPS",              colorIndex = 1, worstIsLow = true,
       format = function(v) return ("%.0f"):format(v) end },
     { key = "frame",   field = "frameMaxMs", title = "FRAME TIME (worst per bucket)", colorIndex = 2,
-      invert = true, format = function(v) return ("%.0f ms"):format(v) end },
+      format = function(v) return ("%.0f ms"):format(v) end },
     { key = "latency", field = "latW",       title = "WORLD LATENCY",    colorIndex = 3,
       format = function(v) return ("%.0f ms"):format(v) end },
     { key = "memory",  field = "luaKB",      title = "LUA MEMORY",       colorIndex = 4,
@@ -143,8 +143,15 @@ function Page:Build(frame)
         local graph = UI.Graph(grid, {
             title = spec.title,
             valueFormat = spec.format,
-            invertBetter = spec.invert,
+            worstIsLow = spec.worstIsLow,
             minRange = 1,
+            referenceLines = (spec.key == "frame") and {
+                { value = 1000 / 60,  label = "60 fps  16.7 ms" },
+                { value = 1000 / 144, label = "144 fps  6.9 ms" },
+            } or (spec.key == "fps") and {
+                { value = 60,  label = "60 fps" },
+                { value = 144, label = "144 fps" },
+            } or nil,
         })
         graph.spec = spec
         self.graphs[i] = graph

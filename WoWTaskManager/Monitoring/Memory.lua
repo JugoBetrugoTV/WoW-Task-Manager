@@ -10,11 +10,15 @@
                                   runs on a slow interval and its cost is
                                   measured and shown to the user.
 
-    Garbage collection: WoW exposes no GC statistics at all.  What this module
-    does is watch the heap curve - a sustained drop IS a collection.  That is
-    an observation, and it is labelled as one.  The addon never calls
-    collectgarbage("collect") itself; forcing a collect is exactly the kind of
-    hitch this tool exists to find.
+    Garbage collection: WoW exposes no GC statistics at all. What this module
+    watches is the heap curve, and a sustained fall in it is an OBSERVED HEAP
+    DECREASE - which is consistent with collection activity but is not a
+    measurement of it. Something else can shrink the heap, and a collection
+    that frees little may not show at all. The wording throughout says
+    "observed decrease" and "possible collection activity" for that reason.
+
+    The addon never calls collectgarbage("collect") itself; forcing a collect is
+    exactly the kind of hitch this tool exists to find.
 ----------------------------------------------------------------------------]]
 
 local ADDON_NAME, WTM = ...
@@ -38,7 +42,9 @@ Memory.current = {
     addonScanCostMs = 0,
 }
 
-Memory.gc = {
+-- Observed heap decreases. Named `heapDrops` rather than `gc` so no caller can
+-- read it as a confirmed collection count.
+Memory.heapDrops = {
     events      = 0,
     lastAt      = nil,
     lastFreedKB = 0,
@@ -65,18 +71,19 @@ function Memory:SampleLua()
     if cur.luaStartKB == 0 then cur.luaStartKB = kb end
     if kb > cur.luaPeakKB then cur.luaPeakKB = kb end
 
-    -- A drop in the heap is a garbage collection.  There is no API that tells
-    -- us this; the curve does.
+    -- A fall in the heap is an OBSERVED DECREASE, not a confirmed collection.
+    -- No API reports collections; this is the curve, and it is labelled as an
+    -- observation everywhere it is shown.
     if previousLuaKB and (previousLuaKB - kb) >= GC_DROP_MIN_KB then
-        local gc = self.gc
+        local drops = self.heapDrops
         local freed = previousLuaKB - kb
         local now = GetTime()
-        gc.events = gc.events + 1
-        gc.lastFreedKB = freed
-        gc.totalFreedKB = gc.totalFreedKB + freed
-        if gc.lastAt then gc.intervalSum = gc.intervalSum + (now - gc.lastAt) end
-        gc.lastAt = now
-        WTM:SendMessage("WTM_GC_OBSERVED", freed)
+        drops.events = drops.events + 1
+        drops.lastFreedKB = freed
+        drops.totalFreedKB = drops.totalFreedKB + freed
+        if drops.lastAt then drops.intervalSum = drops.intervalSum + (now - drops.lastAt) end
+        drops.lastAt = now
+        WTM:SendMessage("WTM_HEAP_DECREASE_OBSERVED", freed)
     end
     previousLuaKB = kb
 
@@ -106,14 +113,15 @@ function Memory:UpdateGrowthTrend()
     self.current.growthKBPerMin = perSecond * 60
 end
 
-function Memory:GetGCSummary()
-    local gc = self.gc
-    if gc.events == 0 then
-        return "No collection observed yet in this session."
+function Memory:GetHeapDropSummary()
+    local drops = self.heapDrops
+    if drops.events == 0 then
+        return "No heap decrease observed yet this session."
     end
-    local avgInterval = gc.events > 1 and (gc.intervalSum / (gc.events - 1)) or 0
-    return ("%d collections observed, %s freed in total, roughly every %s. Derived from the heap curve - WoW exposes no GC statistics.")
-        :format(gc.events, WTM.Format.Memory(gc.totalFreedKB), WTM.Format.Duration(avgInterval))
+    local avgInterval = drops.events > 1 and (drops.intervalSum / (drops.events - 1)) or 0
+    return ("%d heap decreases observed, %s reclaimed in total, roughly every %s. %s")
+        :format(drops.events, WTM.Format.Memory(drops.totalFreedKB),
+                WTM.Format.Duration(avgInterval), WTM.C.TXT_GC_NOTE)
 end
 
 --------------------------------------------------------------------------
@@ -280,11 +288,11 @@ function Memory:OnEnable()
     local intervals = WTM.db.profile.sampling.intervals
     -- The cheap heap read rides along with the history task frequency.
     WTM.Scheduler:Register("luamem", function() Memory:SampleLua() end,
-        intervals.luamem, C.SAMPLE_DEFAULTS.luamem.burst, 0.15)
+        intervals.luamem, C.SAMPLE_DEFAULTS.luamem.burst, 0.15, "sampler")
 
     if self.addonAvailable then
         WTM.Scheduler:Register("memory", function() Memory:SampleAddons() end,
-            intervals.memory, C.SAMPLE_DEFAULTS.memory.burst, 0.6)
+            intervals.memory, C.SAMPLE_DEFAULTS.memory.burst, 0.6, "sampler")
     end
 
     self:SampleLua()
@@ -294,8 +302,8 @@ end
 function Memory:Reset()
     local cur = self.current
     cur.luaStartKB, cur.luaPeakKB, cur.growthKBPerMin = cur.luaKB, cur.luaKB, 0
-    local gc = self.gc
-    gc.events, gc.lastAt, gc.lastFreedKB, gc.totalFreedKB, gc.intervalSum = 0, nil, 0, 0, 0
+    local drops = self.heapDrops
+    drops.events, drops.lastAt, drops.lastFreedKB, drops.totalFreedKB, drops.intervalSum = 0, nil, 0, 0, 0
     previousLuaKB = nil
     self.history.lua:Reset()
     self.history.times:Reset()

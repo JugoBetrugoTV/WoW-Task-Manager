@@ -48,8 +48,19 @@ function UI.Graph(parent, opts)
     graph.showAxis = opts.showAxis ~= false
     graph.valueFormat = opts.valueFormat or function(v) return ("%.0f"):format(v) end
     graph.minRange = opts.minRange or 1
-    graph.invertBetter = opts.invertBetter   -- true when lower is better (frame time)
+    -- Which end of a bucket is the INTERESTING one when many samples collapse
+    -- into one pixel column.  For frame time, latency, CPU, events and memory
+    -- the worst value is the HIGH one, so the column keeps the maximum.  For
+    -- FPS the worst value is the LOW one, so it keeps the minimum.
+    --
+    -- Getting this backwards silently deletes every spike from the graph - a
+    -- bucket of 5 / 6 / 97 / 5 ms would render as 5 ms - so it is named for
+    -- what it does rather than for a value judgement.
+    graph.worstIsLow = opts.worstIsLow and true or false
     graph.fixedMax = opts.fixedMax
+    -- Horizontal guides at values that mean something, e.g. 16.67 ms (60 FPS).
+    -- They make "is this good" answerable at a glance without reading the axis.
+    graph.referenceLines = opts.referenceLines
     graph.dirty = true
 
     ------------------------------------------------------------------
@@ -87,6 +98,21 @@ function UI.Graph(parent, opts)
             return texture
         end,
         function(texture) texture:ClearAllPoints() end)
+
+    graph.referencePool = RegionPool.New(plot,
+        function(p)
+            local texture = p:CreateTexture(nil, "ARTWORK")
+            texture:SetHeight(1)
+            return texture
+        end,
+        function(texture) texture:ClearAllPoints() end)
+
+    graph.referenceLabels = {}
+    for i = 1, 4 do
+        local label = UI.Text(graph, "tiny", "textMuted", "LEFT")
+        label:Hide()
+        graph.referenceLabels[i] = label
+    end
 
     graph.markerPool = RegionPool.New(plot,
         function(p)
@@ -234,7 +260,7 @@ function UI.Graph(parent, opts)
 
     local scratchValues, scratchTimes = {}, {}
 
-    local function Downsample(values, times, columns, wantMin)
+    local function Downsample(values, times, columns, keepMin)
         local n = #values
         for i = #scratchValues, 1, -1 do scratchValues[i] = nil end
         for i = #scratchTimes, 1, -1 do scratchTimes[i] = nil end
@@ -256,7 +282,7 @@ function UI.Graph(parent, opts)
             local best, bestT = values[first], times and times[first] or first
             for i = first + 1, last do
                 local v = values[i]
-                if (wantMin and v < best) or (not wantMin and v > best) then
+                if (keepMin and v < best) or (not keepMin and v > best) then
                     best, bestT = v, times and times[i] or i
                 end
             end
@@ -280,6 +306,8 @@ function UI.Graph(parent, opts)
         self.columnPool:ReleaseAll()
         self.gridPool:ReleaseAll()
         self.markerPool:ReleaseAll()
+        self.referencePool:ReleaseAll()
+        for i = 1, #self.referenceLabels do self.referenceLabels[i]:Hide() end
         if self.linePool then self.linePool:ReleaseAll() end
 
         local minValue, maxValue = self:ComputeScale()
@@ -308,6 +336,32 @@ function UI.Graph(parent, opts)
         end
 
         ------------------------------------------------------------
+        -- Reference lines
+        ------------------------------------------------------------
+        if self.referenceLines and WTM.db.profile.ui.showReferenceLines then
+            local shown = 0
+            for i = 1, #self.referenceLines do
+                local reference = self.referenceLines[i]
+                local fraction = (reference.value - minValue) / range
+                if fraction >= 0.02 and fraction <= 0.98 then
+                    local line = self.referencePool:Acquire()
+                    line:SetColorTexture(T("textMuted", 0.35))
+                    line:SetPoint("LEFT", plot, "BOTTOMLEFT", 0, height * fraction)
+                    line:SetPoint("RIGHT", plot, "BOTTOMRIGHT", 0, height * fraction)
+
+                    shown = shown + 1
+                    local label = self.referenceLabels[shown]
+                    if label then
+                        label:ClearAllPoints()
+                        label:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", 3, height * fraction + 1)
+                        label:SetText(reference.label)
+                        label:Show()
+                    end
+                end
+            end
+        end
+
+        ------------------------------------------------------------
         -- Series
         ------------------------------------------------------------
         local columns = math.max(2, math.floor(width / COLUMN_WIDTH))
@@ -317,8 +371,8 @@ function UI.Graph(parent, opts)
             local series = self.series[s]
             if series.values and #series.values > 0 and not series.hidden then
                 drewAnything = true
-                local wantMin = self.invertBetter
-                local values, times = Downsample(series.values, series.times, columns, wantMin)
+                local keepMin = self.worstIsLow
+                local values, times = Downsample(series.values, series.times, columns, keepMin)
                 local count = #values
                 local r, g, b = Theme:Series(series.colorIndex)
                 local columnWidth = width / math.max(1, count - 1)
@@ -374,7 +428,7 @@ function UI.Graph(parent, opts)
                     local peakIndex, peakValue = 1, values[1]
                     for i = 2, count do
                         local v = values[i]
-                        if (wantMin and v < peakValue) or (not wantMin and v > peakValue) then
+                        if (keepMin and v < peakValue) or (not keepMin and v > peakValue) then
                             peakIndex, peakValue = i, v
                         end
                     end
@@ -529,7 +583,10 @@ end
 -- Sparkline: a tiny graph with no axis, used in the topbar
 --------------------------------------------------------------------------
 
-function UI.Sparkline(parent, colorIndex, invertBetter)
+--- `worstIsLow` follows the same rule as UI.Graph: true only for series where
+--- the low value is the bad one (FPS).  Everything else keeps its maximum so
+--- spikes survive being squeezed into a 40-pixel strip.
+function UI.Sparkline(parent, colorIndex, worstIsLow)
     local spark = CreateFrame("Frame", nil, parent)
     spark.pool = RegionPool.New(spark,
         function(p)
@@ -538,7 +595,7 @@ function UI.Sparkline(parent, colorIndex, invertBetter)
         end,
         function(texture) texture:ClearAllPoints() end)
     spark.colorIndex = colorIndex or 1
-    spark.invertBetter = invertBetter
+    spark.worstIsLow = worstIsLow and true or false
 
     --- `ring` is a WTM.RingBuffer; nothing is copied out of it.
     function spark:SetRing(ring)
@@ -575,7 +632,7 @@ function UI.Sparkline(parent, colorIndex, invertBetter)
             local best = self.ring:Get(first) or 0
             for i = first + 1, last do
                 local v = self.ring:Get(i)
-                if (self.invertBetter and v < best) or (not self.invertBetter and v > best) then
+                if (self.worstIsLow and v < best) or (not self.worstIsLow and v > best) then
                     best = v
                 end
             end

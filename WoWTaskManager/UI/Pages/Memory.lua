@@ -62,7 +62,7 @@ function Page:Build(frame)
         { key = "addons",  label = "ATTRIBUTED TO ADDONS" },
         { key = "growth",  label = "SESSION GROWTH" },
         { key = "rate",    label = "GROWTH RATE" },
-        { key = "gc",      label = "COLLECTIONS OBSERVED" },
+        { key = "gc",      label = "HEAP DECREASES OBSERVED" },
     }
     for i, spec in ipairs(specs) do
         local card = UI.MetricCard(row, { label = spec.label, height = 78, sparkHeight = 0 })
@@ -74,7 +74,7 @@ function Page:Build(frame)
     -- Heap graph
     ------------------------------------------------------------------
     self.graph = UI.Graph(frame, {
-        title = "LUA HEAP  -  drops in this curve are garbage collections",
+        title = "LUA HEAP  -  falls here are observed decreases, consistent with collection activity",
         valueFormat = function(v) return Fmt.Memory(v) end,
     })
     self.graph:SetHeight(190)
@@ -174,10 +174,11 @@ function Page:Refresh()
         mem.growthKBPerMin > WTM.db.profile.memory.growthThresholdKBPerMin and "warn" or nil)
     self.cards.rate:SetSub("least-squares slope over the retained curve")
 
-    self.cards.gc:SetValue(tostring(WTM.Memory.gc.events), "")
-    self.cards.gc:SetSub(WTM.Memory.gc.lastAt
-        and ("last %s, freed %s"):format(
-            Fmt.Ago(GetTime() - WTM.Memory.gc.lastAt), Fmt.Memory(WTM.Memory.gc.lastFreedKB))
+    self.cards.gc:SetValue(tostring(WTM.Memory.heapDrops.events), "")
+    self.cards.gc:SetSub(WTM.Memory.heapDrops.lastAt
+        and ("last %s, reclaimed %s"):format(
+            Fmt.Ago(GetTime() - WTM.Memory.heapDrops.lastAt),
+            Fmt.Memory(WTM.Memory.heapDrops.lastFreedKB))
         or "none observed yet")
 
     for _, card in pairs(self.cards) do card:Refresh() end

@@ -117,12 +117,22 @@ local function Enable()
     WTM.state.enabled = true
     WTM:SendMessage("WTM_ENABLED")
 
-    if WTM.db.profile.general.printOnLogin then
+    -- On a genuinely fresh install, say what this client can and cannot do
+    -- before the user goes looking for a feature that was never possible.
+    if WTM.Database.isFirstRun and not WTM.db.global.firstRunReportShown then
+        WTM.db.global.firstRunReportShown = true
+        WTM.Caps:PrintFirstRunReport()
+    elseif WTM.db.profile.general.printOnLogin then
         WTM:Print(("v%s ready on %s. Type |cff4c8dff/wtm|r to open. Library backend: %s.")
             :format(C.VERSION, Compat:GetClientLabel(), Ace.Describe()))
         if not WTM.Caps.cpuProfiling then
-            WTM:Print("CPU profiling is off - addon CPU figures are unavailable. |cff4c8dff/wtm profiling|r to enable.")
+            WTM:Print("Addon CPU profiling is off, so per-addon CPU is unavailable. Everything else works. |cff4c8dff/wtm profiling|r to enable it.")
         end
+    end
+
+    local schemaNote, schemaTone = WTM.Database:DescribeSchema()
+    if schemaTone == "crit" then
+        WTM:Print("|cfff0533f" .. schemaNote .. "|r")
     end
 end
 
@@ -201,6 +211,8 @@ commands["profiling"] = function()
     WTM.Caps:ToggleCPUProfiling()
 end
 
+commands["incidents"]   = function() OpenPage("incidents") end
+
 commands["reset"] = function()
     WTM.Database:ResetRuntime()
     WTM:Print("Runtime counters reset.")
@@ -215,6 +227,14 @@ commands["caps"] = function()
     WTM.Caps:PrintReport()
 end
 
+commands["dev"] = function(rest)
+    WTM.Dev:HandleCommand(rest)
+end
+
+commands["benchmark"] = function(rest)
+    WTM.Dev:Benchmark(rest)
+end
+
 commands["help"] = function()
     WTM:Print("Commands:")
     WTM:Print("  |cff4c8dff/wtm|r                open the window")
@@ -224,13 +244,17 @@ commands["help"] = function()
     WTM:Print("  |cff4c8dff/wtm caps|r           print the runtime capability report")
     WTM:Print("  |cff4c8dff/wtm overhead|r       print this addon's own cost")
     WTM:Print("  |cff4c8dff/wtm reset|r          reset runtime counters")
+    WTM:Print("  |cff4c8dff/wtm dev|r             developer tools (injection is always marked SIMULATED)")
+    WTM:Print("  |cff4c8dff/wtm benchmark [s]|r   measure this addon's own overhead and report it")
 end
 
 local function HandleSlash(_, input)
-    local cmd = (input or ""):lower():match("^%s*(%S*)") or ""
+    input = input or ""
+    local cmd, rest = input:match("^%s*(%S*)%s*(.*)$")
+    cmd = (cmd or ""):lower()
     local handler = commands[cmd]
     if handler then
-        handler()
+        handler(rest)
     else
         WTM:Print(("Unknown command '%s'."):format(cmd))
         commands["help"]()

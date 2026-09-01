@@ -80,7 +80,7 @@ function Sessions:UpdateSummary()
     session.luaStartKB = mem.luaStartKB
     session.luaEndKB   = mem.luaKB
     session.luaPeakKB  = mem.luaPeakKB
-    session.gcEvents   = WTM.Memory.gc.events
+    session.heapDrops  = WTM.Memory.heapDrops.events
 
     session.eventTotal    = WTM.Events.current.total
     session.eventPeakRate = WTM.Events.current.peakPerSecond
@@ -247,7 +247,7 @@ function Sessions:OnEnable()
     self:Begin()
     -- Refresh the summary periodically so a disconnect or crash still leaves
     -- a usable record behind, not just an empty stub.
-    WTM.Scheduler:Register("session", function() Sessions:UpdateSummary() end, 30, 30, 0.95)
+    WTM.Scheduler:Register("session", function() Sessions:UpdateSummary() end, 30, 30, 0.95, "sampler")
 end
 
 function Sessions:OnDisable()

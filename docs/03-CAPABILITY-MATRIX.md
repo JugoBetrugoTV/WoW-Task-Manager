@@ -4,6 +4,11 @@ Legende:
 `✓` verfügbar · `◐` eingeschränkt/heuristisch · `⚙` nur mit `scriptProfile=1` (+ Reload)
 · `✕` nicht möglich
 
+> **Verifikationsstand:** Jede Zeile unten ist der *Erwartungswert*, abgeleitet
+> aus der API-Dokumentation und im Mock geprüft — also **MOCK VERIFIED**.
+> **Keine Zeile ist bisher REAL CLIENT VERIFIED.** Maßgeblich ist immer die
+> Laufzeitprüfung im Spiel; siehe [`07-API-VERIFICATION.md`](07-API-VERIFICATION.md).
+
 Diese Matrix ist **nicht nur Dokumentation** — sie wird zur Laufzeit von
 `Core/Capabilities.lua` durch echte Feature-Detection erzeugt und ist im Addon unter
 *Settings → Capabilities* einsehbar. Die Tabelle hier ist der Erwartungswert; maßgeblich

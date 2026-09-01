@@ -12,8 +12,12 @@ WTM.C = C
 C.ADDON_NAME    = ADDON_NAME
 C.ADDON_TITLE   = "WoW Task Manager"
 C.ADDON_SHORT   = "WTM"
-C.VERSION       = "0.1.0"
-C.DB_VERSION    = 1
+C.VERSION       = "0.2.0"
+
+-- SavedVariables schema version.  Bump this whenever the stored shape changes
+-- and add a migration step in Core/Database.lua; never reinterpret old data in
+-- place without one.
+C.SCHEMA_VERSION = 2
 
 --------------------------------------------------------------------------
 -- Spike classification
@@ -38,6 +42,47 @@ C.SPIKE_ORDER = { freeze = 4, heavy = 3, stutter = 2, minor = 1 }
 -- of equal or lower severity.  A 400 ms freeze must produce one incident, not
 -- four.
 C.SPIKE_DEBOUNCE_SEC = 1.5
+
+--------------------------------------------------------------------------
+-- Incident coalescing
+--------------------------------------------------------------------------
+-- A stutter is rarely one bad frame.  Spikes arriving within this window are
+-- folded into one "stutter cluster" carrying the peak, the duration and how
+-- many frames were affected, instead of producing a wall of near-identical
+-- incidents.
+
+C.CLUSTER_WINDOW_SEC   = 2.0    -- a spike this soon after the last joins it
+C.CLUSTER_MAX_SPAN_SEC = 10.0   -- a cluster is closed once it has run this long
+C.CLUSTER_MIN_FRAMES   = 2      -- below this it is reported as a single spike
+
+--------------------------------------------------------------------------
+-- False positive suppression
+--------------------------------------------------------------------------
+-- Frame times during a loading screen, the first seconds after login, a
+-- /reload or a zone change are not stutter in any sense the user cares about.
+-- They are recorded and counted, but as SUPPRESSED rather than as freezes.
+
+C.WARMUP_LOGIN_SEC   = 12   -- after an initial login
+C.WARMUP_RELOAD_SEC  = 8    -- after /reload
+C.WARMUP_ZONE_SEC    = 5    -- after a zone change or loading screen ends
+C.WARMUP_COMBAT_SEC  = 0    -- combat is NOT warmed up; those spikes matter most
+
+C.SUPPRESSION_REASONS = {
+    loading  = "Loading screen",
+    warmup   = "Warm-up after loading",
+    login    = "Initial login",
+    reload   = "UI reload",
+    zone     = "Zone change",
+    background = "Client likely in the background",
+    disabled = "Spike detection disabled",
+}
+
+-- Background/alt-tab detection is a heuristic, not an API.  When maxFPSBk is
+-- set, a backgrounded client renders at roughly that cap; if recent frames sit
+-- near 1000/maxFPSBk for a sustained stretch we treat it as probably
+-- backgrounded and label it as a guess wherever it is shown.
+C.BACKGROUND_TOLERANCE   = 0.25   -- +/- 25% of the expected background frame time
+C.BACKGROUND_MIN_SAMPLES = 3      -- consecutive samples before believing it
 
 --------------------------------------------------------------------------
 -- Sampling
@@ -99,6 +144,21 @@ C.BUCKET_FIELDS = { "t", "fps", "frameAvgMs", "frameMaxMs", "latH", "latW", "lua
 --------------------------------------------------------------------------
 -- Event monitoring
 --------------------------------------------------------------------------
+-- RegisterAllEvents is genuinely not free in a raid, so the depth of event
+-- monitoring is a user choice rather than a fixed cost.
+--
+--   OFF       no listener is registered at all
+--   NORMAL    counts and rates only - the cheap handler
+--   DETAILED  additionally tracks per-event CPU (needs scriptProfile) and
+--             keeps a short per-event history for the storm analyser
+
+C.EVENT_MODES = { "OFF", "NORMAL", "DETAILED" }
+C.EVENT_MODE_LABELS = {
+    OFF      = "Off - no event listener is registered",
+    NORMAL   = "Normal - counts and rates only",
+    DETAILED = "Detailed - adds per-event CPU and storm history",
+}
+C.EVENT_DETAIL_HISTORY = 60   -- per-event rate samples kept in DETAILED mode
 
 C.EVENT_STORM_MIN_RATE   = 40    -- ignore anything quieter than this
 C.EVENT_STORM_MULTIPLIER = 4.0   -- current rate vs. rolling baseline
@@ -143,6 +203,7 @@ C.MEM_GROWTH_KB_PER_MIN = 512   -- 0.5 MB/min sustained is worth a look
 --------------------------------------------------------------------------
 
 C.MAX_SESSIONS       = 25
+C.MAX_CLUSTERS       = 200
 C.MAX_SAVED_INCIDENTS = 20
 C.MAX_BUCKETS_PER_SESSION = 4000
 C.MAX_TOP_LISTS      = 10
@@ -208,3 +269,27 @@ C.TXT_COMBAT_BLOCKED      = "Unavailable during combat"
 C.TXT_COMBAT_QUEUED       = "Queued until combat ends"
 C.TXT_HEURISTIC           = "heuristic"
 C.TXT_INSUFFICIENT        = "Insufficient data"
+C.TXT_SUPPRESSED          = "Suppressed"
+C.TXT_SIMULATED           = "SIMULATED"
+
+--------------------------------------------------------------------------
+-- Wording rules
+--------------------------------------------------------------------------
+-- Centralised so the caution is consistent and testable rather than being
+-- retyped (and softened) at each call site.
+
+-- GetAddOnCPUUsage is CUMULATIVE. A delta measured over a ~1.4 s sampling
+-- window cannot be attributed to one 84 ms frame inside it, so CPU figures
+-- attached to a spike are always phrased as "within the observation window".
+C.TXT_CPU_WINDOW_NOTE =
+    "Addon CPU is cumulative and sampled on an interval. These figures are the CPU used " ..
+    "across the whole observation window, not within the spiking frame - the API cannot " ..
+    "attribute CPU to a single frame."
+
+C.TXT_PHI_NOTE =
+    "Phi is a measure of association between two yes/no observations across many samples. " ..
+    "It is NOT a probability: phi 0.67 does not mean 67% likely, and it never demonstrates cause."
+
+C.TXT_GC_NOTE =
+    "WoW exposes no garbage collection statistics. A fall in the Lua heap is an observed " ..
+    "decrease, which is consistent with collection activity but is not a measurement of it."

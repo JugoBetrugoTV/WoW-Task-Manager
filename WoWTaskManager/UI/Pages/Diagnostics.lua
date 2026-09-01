@@ -146,12 +146,14 @@ function Page:Build(frame)
             UI.TooltipClear(self.entry.title)
             UI.TooltipLine("Strength", self.entry.label, nil, self.entry.tone)
             UI.TooltipLine("Phi coefficient", ("%.3f"):format(self.entry.phi))
+            UI.TooltipLine("Range", "-1 to 1, association between two yes/no observations")
             UI.TooltipLine("Elevated during", ("%d of %d spikes"):format(self.entry.hits, self.entry.spikes))
             UI.TooltipLine("Average excess CPU", ("%+.2f %%"):format(self.entry.avgExcess))
             UI.TooltipLine("Peak excess CPU", ("%+.2f %%"):format(self.entry.peakExcess))
             UI.TooltipLine("", "")
             UI.TooltipLine(self.entry.explanation, nil, "muted")
-            UI.TooltipLine("A correlation is not a cause. Several addons react to the same events, and a spike can come from outside Lua entirely.", nil, "muted")
+            UI.TooltipLine(C.TXT_PHI_NOTE, nil, "muted")
+            UI.TooltipLine("Several addons react to the same events, and a spike can come from outside Lua entirely.", nil, "muted")
             UI.TooltipShow(self)
         end)
         row:SetScript("OnLeave", UI.HideTooltip)
@@ -204,8 +206,11 @@ function Page:Refresh()
             row.name:SetText(Fmt.Truncate(entry.title, 24))
             row.label:SetText(entry.label)
             row.label:SetTextColor(Theme:Tone(entry.tone))
-            row.bar:SetValue(entry.phi, entry.tone)
-            row.pct:SetText(("%.0f %%"):format(entry.percent))
+            row.bar:SetValue(entry.barFraction or entry.phi, entry.tone)
+            -- Shown as a coefficient, never as a percentage: phi 0.67 is not
+            -- "67% likely" and rendering it with a % sign invites exactly that
+            -- misreading.
+            row.pct:SetText(("phi %.2f"):format(entry.phi))
         end
     end
 

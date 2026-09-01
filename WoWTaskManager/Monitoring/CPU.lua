@@ -245,7 +245,7 @@ function CPU:OnEnable()
     if not self.available then return end
     local intervals = WTM.db.profile.sampling.intervals
     WTM.Scheduler:Register("cpu", function() CPU:Sample() end,
-        intervals.cpu, C.SAMPLE_DEFAULTS.cpu.burst, 0.45)
+        intervals.cpu, C.SAMPLE_DEFAULTS.cpu.burst, 0.45, "sampler")
     lastSampleTime = GetTime()
     self:RegisterMessage("WTM_RESET_RUNTIME", "Reset")
 end

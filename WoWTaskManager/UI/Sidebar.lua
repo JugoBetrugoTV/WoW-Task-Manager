@@ -25,6 +25,7 @@ local NAV = {
     { key = "dashboard",   label = "Dashboard" },
     { key = "processes",   label = "Processes" },
     { key = "performance", label = "Performance" },
+    { key = "incidents",   label = "Incidents" },
     { key = "timeline",    label = "Timeline" },
     { key = "events",      label = "Events" },
     { key = "memory",      label = "Memory" },
@@ -172,6 +173,8 @@ function Sidebar:Refresh()
         end
     end
 
+    badge("incidents", #WTM.SpikeDetector.clusters + (WTM.SpikeDetector:GetOpenCluster() and 1 or 0),
+        spikes > 0 and "warn" or nil)
     badge("timeline", spikes, spikes > 0 and "warn" or nil)
     badge("events", storms, storms > 0 and "warn" or nil)
     badge("sessions", #WTM.db.global.sessions)

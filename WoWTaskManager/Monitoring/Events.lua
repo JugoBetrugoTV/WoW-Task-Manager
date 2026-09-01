@@ -13,8 +13,16 @@
     creation.  Everything derived (rates, baselines, storms) happens once per
     second in the sampling task, not per event.
 
-    It is also switchable: profile.events.enabled turns the whole thing off,
-    including the RegisterAllEvents subscription.
+    It is switchable, because the right amount of event monitoring depends on
+    what you are doing:
+
+        OFF       no listener registered at all - zero cost, no event data
+        NORMAL    counts and rates only, the cheap handler above
+        DETAILED  additionally keeps a short per-event rate history and reads
+                  per-event handler CPU (which needs scriptProfile)
+
+    The measured cost of whichever mode is active is reported on the dashboard
+    under Overhead, so the trade is visible rather than assumed.
 ----------------------------------------------------------------------------]]
 
 local ADDON_NAME, WTM = ...
@@ -40,6 +48,14 @@ local lastSeen   = {}   -- event -> GetTime()
 local tracked    = {}   -- array of event names, insertion ordered
 local trackedSet = {}
 
+-- Events whose counts were injected by Core/Dev.lua since the last sample.
+-- A storm detected from injected traffic has to carry the flag through to the
+-- sample that actually creates it, not just the call that fed the counter.
+local injectedEvents = {}
+
+local detail     = {}   -- event -> RingBuffer of recent rates (DETAILED only)
+local eventCPU   = {}   -- event -> { ms, calls } sampled in DETAILED mode
+
 local windowTotal   = 0
 local sessionTotal  = 0
 local distinctCount = 0
@@ -53,6 +69,7 @@ Events.current = {
 
 Events.history = nil      -- RingBuffer of events/sec
 Events.storms  = {}       -- detected storms, bounded
+Events.mode    = "NORMAL"
 
 local MAX_STORMS = 50
 
@@ -110,6 +127,7 @@ function Events:Sample(delta)
 
     local stormMultiplier = WTM.db.profile.events.stormMultiplier
     local stormMinRate    = WTM.db.profile.events.stormMinRate
+    local detailed        = (self.mode == "DETAILED")
 
     for i = 1, distinctCount do
         local event = tracked[i]
@@ -127,6 +145,15 @@ function Events:Sample(delta)
             end
             baselines[event] = MathU.EMA(baseline, rate, C.EVENT_BASELINE_ALPHA)
 
+            if detailed then
+                local ring = detail[event]
+                if not ring then
+                    ring = Ring.New(C.EVENT_DETAIL_HISTORY)
+                    detail[event] = ring
+                end
+                ring:Push(rate)
+            end
+
             counts[event] = 0
         else
             rates[event] = 0
@@ -135,6 +162,48 @@ function Events:Sample(delta)
     end
 
     windowTotal = 0
+    -- Injection flags only apply to the window they were fed into.
+    for k in pairs(injectedEvents) do injectedEvents[k] = nil end
+
+    -- Per-event handler CPU is only read in DETAILED mode: it is one API call
+    -- per tracked event, which is not something to do every second by default.
+    if detailed and WTM.CPU.available then
+        self:SampleEventCPU()
+    end
+end
+
+--- Reads GetEventCPUUsage for the busiest events.
+---
+--- This is total handler time across EVERY addon listening for that event; the
+--- API does not break it down per addon and this module does not pretend to.
+function Events:SampleEventCPU()
+    local top = self:GetTopEventNames(20, self._cpuProbe or {})
+    self._cpuProbe = top
+    for i = 1, #top do
+        local event = top[i]
+        local ms, calls = WTM.CPU:GetEventCPU(event)
+        if ms then
+            local entry = eventCPU[event]
+            if not entry then
+                entry = { ms = 0, calls = 0, deltaMs = 0 }
+                eventCPU[event] = entry
+            end
+            entry.deltaMs = math.max(0, ms - entry.ms)
+            entry.ms, entry.calls = ms, calls or 0
+        end
+    end
+end
+
+--- Cumulative handler CPU for an event, or nil when it was never sampled.
+function Events:GetEventCPU(event)
+    local entry = eventCPU[event]
+    if not entry then return nil end
+    return entry.ms, entry.calls, entry.deltaMs
+end
+
+--- Recent rate history for one event; DETAILED mode only.
+function Events:GetDetailHistory(event)
+    return detail[event]
 end
 
 --------------------------------------------------------------------------
@@ -155,6 +224,7 @@ function Events:OnStorm(event, rate, baseline)
 
     storm = {
         event    = event,
+        simulated = injectedEvents[event] or nil,
         startedAt = now,
         endedAt  = now,
         baseline = baseline,
@@ -284,6 +354,66 @@ function Events:StartCapture()
     return true
 end
 
+--------------------------------------------------------------------------
+-- Mode
+--------------------------------------------------------------------------
+
+--- Applies OFF / NORMAL / DETAILED.  Returns the mode actually in effect,
+--- which can differ from the one requested when the client cannot support it.
+function Events:SetMode(mode)
+    if mode ~= "OFF" and mode ~= "NORMAL" and mode ~= "DETAILED" then
+        mode = "NORMAL"
+    end
+
+    if not self.available and mode ~= "OFF" then
+        -- The client refused RegisterAllEvents; say so instead of pretending
+        -- the mode took effect.
+        self.mode = "OFF"
+        WTM.db.profile.events.mode = mode
+        return "OFF", self.reason or C.TXT_UNAVAILABLE_CLIENT
+    end
+
+    self.mode = mode
+    WTM.db.profile.events.mode = mode
+
+    if mode == "OFF" then
+        self:StopCapture()
+        WTM.Scheduler:SetEnabled("events", false)
+    else
+        local ok, err = self:StartCapture()
+        if not ok then
+            self.mode = "OFF"
+            return "OFF", err
+        end
+        WTM.Scheduler:SetEnabled("events", true)
+    end
+
+    if mode ~= "DETAILED" then
+        -- Release the per-event history rather than leaving it to age.
+        for k in pairs(detail) do detail[k] = nil end
+        for k in pairs(eventCPU) do eventCPU[k] = nil end
+    end
+
+    WTM:SendMessage("WTM_EVENT_MODE_CHANGED", self.mode)
+    return self.mode
+end
+
+function Events:GetMode() return self.mode end
+
+--- What DETAILED adds over NORMAL on THIS client, stated honestly.
+function Events:DescribeMode()
+    if self.mode == "OFF" then
+        return "No event listener is registered. Event rates, storms and per-event CPU are all unavailable."
+    end
+    if self.mode == "NORMAL" then
+        return "Counting events and computing rates. Per-event handler CPU and rate history are not collected."
+    end
+    if not WTM.CPU.available then
+        return "Collecting per-event rate history. Per-event CPU also needs the scriptProfile CVar, which is off, so that column stays empty."
+    end
+    return "Collecting per-event rate history and reading per-event handler CPU across all addons."
+end
+
 function Events:StopCapture()
     if not capturing then return end
     pcall(listener.UnregisterAllEvents, listener)
@@ -292,6 +422,28 @@ function Events:StopCapture()
 end
 
 function Events:IsCapturing() return capturing end
+
+--------------------------------------------------------------------------
+-- Test injection
+--------------------------------------------------------------------------
+
+--- Feeds `count` occurrences of `event` into the counters, as if the client
+--- had fired them.
+---
+--- Used only by Core/Dev.lua. There is no API to make the client fire events on
+--- demand, so the counter is fed directly - and any storm this produces is
+--- flagged `simulated` so it can never be mistaken for observed traffic.
+function Events:InjectForTesting(event, count)
+    if not capturing then return false end
+    count = tonumber(count) or 0
+    if count <= 0 then return false end
+
+    injectedEvents[event] = true
+    for _ = 1, count do
+        OnAnyEvent(listener, event)
+    end
+    return true
+end
 
 --------------------------------------------------------------------------
 -- Lifecycle
@@ -303,23 +455,16 @@ function Events:OnInitialize()
 end
 
 function Events:OnEnable()
-    if not self.available then return end
-    if not WTM.db.profile.events.enabled then return end
-
-    local ok, err = self:StartCapture()
-    if not ok then
-        self.available = false
-        self.reason = err
-        return
-    end
-
+    -- The task is always registered so the mode can be switched at runtime
+    -- without a reload; SetMode enables or disables it.
     local intervals = WTM.db.profile.sampling.intervals
     WTM.Scheduler:Register("events", function(delta)
         Events:Sample(delta)
         Events:ExpireStorms()
-    end, intervals.events, C.SAMPLE_DEFAULTS.events.burst, 0.75)
+    end, intervals.events, C.SAMPLE_DEFAULTS.events.burst, 0.75, "events")
 
     self:RegisterMessage("WTM_RESET_RUNTIME", "Reset")
+    self:SetMode(WTM.db.profile.events.mode or "NORMAL")
 end
 
 function Events:OnDisable()
@@ -337,5 +482,8 @@ function Events:Reset()
     cur.perSecond, cur.peakPerSecond, cur.total = 0, 0, 0
     for i = #self.storms, 1, -1 do self.storms[i] = nil end
     for k in pairs(activeStorms) do activeStorms[k] = nil end
+    for k in pairs(detail) do detail[k] = nil end
+    for k in pairs(eventCPU) do eventCPU[k] = nil end
+    for k in pairs(injectedEvents) do injectedEvents[k] = nil end
     self.history:Reset()
 end

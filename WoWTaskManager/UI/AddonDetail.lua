@@ -25,14 +25,19 @@ local Compat = WTM.Compat
 local Detail = {}
 UI.AddonDetail = Detail
 
+-- Eight tabs, and none of them may be blank. Where a measurement is not
+-- available on this client, or needs the scriptProfile CVar, the panel says
+-- "Unavailable" and gives the reason - an empty panel reads as a bug, an
+-- explained one reads as a limitation, and the second is the truth.
 local TABS = {
     { key = "overview",     label = "Overview" },
-    { key = "performance",  label = "Performance" },
+    { key = "cpu",          label = "CPU" },
     { key = "memory",       label = "Memory" },
+    { key = "history",      label = "History" },
     { key = "events",       label = "Events" },
     { key = "dependencies", label = "Dependencies" },
-    { key = "history",      label = "History" },
     { key = "diagnostics",  label = "Diagnostics" },
+    { key = "metadata",     label = "Metadata" },
 }
 
 --------------------------------------------------------------------------
@@ -122,12 +127,13 @@ function Detail:Build()
     end
 
     self:BuildOverview(self.panels.overview)
-    self:BuildPerformance(self.panels.performance)
+    self:BuildPerformance(self.panels.cpu)
     self:BuildMemory(self.panels.memory)
     self:BuildEvents(self.panels.events)
     self:BuildDependencies(self.panels.dependencies)
     self:BuildHistory(self.panels.history)
     self:BuildDiagnostics(self.panels.diagnostics)
+    self:BuildMetadata(self.panels.metadata)
 
     ------------------------------------------------------------------
     -- Control bar
@@ -229,7 +235,6 @@ function Detail:BuildPerformance(panel)
     self.cpuGraph = UI.Graph(panel, {
         title = "CPU USAGE (% of one core)",
         valueFormat = function(v) return ("%.2f"):format(v) end,
-        invertBetter = false,
     })
     self.cpuGraph:SetPoint("TOPLEFT")
     self.cpuGraph:SetPoint("TOPRIGHT")
@@ -244,6 +249,17 @@ function Detail:BuildPerformance(panel)
         row:SetPoint("TOPLEFT", self.cpuGraph, "BOTTOMLEFT", 0, -12 - (row.rowIndex - 1) * 18)
         row:SetWidth(340)
     end
+
+    self.perfUnavailable = UI.NoticePanel(panel,
+        "Addon CPU is unavailable", "", "Enable profiling", function()
+            local ok, err = WTM.Caps:SetCPUProfiling(true)
+            WTM:Print(ok and "CPU profiling will be ON after the next /reload."
+                or ("Could not enable CPU profiling: " .. tostring(err)))
+            Detail:Refresh()
+        end, "warn")
+    self.perfUnavailable:SetPoint("TOPLEFT")
+    self.perfUnavailable:SetPoint("TOPRIGHT")
+    self.perfUnavailable:Hide()
 
     self.perfNotice = UI.Text(panel, "small", "textMuted")
     self.perfNotice:SetPoint("TOPLEFT", self.cpuGraph, "BOTTOMLEFT", 360, -12)
@@ -353,6 +369,80 @@ function Detail:BuildHistory(panel)
     end
 end
 
+--- Everything the TOC and the addon API expose about this addon, with the
+--- fields it did NOT declare listed as "not declared" rather than omitted -
+--- a missing Version is itself worth seeing.
+function Detail:BuildMetadata(panel)
+    self.metadataRows = {}
+    local FIELDS = {
+        "Folder name", "Title", "Version", "Author", "Notes",
+        "Interface", "X-Category", "X-Website", "X-License", "X-Curse-Project-ID",
+        "SavedVariables", "SavedVariablesPerCharacter",
+        "LoadOnDemand", "LoadWith", "Dependencies", "OptionalDeps",
+        "Security", "Load state", "Load failure reason", "Addon index",
+    }
+    for i, label in ipairs(FIELDS) do
+        local row = UI.StatRow(panel, label)
+        row:SetPoint("TOPLEFT", 0, -(i - 1) * 17)
+        row:SetPoint("TOPRIGHT", 0, -(i - 1) * 17)
+        self.metadataRows[label] = row
+        row.fieldIndex = i
+    end
+
+    panel.note = UI.Text(panel, "tiny", "textMuted")
+    panel.note:SetPoint("BOTTOMLEFT")
+    panel.note:SetPoint("BOTTOMRIGHT")
+    panel.note:SetJustifyH("LEFT")
+    panel.note:SetWordWrap(true)
+    panel.note:SetText("Read with GetAddOnMetadata, which returns only fields the addon actually declared in its .toc. \"not declared\" means the field is absent from the TOC, not that this tool could not read it.")
+    self.metadataNote = panel.note
+end
+
+--- TOC fields are read on demand; there is no reason to poll them.
+local META_TOC_FIELDS = {
+    ["Title"] = "Title", ["Version"] = "Version", ["Author"] = "Author",
+    ["Notes"] = "Notes", ["X-Category"] = "X-Category",
+    ["X-Website"] = "X-Website", ["X-License"] = "X-License",
+    ["X-Curse-Project-ID"] = "X-Curse-Project-ID",
+    ["SavedVariables"] = "SavedVariables",
+    ["SavedVariablesPerCharacter"] = "SavedVariablesPerCharacter",
+    ["LoadWith"] = "LoadWith",
+}
+
+function Detail:RefreshMetadata()
+    local record = self.record
+    local rows = self.metadataRows
+    local function set(key, value, tone)
+        local row = rows[key]
+        if not row then return end
+        if value == nil or value == "" then
+            row:Set("not declared", "muted")
+        else
+            row:Set(Fmt.Truncate(Fmt.StripColors(tostring(value)), 46), tone)
+        end
+    end
+
+    set("Folder name", record.name)
+    for label, field in pairs(META_TOC_FIELDS) do
+        set(label, Compat.GetAddOnMetadata(record.index, field))
+    end
+
+    set("Interface", Compat.GetAddOnMetadata(record.index, "Interface")
+        or ("not declared (client is %d)"):format(Compat.tocVersion))
+
+    local deps = record.deps or {}
+    set("Dependencies", #deps > 0 and table.concat(deps, ", ") or nil)
+    local optional = record.optDeps or {}
+    set("OptionalDeps", #optional > 0 and table.concat(optional, ", ") or nil)
+
+    set("LoadOnDemand", record.lod and "yes" or "no")
+    set("Security", record.security)
+    set("Load state", record.loaded and "loaded" or "not loaded",
+        record.loaded and nil or "muted")
+    set("Load failure reason", record.reason, record.reason and "warn" or nil)
+    set("Addon index", tostring(record.index))
+end
+
 function Detail:BuildDiagnostics(panel)
     panel.body = UI.Text(panel, "small", "textSecondary")
     panel.body:SetPoint("TOPLEFT")
@@ -373,7 +463,8 @@ function Detail:Open(record)
     WTM.Processes.EnsureRings(record)
     self.scrim:Show()
     self.frame:Show()
-    self.tabStrip:Select(self.currentTab or "overview")
+    if not self.panels[self.currentTab or ""] then self.currentTab = "overview" end
+    self.tabStrip:Select(self.currentTab)
     self:Refresh()
 end
 
@@ -472,7 +563,8 @@ function Detail:Refresh()
     ------------------------------------------------------------------
     local tab = self.currentTab or "overview"
     if tab == "overview" then self:RefreshOverview()
-    elseif tab == "performance" then self:RefreshPerformance()
+    elseif tab == "cpu" then self:RefreshPerformance()
+    elseif tab == "metadata" then self:RefreshMetadata()
     elseif tab == "memory" then self:RefreshMemory()
     elseif tab == "events" then self:RefreshEvents()
     elseif tab == "dependencies" then self:RefreshDependencies()
@@ -547,13 +639,16 @@ function Detail:RefreshPerformance()
     end
 
     if not WTM.CPU.available then
-        self.cpuGraph:ClearSeries()
-        self.cpuGraph:SetTitle("CPU USAGE   -   " .. (WTM.CPU.reason or C.TXT_REQUIRES_PROFILING))
-        for _, row in pairs(rows) do row:Set("-", "muted") end
-        self.perfNotice:SetText(
-            "Per-addon CPU time comes from the client's own Lua profiler, enabled with the scriptProfile CVar and a reload.\n\nWithout it, GetAddOnCPUUsage returns zero for every addon. Nothing on this tab is estimated in the meantime - a fabricated number would be worse than an empty one.")
+        self.cpuGraph:Hide()
+        self.perfUnavailable:Show()
+        self.perfUnavailable:SetMessage(
+            "Per-addon CPU comes from the client's own Lua profiler, enabled with the scriptProfile CVar and a reload. Without it GetAddOnCPUUsage returns zero for every addon, so nothing on this tab is estimated in the meantime - a fabricated number would be worse than an empty one. Memory, events, dependencies and metadata all work regardless.")
+        for _, row in pairs(rows) do row:Set(C.TXT_UNAVAILABLE_CLIENT, "muted") end
+        self.perfNotice:SetText("")
         return
     end
+    self.cpuGraph:Show()
+    self.perfUnavailable:Hide()
 
     self.cpuGraph:SetTitle("CPU USAGE (% of one core)")
     self.cpuValues = self.cpuValues or {}
@@ -619,6 +714,21 @@ end
 function Detail:RefreshEvents()
     local record = self.record
     local hasScanned = WTM.Processes.attribution.lastScanAt > 0
+
+    if WTM.Events:GetMode() == "OFF" then
+        self.eventsNote:SetText(
+            "Event monitoring is switched OFF, so no events have been observed and there is nothing to attribute.\n\nSet it to NORMAL or DETAILED in Settings.")
+        for _, row in ipairs(self.eventRows) do row:Hide() end
+        return
+    end
+
+    if not WTM.Caps:Has("eventToAddon") then
+        self.eventsNote:SetText(
+            ("Event attribution is unavailable on this client: %s.")
+            :format(WTM.Caps:Note("eventToAddon") or C.TXT_UNAVAILABLE_CLIENT))
+        for _, row in ipairs(self.eventRows) do row:Hide() end
+        return
+    end
 
     if not hasScanned then
         self.eventsNote:SetText(
@@ -713,9 +823,14 @@ function Detail:RefreshHistory()
     local record = self.record
     local sessions = WTM.db.global.sessions
 
-    self.historyNote:SetText(
-        ("Per-addon figures from the last %d saved sessions. Sessions recorded while CPU profiling was off have no CPU row.")
-        :format(#sessions))
+    if #sessions == 0 then
+        self.historyNote:SetText(
+            "No previous sessions have been saved yet. A session is stored at logout once it has run for at least 30 seconds, so this fills in from your next play session onwards.")
+    else
+        self.historyNote:SetText(
+            ("Per-addon figures from the last %d saved session%s. Sessions recorded while CPU profiling was off have no CPU row.")
+            :format(#sessions, #sessions == 1 and "" or "s"))
+    end
 
     local shown = 0
     for i = 1, #sessions do

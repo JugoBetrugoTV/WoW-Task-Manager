@@ -40,12 +40,15 @@ end
 --------------------------------------------------------------------------
 
 local TOPBAR_METRICS = {
-    { key = "fps",     label = "FPS",       colorIndex = 1 },
-    { key = "frame",   label = "FRAME",     colorIndex = 2, invert = true },
-    { key = "latency", label = "WORLD",     colorIndex = 3, invert = true },
-    { key = "memory",  label = "LUA MEM",   colorIndex = 4, invert = true },
-    { key = "cpu",     label = "ADDON CPU", colorIndex = 5, invert = true },
-    { key = "events",  label = "EVENTS",    colorIndex = 6, invert = true },
+    -- worstIsLow marks the series whose BAD value is the low one.  Only FPS
+    -- qualifies; for everything else the spike is the high value, so the
+    -- sparkline must keep the maximum of each column or it erases them.
+    { key = "fps",     label = "FPS",       colorIndex = 1, worstIsLow = true },
+    { key = "frame",   label = "FRAME",     colorIndex = 2 },
+    { key = "latency", label = "WORLD",     colorIndex = 3 },
+    { key = "memory",  label = "LUA MEM",   colorIndex = 4 },
+    { key = "cpu",     label = "ADDON CPU", colorIndex = 5 },
+    { key = "events",  label = "EVENTS",    colorIndex = 6 },
 }
 
 local function BuildTopbar(window)
@@ -110,7 +113,7 @@ local function BuildTopbar(window)
         cell.value = UI.Text(cell, "numeric", "textPrimary")
         cell.value:SetPoint("TOPLEFT", cell.label, "BOTTOMLEFT", 0, -1)
 
-        cell.spark = UI.Sparkline(cell, spec.colorIndex, spec.invert)
+        cell.spark = UI.Sparkline(cell, spec.colorIndex, spec.worstIsLow)
         cell.spark:SetPoint("BOTTOMLEFT")
         cell.spark:SetPoint("BOTTOMRIGHT")
         cell.spark:SetHeight(10)
@@ -358,6 +361,6 @@ end
 
 function MainWindow:OnEnable()
     WTM.Scheduler:Register("ui", function() MainWindow:Refresh() end,
-        WTM.db.profile.sampling.intervals.ui, C.SAMPLE_DEFAULTS.ui.burst, 0.05)
+        WTM.db.profile.sampling.intervals.ui, C.SAMPLE_DEFAULTS.ui.burst, 0.05, "ui")
     WTM.Scheduler:SetEnabled("ui", false)
 end

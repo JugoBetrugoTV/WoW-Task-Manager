@@ -103,7 +103,7 @@ function Network:OnEnable()
     if not self.available then return end
     local intervals = WTM.db.profile.sampling.intervals
     WTM.Scheduler:Register("network", function() Network:Sample() end,
-        intervals.network, C.SAMPLE_DEFAULTS.network.burst, 0.3)
+        intervals.network, C.SAMPLE_DEFAULTS.network.burst, 0.3, "sampler")
     self.current.lastChangeAt = GetTime()
     self:Sample()
     self:RegisterMessage("WTM_RESET_RUNTIME", "Reset")
