@@ -1,0 +1,29 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <!--
+        Drop Ace3 here to use it.  Expected layout:
+
+            Libs/LibStub/LibStub.lua
+            Libs/CallbackHandler-1.0/CallbackHandler-1.0.xml
+            Libs/AceAddon-3.0/AceAddon-3.0.xml
+            Libs/AceEvent-3.0/AceEvent-3.0.xml
+            Libs/AceConsole-3.0/AceConsole-3.0.xml
+            Libs/AceDB-3.0/AceDB-3.0.xml
+            Libs/AceTimer-3.0/AceTimer-3.0.xml
+
+        ...then uncomment the lines below.  WoW silently skips <Include>/<Script>
+        entries whose file is missing, but keeping them commented out avoids noisy
+        entries in the client's error log for people who never add Ace3.
+
+        Core/Ace.lua detects whatever is present and provides an internal fallback
+        for whatever is not, so the addon runs correctly either way.
+    -->
+    <!--
+    <Script file="LibStub\LibStub.lua"/>
+    <Include file="CallbackHandler-1.0\CallbackHandler-1.0.xml"/>
+    <Include file="AceAddon-3.0\AceAddon-3.0.xml"/>
+    <Include file="AceEvent-3.0\AceEvent-3.0.xml"/>
+    <Include file="AceConsole-3.0\AceConsole-3.0.xml"/>
+    <Include file="AceDB-3.0\AceDB-3.0.xml"/>
+    <Include file="AceTimer-3.0\AceTimer-3.0.xml"/>
+    -->
+</Ui>
