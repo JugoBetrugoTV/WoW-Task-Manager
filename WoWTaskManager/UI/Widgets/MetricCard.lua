@@ -77,8 +77,13 @@ function UI.MetricCard(parent, opts)
         end
     end
 
+    --- The caption under the number. It is one line inside a fixed-width card,
+    --- so it is FITTED rather than allowed to run to the card's edge and be cut
+    --- mid-word: the full text stays available on the card's tooltip.
     function card:SetSub(text, tone)
-        self.sub:SetText(text or "")
+        text = text or ""
+        self.subFull = text
+        self.sub:SetText(UI.FitText(self.sub, text))
         self.sub:SetTextColor(Theme:Tone(tone or "muted"))
     end
 
@@ -146,22 +151,56 @@ end
 -- Compact stat row: label on the left, value on the right
 --------------------------------------------------------------------------
 
+--- A label on the left and a value on the right, on one line.
+---
+--- Both halves are BOUNDED. They used to be anchored to one edge each and
+--- nothing else, so a long label and a long value grew towards each other and
+--- met in the middle - which is precisely the "text runs into itself" reported
+--- from a real client. The row is split at its centre, each half is fitted to
+--- its share with an ellipsis, and the untruncated text stays on the row so a
+--- tooltip can show it.
 function UI.StatRow(parent, label)
     local row = CreateFrame("Frame", nil, parent)
     row:SetHeight(18)
 
-    row.label = UI.Text(row, "small", "textSecondary")
-    row.label:SetPoint("LEFT")
-    row.label:SetText(label or "")
-
     row.value = UI.Text(row, "numeric", "textPrimary", "RIGHT")
     row.value:SetPoint("RIGHT")
+    row.value:SetPoint("LEFT", row, "CENTER", 0, 0)
+
+    row.label = UI.Text(row, "small", "textSecondary")
+    row.label:SetPoint("LEFT")
+    row.label:SetPoint("RIGHT", row.value, "LEFT", -6, 0)
+
+    --- Refits the label if the row has been resized since it was last fitted.
+    --- A label is normally set once, at build time, when the row has no width
+    --- yet and fitting is a no-op; without this it would stay unfitted forever.
+    function row:RefitLabel()
+        local width = self.label:GetWidth() or 0
+        if width > 0 and width ~= self._fittedAt then
+            self._fittedAt = width
+            self.label:SetText(UI.FitText(self.label, self.labelFull or ""))
+        end
+    end
 
     function row:Set(value, tone)
-        self.value:SetText(value or "-")
+        value = value or "-"
+        self.valueFull = value
+        self.value:SetText(UI.FitText(self.value, value))
         self.value:SetTextColor(Theme:Tone(tone or nil))
         if not tone then self.value:SetTextColor(T("textPrimary")) end
+        self:RefitLabel()
     end
-    function row:SetLabel(text) self.label:SetText(text) end
+    function row:SetLabel(text)
+        text = text or ""
+        self.labelFull = text
+        self._fittedAt = self.label:GetWidth() or 0
+        self.label:SetText(UI.FitText(self.label, text))
+    end
+
+    -- Resizing the row changes how much room the label has, and the label is
+    -- normally set exactly once, before the row has any size at all.
+    row:SetScript("OnSizeChanged", function(self) self:RefitLabel() end)
+
+    row:SetLabel(label or "")
     return row
 end

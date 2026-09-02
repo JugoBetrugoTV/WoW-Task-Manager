@@ -19,6 +19,13 @@ die eine impliziert die andere nicht:
 **Retail 12.1.0 ist seit dem ersten In-Game-Test teilweise REAL CLIENT VERIFIED.**
 Die drei Classic-Clients sind weiterhin ausschliesslich MOCK VERIFIED.
 
+> **Eine Zeile wird nur dann ✅, wenn genau diese Funktion im Test tatsächlich
+> ausgeführt wurde und ein plausibler Wert sichtbar war.**
+> Dass das Addon startet, macht keinen ganzen API-Bereich real verifiziert. Eine
+> Event-Registrierung, die der Client akzeptiert, ist nicht dasselbe wie ein
+> Event, das ausgelöst wurde — solche Zeilen stehen auf ◐ mit dem Grund daneben.
+> ◐ heisst: teilweise ausgeführt, aber nicht bewiesen.
+
 ---
 
 ## Gesamtstatus
@@ -99,7 +106,7 @@ nicht existiert, **fällt das Addon nicht aus** — das Feature meldet sich als
 | `OnUpdate(self, elapsed)` | exakte Frametime | keins — Kern-API seit jeher | ✅ | ✅ |
 | `debugprofilestop()` | ms-Timer, Overhead-Messung | keins | ✅ | ✅ |
 | `GetFramerate()` | Vergleichswert (geglättet) | keins | ✅ | ✅ |
-| `GetTimePreciseSec()` | Fallback-Timer | **optional**, wird geprobt | ✅ | ✅ |
+| `GetTimePreciseSec()` | Fallback-Timer | **optional**, wird geprobt. Auf Retail existiert `debugprofilestop`, also lief der Fallback dort **nie** | ✅ | ⬜ |
 
 ### Netzwerk
 
@@ -121,9 +128,9 @@ nicht existiert, **fällt das Addon nicht aus** — das Feature meldet sich als
 |---|---|---|:--:|:--:|
 | `UpdateAddOnCPUUsage()` | Voraussetzung | keins | ✅ | ✅ |
 | `GetAddOnCPUUsage(index)` | **kumulative** ms pro Addon | Kumulativ! Nur Deltas sind sinnvoll | ✅ | ✅ |
-| `GetScriptCPUUsage()` | Lua-CPU gesamt | | ✅ | ✅ |
+| `GetScriptCPUUsage()` | Lua-CPU gesamt | Wird nur auf der System-Seite gelesen; im Test nicht nachweislich angezeigt | ✅ | ◐ |
 | `GetEventCPUUsage([event])` | Handler-Zeit pro Event | existiert; Einheit noch nicht gegen eine Referenz geprüft | ✅ | ◐ |
-| `GetFrameCPUUsage(frame, bool)` | Handler-Zeit + Aufrufzahl pro Frame | | ✅ | ✅ |
+| `GetFrameCPUUsage(frame, bool)` | Handler-Zeit + Aufrufzahl pro Frame | Läuft nur im opt-in Frame-Walk; im Test nicht ausgelöst | ✅ | ⬜ |
 | `ResetCPUUsage()` | Zähler zurücksetzen | nur manuell, nie automatisch | ✅ | ⬜ |
 
 ### Events
@@ -131,7 +138,7 @@ nicht existiert, **fällt das Addon nicht aus** — das Feature meldet sich als
 | API | Verwendet für | Risiko | Mock | Real |
 |---|---|---|:--:|:--:|
 | `frame:RegisterAllEvents()` | globale Event-Rate | funktioniert; 111 Events beobachtet | ✅ | ✅ |
-| `frame:IsEventRegistered(e)` | exakte Prüfung pro Frame | keins | ✅ | ✅ |
+| `frame:IsEventRegistered(e)` | exakte Prüfung pro Frame | Läuft nur im opt-in Frame-Walk („Attribute to addons"); im Test nicht ausgelöst | ✅ | ⬜ |
 | `EnumerateFrames([frame])` | Frame-Walk für Zuordnung | **liefert auch FontStrings/Texturen** — deren `GetName` gibt keinen String zurück. Guard eingebaut. | ✅ | ✅ |
 
 ### Addon-Verwaltung
@@ -174,11 +181,11 @@ unter *Options → AddOns* und funktioniert unverändert weiter.
 | API / Event | Risiko | Mock | Real |
 |---|---|:--:|:--:|
 | `GetInstanceInfo()` | Rückgabe variiert je Client, nur `instanceType` wird ausgewertet | ✅ | ✅ |
-| `GetNumGroupMembers()` | | ✅ | ✅ |
+| `GetNumGroupMembers()` | Gelesen; im Test war der Charakter allein, der Gruppenpfad ist ungetestet | ✅ | ◐ |
 | `PLAYER_ENTERING_WORLD(isInitialLogin, isReloadingUi)` | Argumente vorhanden: „2 spikes not reported: 2 initial login" | ✅ | ✅ |
-| `ENCOUNTER_START` / `_END` | auf Retail vorhanden (Capability-Report) | ✅ | ✅ |
-| `LOADING_SCREEN_ENABLED` / `_DISABLED` | auf Retail vorhanden | ✅ | ✅ |
-| `CHALLENGE_MODE_START` | auf Retail vorhanden | ✅ | ✅ |
+| `ENCOUNTER_START` / `_END` | Registrierung wird auf Retail akzeptiert (Capability-Report). **Ausgelöst wurde das Event im Test nie** — kein Bosskampf | ✅ | ◐ |
+| `LOADING_SCREEN_ENABLED` / `_DISABLED` | Registrierung akzeptiert. **Kein Ladebildschirm im Test** — die Suppression-Logik dahinter ist ungetestet | ✅ | ◐ |
+| `CHALLENGE_MODE_START` | Registrierung akzeptiert. Nie ausgelöst | ✅ | ◐ |
 
 ---
 
@@ -214,6 +221,11 @@ unter *Options → AddOns* und funktioniert unverändert weiter.
 | Ladebildschirm-Suppression | Kein Zonenwechsel im Test |
 | Alt-Tab-Heuristik | Nicht getestet |
 | Nicht-enUS-Locale | Nicht getestet |
+| `GetScriptCPUUsage` | Nur auf der System-Seite; im Test nicht nachweislich angezeigt |
+| `GetFrameCPUUsage` / `IsEventRegistered` | Beide laufen nur im opt-in Frame-Walk, der im Test nie gestartet wurde |
+| `GetTimePreciseSec` | Fallback-Pfad; auf Retail existiert `debugprofilestop`, also nie benutzt |
+| Encounter-, Ladebildschirm- und Challenge-Mode-Events | Registrierung akzeptiert, nie ausgelöst |
+| Gruppen-/Raid-Pfad | Charakter war im Test allein |
 | Minimap-Button | Neu in 0.4.0, im echten Client noch nicht gesehen |
 | Options → AddOns-Eintrag | Neu in 0.4.0; welcher der drei Registrierungswege auf 12.1.0 tatsächlich greift, ist nur im Spiel feststellbar |
 | Onboarding | Neu in 0.4.0, nie im echten Client gelaufen |

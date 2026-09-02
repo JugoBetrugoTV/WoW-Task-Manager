@@ -192,7 +192,7 @@ function Page:Refresh()
     self.graph:SetSeries(1, self.series.values, self.series.times,
         { label = "Lua heap", colorIndex = 4 })
     self.graph:SetTimeRange(fromTime, now)
-    if UI.MainWindow:ShouldRedrawGraphs() then
+    if UI.MainWindow:ShouldRedrawGraphs() and UI.MainWindow:TakeGraphSlot(1, 1) then
         self.graph.dirty = true
         self.graph:Draw()
     end

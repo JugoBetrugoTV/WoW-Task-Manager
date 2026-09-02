@@ -449,6 +449,9 @@ function Detail:BuildDiagnostics(panel)
     panel.body:SetPoint("BOTTOMRIGHT")
     panel.body:SetJustifyH("LEFT")
     panel.body:SetJustifyV("TOP")
+    -- Paragraphs in a box bounded on all four sides. They wrap; clipping each
+    -- line would cut off the caveats, which are the part that matters most.
+    UI.Wrap(panel.body, 0)
     self.diagBody = panel.body
 end
 
@@ -528,7 +531,7 @@ function Detail:Refresh()
     ------------------------------------------------------------------
     local header = self.header
     header.title:SetText(Fmt.Truncate(record.titleClean or record.name, 40))
-    header.sub:SetText(("%s   -   %s   -   %s")
+    header.sub:SetText(("%s  -  %s  -  %s")
         :format(record.name,
                 record.version and ("v" .. record.version) or "no version declared",
                 record.loaded and "loaded" or "not loaded"))

@@ -260,7 +260,10 @@ function Page:Refresh()
     if WTM.Events:GetMode() == "OFF" then
         self.table:SetEmpty(true,
             "Event monitoring is OFF. No listener is registered, so nothing is being counted.\n\nSwitch to Normal or Detailed above.")
-        self.summary:SetText(WTM.Events:DescribeMode())
+        -- The toolbar is one line. The full explanation of the mode is already
+        -- on the empty table above and on the Settings page; putting it here
+        -- too only meant it ran off the end of the toolbar.
+        self.summary:SetText("monitoring off")
         self:RefreshListeners()
         return
     end
@@ -301,11 +304,11 @@ function Page:Refresh()
     self:RefreshListeners()
 
     local totalCPU, totalCalls = WTM.CPU:GetTotalEventCPU()
-    self.summary:SetText(("%s events/s   -   %d distinct   -   %s total%s")
+    self.summary:SetText(UI.FitText(self.summary, ("%s events/s  -  %d distinct  -  %s total%s")
         :format(Fmt.Comma(math.floor(WTM.Events.current.perSecond)),
                 WTM.Events:GetDistinctCount(),
                 Fmt.Comma(WTM.Events.current.total),
-                totalCPU and ("   -   %.0f ms in handlers"):format(totalCPU) or ""))
+                totalCPU and ("  -  %.0f ms in handlers"):format(totalCPU) or "")))
 
     if WTM.Events:IsAtTrackingCap() then
         self.summary:SetTextColor(Theme:Tone("warn"))

@@ -163,6 +163,28 @@ The live monitor can be **collapsed to a single line** that keeps the frame time
 and FPS, from its own `-` button or from the Settings page. Its header also
 carries `cfg` (settings) and `open` (full window).
 
+Developer commands live in their own `DEVELOPER / ADVANCED` section behind a
+switch, because they write simulated samples into the real history. Everything
+they produce is marked `SIMULATED` wherever it appears, and the destructive
+buttons ask for a second click.
+
+## Text has to stay inside its box
+
+The headless harness resolves real widths from anchors, so two questions that
+previously needed a screenshot are now assertions, run over every page at the
+default size **and** at the smallest size the window can be dragged to:
+
+- **Nothing escapes its panel.** A font string with no width of its own does not
+  get clipped by WoW - it draws over whatever is beside it. The budget for that
+  is zero.
+- **No two labels on a row collide.** A label anchored left and a value anchored
+  right, neither bounded, grow towards each other until they meet. Both halves
+  are bounded and fitted, and over-long text is shortened with an ellipsis
+  rather than cut mid-word.
+
+Both are also run against deliberately long addon names and long localisation
+strings, since a layout that just fits in English does not fit in German.
+
 ## Development
 
 ```

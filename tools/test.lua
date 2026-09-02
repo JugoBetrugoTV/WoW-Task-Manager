@@ -712,6 +712,21 @@ do
         NS.Processes:UpdateDerived(self_, 1)
         check("this addon never labels itself a spike source",
             self_.status.key ~= "SPIKY", self_.status.key)
+
+        -- The same exclusion has to hold in the correlation table, which is
+        -- where a "probable cause" would actually be presented to the player.
+        local correlations = NS.Correlation:Analyze({})
+        local inCorrelation = false
+        for _, entry in ipairs(correlations) do
+            if entry.name == "WoWTaskManager" then inCorrelation = true end
+        end
+        check("and never appears as a correlated candidate", not inCorrelation)
+
+        -- Its cost is not hidden, though - it is reported, under its own
+        -- heading, as overhead rather than as a suspect.
+        check("its cost is still reported, as overhead",
+            (NS.Overhead.current.totalMsPerSec or 0) >= 0
+                and #NS.Overhead:GetBreakdown() > 0)
     end
 end
 
@@ -853,6 +868,43 @@ do
     mm:Toggle()
     check("toggling brings it back", mm:IsShown())
     check("and restarts the task", NS.Scheduler:GetTask("minimap").enabled)
+
+    -- The two clicks, driven the way the client drives them.
+    local onClick = mm.button:GetScript("OnClick")
+    check("the button handles clicks", type(onClick) == "function")
+    if onClick then
+        NS.UI.MainWindow:Close()
+        onClick(mm.button, "LeftButton")
+        check("left click opens the window", NS.UI.MainWindow:IsOpen())
+        onClick(mm.button, "LeftButton")
+        check("left click again closes it", not NS.UI.MainWindow:IsOpen())
+
+        onClick(mm.button, "RightButton")
+        check("right click opens the window", NS.UI.MainWindow:IsOpen())
+        check("right click lands on Settings",
+            NS.UI.MainWindow.currentPage == "settings",
+            tostring(NS.UI.MainWindow.currentPage))
+        NS.UI.MainWindow:Close()
+    end
+
+    -- Dragging stores an angle, and the button comes back where it was left.
+    local onDragStart = mm.button:GetScript("OnDragStart")
+    local onUpdate    = mm.button:GetScript("OnUpdate")
+    local onDragStop  = mm.button:GetScript("OnDragStop")
+    check("the button can be dragged",
+        onDragStart and onUpdate and onDragStop and true or false)
+    if onDragStart then
+        local before = NS.db.profile.minimap.angle
+        onDragStart(mm.button)
+        onUpdate(mm.button, 0.016)
+        onDragStop(mm.button)
+        check("dragging writes an angle",
+            type(NS.db.profile.minimap.angle) == "number",
+            tostring(NS.db.profile.minimap.angle))
+        check("the angle is what gets persisted, not a screen position",
+            NS.db.profile.minimap.x == nil and NS.db.profile.minimap.y == nil)
+        NS.db.profile.minimap.angle = before
+    end
 end
 
 --------------------------------------------------------------------------
@@ -893,39 +945,88 @@ end
 --------------------------------------------------------------------------
 -- Onboarding
 --------------------------------------------------------------------------
+-- Shown once, skippable at every step, replayable afterwards. The steps that
+-- offer an action have to actually perform it.
 
 do
     local ob = NS.UI.Onboarding
+    check("it has a small number of steps",
+        #ob.STEPS >= 4 and #ob.STEPS <= 6, #ob.STEPS)
+
     ob:Open()
     check("the introduction opens", ob:IsShown())
     check("it starts at the first step", ob.index == 1, ob.index)
+    check("Back is disabled on the first step", ob.frame.backButton.disabled == true)
 
-    local seen = {}
-    for i = 1, 8 do
-        seen[ob.index] = ob.frame.title:GetText()
-        if ob.index >= 4 then break end
-        ob:Advance(1)
+    -- Walk forwards through every step and collect what each one says.
+    local titles, hasAction = {}, {}
+    for i = 1, #ob.STEPS do
+        ob:ShowStep(i)
+        titles[i] = ob.frame.title:GetText()
+        hasAction[i] = ob.frame.actionButton:IsShown()
+        check(("step %d has a title"):format(i), (titles[i] or "") ~= "")
+        check(("step %d has a body"):format(i), (ob.frame.body:GetText() or "") ~= "")
+        check(("step %d offers a way out"):format(i), ob.frame.skipButton:IsShown())
     end
-    check("it has more than one step", ob.index > 1, ob.index)
-    check("every step says something",
-        seen[1] and seen[1] ~= "" and seen[ob.index] ~= "", tostring(seen[1]))
 
-    -- One of the steps has to explain the CPU profiling requirement, because a
-    -- player who does not know about it reads every CPU column as broken.
-    local mentionsProfiling = false
-    for _, text in pairs(seen) do
-        if text and text:lower():find("cpu") then mentionsProfiling = true end
-    end
-    check("it explains why per-addon CPU may be unavailable", mentionsProfiling)
+    local joined = table.concat(titles, " | "):lower()
+    check("one step explains per-addon CPU profiling",
+        joined:find("cpu") ~= nil, joined)
+    check("one step covers the compact monitor",
+        joined:find("compact") ~= nil or joined:find("monitor") ~= nil, joined)
+    check("one step says where the settings are",
+        joined:find("where") ~= nil or joined:find("settings") ~= nil, joined)
 
+    local actions = 0
+    for _, yes in ipairs(hasAction) do if yes then actions = actions + 1 end end
+    check("at least two steps offer an action button", actions >= 2, actions)
+
+    check("the last step finishes rather than continuing",
+        ob.frame.nextButton.text:GetText() == "Finish",
+        ob.frame.nextButton.text:GetText())
+
+    -- Back and forward.
+    ob:ShowStep(2)
     ob:Advance(-1)
-    check("it can go back", ob.index < 4, ob.index)
+    check("Back goes back", ob.index == 1, ob.index)
+    ob:Advance(1)
+    check("Next goes forward", ob.index == 2, ob.index)
 
+    -- The profiling step's button must actually change the setting, and must
+    -- never reload the UI on its own.
+    if NS.Caps:Has("toggleProfiling") then
+        for i = 1, #ob.STEPS do
+            if ob.STEPS[i].key == "profiling" then
+                NS.Caps:SetCPUProfiling(false)
+                ob:ShowStep(i)
+                check("the profiling step offers an enable button",
+                    ob.frame.actionButton:IsShown()
+                        and not ob.frame.actionButton.disabled)
+                mock.reloadRequested = false
+                ob:RunAction()
+                check("it enables profiling", NS.Caps:IsCPUProfilingEnabled())
+                check("and never reloads the UI by itself",
+                    mock.reloadRequested ~= true)
+                check("the button then says there is nothing left to do",
+                    ob.frame.actionButton.disabled == true)
+            end
+        end
+    end
+
+    -- Skipping is the same commitment as finishing: do not show this again.
     check("it has not been marked seen yet", not ob:HasBeenSeen())
-    ob:Finish()
-    check("finishing closes it", not ob:IsShown())
-    check("finishing marks it seen", ob:HasBeenSeen())
+    ob:ShowStep(1)
+    local skipClick = ob.frame.skipButton:GetScript("OnClick")
+    skipClick(ob.frame.skipButton, "LeftButton")
+    check("Skip closes it", not ob:IsShown())
+    check("Skip marks it seen", ob:HasBeenSeen())
     check("which is persisted", NS.db.global.onboardingDone == true)
+
+    -- ...and it stays replayable afterwards.
+    ob:Open()
+    check("it can be replayed after being finished", ob:IsShown())
+    check("replaying starts at the beginning again", ob.index == 1, ob.index)
+    ob:Close()
 end
 
 --------------------------------------------------------------------------
@@ -1021,6 +1122,395 @@ do
     end
     check("/wtm help lists every catalogued command",
         #unmentioned == 0, table.concat(unmentioned, ", "))
+end
+
+--------------------------------------------------------------------------
+-- Everything reachable without typing a command
+--------------------------------------------------------------------------
+-- The promise is that a normal player never needs a slash command. That only
+-- holds if the Settings page really carries a control for each one.
+
+do
+    NS.UI.MainWindow:Open("settings")
+    NS.UI.MainWindow:RefreshCurrentPage()
+    local page = NS.UI.Pages.settings
+
+    check("no command is left without a button",
+        page.orphanedCommands and #page.orphanedCommands == 0,
+        page.orphanedCommands and table.concat(page.orphanedCommands, ", "))
+
+    -- The named controls the user asked for, by the text on them.
+    -- Every piece of text on a control: buttons carry theirs in a child font
+    -- string, checkboxes in a label beside the box.
+    local labels = {}
+    for _, region in ipairs(mock.allFrames) do
+        if region._kind == "FontString" and (region._text or "") ~= "" then
+            labels[#labels + 1] = region._text:lower()
+        end
+    end
+    local joined = table.concat(labels, " | ")
+
+    local REQUIRED = {
+        ["open the window"]   = "open wtm",
+        ["compact monitor"]   = "mini monitor",
+        ["benchmark"]         = "benchmark",
+        ["profiling"]         = "profiling",
+        ["reload"]            = "reload ui",
+        ["capabilit"]         = "capability report",
+        ["developer"]         = "dev mode",
+        ["delete all saved"]  = "reset data",
+        ["diagnostics"]       = "diagnostics",
+    }
+    local missing = {}
+    for needle, what in pairs(REQUIRED) do
+        if not joined:find(needle, 1, true) then missing[#missing + 1] = what end
+    end
+    table.sort(missing)
+    check("every control the UI is supposed to expose has a button",
+        #missing == 0, table.concat(missing, ", "))
+
+    -- Developer tools are behind their own gate, not mixed in with the rest.
+    -- (An earlier check in this suite ran /wtm dev, so the state is set here
+    -- explicitly rather than assumed.)
+    NS.Dev:SetEnabled(false)
+    NS.UI.MainWindow:RefreshCurrentPage()
+    check("developer mode can be turned off", not NS.Dev:IsEnabled())
+    local devButtons, devEnabledButtons = 0, 0
+    for _, control in ipairs(page.controls or {}) do
+        if control.tooltipTitle and tostring(control.tooltipTitle):find("/wtm dev", 1, true) then
+            devButtons = devButtons + 1
+            if not control.disabled then devEnabledButtons = devEnabledButtons + 1 end
+        end
+    end
+    check("the developer section has buttons", devButtons >= 8, devButtons)
+    check("they are disabled while developer mode is off",
+        devEnabledButtons == 0, devEnabledButtons)
+
+    NS.Dev:SetEnabled(true)
+    NS.UI.MainWindow:RefreshCurrentPage()
+    devEnabledButtons = 0
+    for _, control in ipairs(page.controls or {}) do
+        if control.tooltipTitle and tostring(control.tooltipTitle):find("/wtm dev", 1, true)
+            and not control.disabled then
+            devEnabledButtons = devEnabledButtons + 1
+        end
+    end
+    check("enabling developer mode unlocks them",
+        devEnabledButtons >= 8, devEnabledButtons)
+    NS.Dev:SetEnabled(false)
+
+    -- Destructive buttons must not fire on a single click.
+    local confirmButtons = 0
+    for _, control in ipairs(page.controls or {}) do
+        if control.isConfirmButton then confirmButtons = confirmButtons + 1 end
+    end
+    check("destructive controls ask for a second click", confirmButtons >= 3, confirmButtons)
+
+    local sessionsBefore = #NS.db.global.sessions
+    NS.db.global.sessions[#NS.db.global.sessions + 1] = { id = 999, startedAt = time() }
+    local wipe
+    for _, control in ipairs(page.controls or {}) do
+        if control.isConfirmButton and control.baseLabel == "Delete all saved history" then
+            wipe = control
+        end
+    end
+    check("the delete-history button exists", wipe ~= nil)
+    if wipe then
+        local click = wipe:GetScript("OnClick")
+        click(wipe, "LeftButton")
+        check("one click does not delete anything",
+            #NS.db.global.sessions == sessionsBefore + 1, #NS.db.global.sessions)
+        check("it says what the second click will do",
+            wipe.text:GetText() == "Click again to confirm", wipe.text:GetText())
+        click(wipe, "LeftButton")
+        check("the second click deletes", #NS.db.global.sessions == 0,
+            #NS.db.global.sessions)
+        check("and the button goes back to its label",
+            wipe.text:GetText() == "Delete all saved history", wipe.text:GetText())
+    end
+
+    -- Reload is offered but never automatic.
+    mock.reloadRequested = false
+    NS.UI.MainWindow:RefreshCurrentPage()
+    check("nothing reloaded the UI by itself", mock.reloadRequested ~= true)
+
+    NS.UI.MainWindow:Close()
+end
+
+--------------------------------------------------------------------------
+-- Graph redraw pacing
+--------------------------------------------------------------------------
+-- Redrawing every graph in one tick was measured at ~15 ms in a real client -
+-- a whole frame. They take turns instead. The rules: one decision per tick, a
+-- bounded number of redraws per tick, and everything gets its turn.
+
+do
+    local W = NS.UI.MainWindow
+    W:Open("performance")
+
+    -- One decision per tick, not one per caller. The live monitor refreshes
+    -- before the page does, and used to consume the tick for itself.
+    W.lastGraphDraw = nil
+    W:InvalidateGraphs()
+    W:BeginGraphPass()
+    check("a pass opens when the data is stale", W:ShouldRedrawGraphs())
+    check("asking twice gives the same answer", W:ShouldRedrawGraphs())
+    check("asking does not consume the pass", W:ShouldRedrawGraphs())
+
+    -- A bounded number of graphs per pass.
+    W.lastGraphDraw = nil
+    W.graphsDirty = true
+    W.forceFullGraphPass = false
+    W:BeginGraphPass()
+    local granted = 0
+    for i = 1, 8 do
+        if W:TakeGraphSlot(i, 8) then granted = granted + 1 end
+    end
+    check("a pass redraws only a few graphs", granted > 0 and granted <= 3, granted)
+
+    -- Sparklines have their own budget, so a visible live monitor cannot take
+    -- the page's turn away from it.
+    local sparkGranted = 0
+    for i = 1, 6 do
+        if W:TakeSparkSlot(i, 6) then sparkGranted = sparkGranted + 1 end
+    end
+    check("the live monitor has a budget of its own",
+        sparkGranted > 0 and sparkGranted <= 3, sparkGranted)
+
+    -- Over several passes every graph gets a turn.
+    local seen = {}
+    for pass = 1, 8 do
+        W.lastGraphDraw = nil
+        W.graphsDirty = true
+        W.forceFullGraphPass = false
+        W:BeginGraphPass()
+        for i = 1, 8 do
+            if W:TakeGraphSlot(i, 8) then seen[i] = true end
+        end
+    end
+    local turns = 0
+    for i = 1, 8 do if seen[i] then turns = turns + 1 end end
+    check("every graph gets its turn within a few passes", turns == 8, turns)
+
+    -- A resize drag marks graphs stale but must NOT demand a full pass: forcing
+    -- one on every frame of a drag is what made resizing stutter.
+    W.forceFullGraphPass = false
+    W:MarkGraphsDirty()
+    check("a resize drag does not force a full redraw", not W.forceFullGraphPass)
+    W:InvalidateGraphs()
+    check("a page change does force one", W.forceFullGraphPass)
+
+    -- And the gate still holds: nothing redraws twice within the update rate.
+    W.lastGraphDraw = nil
+    W:BeginGraphPass()
+    W:BeginGraphPass()
+    check("a second tick inside the update rate does not redraw",
+        not W:ShouldRedrawGraphs())
+
+    W:Close()
+end
+
+--------------------------------------------------------------------------
+-- Overhead accounting
+--------------------------------------------------------------------------
+-- A breakdown that does not add up to the total is not a breakdown.
+
+do
+    local rows = NS.Overhead:GetBreakdown()
+    check("the breakdown has categories", #rows >= 4, #rows)
+
+    local remainder
+    for _, row in ipairs(rows) do
+        if row.key == "dispatch" then remainder = row end
+    end
+    check("the unattributed remainder is always shown", remainder ~= nil)
+    if remainder then
+        check("and it is named as unattributed rather than as a component",
+            remainder.label:lower():find("unattributed") ~= nil, remainder.label)
+        check("with an explanation", (remainder.note or "") ~= "")
+    end
+
+    local sum, total, delta = NS.Overhead:ReconcileBreakdown()
+    check("the categories reconcile against the measured total",
+        math.abs(delta) < 0.0001, ("sum %.4f vs total %.4f"):format(sum, total))
+
+    -- Measured time is never described as costing nothing.
+    for _, row in ipairs(rows) do
+        if row.measured and (row.ms or 0) > 0.001 then
+            check(("%s does not call its measured time 'no cost'"):format(row.label),
+                not tostring(row.note or ""):lower():find("no cost"), row.note)
+        end
+    end
+
+    -- The dashboard has to have room for every category plus the total.
+    NS.UI.MainWindow:Open("dashboard")
+    NS.UI.MainWindow:RefreshCurrentPage()
+    local shown = 0
+    for _, row in ipairs(NS.UI.Pages.dashboard.overheadRows) do
+        if row:IsShown() then shown = shown + 1 end
+    end
+    check("every category and the total fit on the card",
+        shown == #rows + 1, ("%d rows shown for %d categories"):format(shown, #rows))
+    NS.UI.MainWindow:Close()
+end
+
+--------------------------------------------------------------------------
+-- Text must stay inside its boundaries
+--------------------------------------------------------------------------
+-- The headless harness can answer this now: SetPoint is recorded, anchors are
+-- resolved, and a font string has a real width. Two failure modes, and they are
+-- not equally bad:
+--
+--   unbounded  the string has no width of its own and is wider than the panel
+--              it sits in. WoW does not clip it - it draws straight over
+--              whatever is beside it. This is "text runs into itself", and the
+--              budget for it is zero.
+--   clipped    the string has a width and the text is wider. WoW cuts it off at
+--              the edge. Ugly, but inside its boundaries.
+--
+-- Run at the SMALLEST window the addon allows, which is where every layout is
+-- under the most pressure.
+
+do
+    local function auditAllPages()
+        for _, key in ipairs(NS.UI.pageOrder) do
+            NS.UI.MainWindow:ShowPage(key)
+            NS.UI.MainWindow:LayoutPage(key)
+            -- ShowPage refreshes before the layout above, and MainWindow:Refresh
+            -- returns early while the window is hidden, so the page is
+            -- refreshed explicitly here - otherwise every measurement would be
+            -- of the pre-layout geometry.
+            NS.UI.MainWindow:RefreshCurrentPage()
+        end
+        NS.UI.AddonDetail:Open(wa)
+        for _, tab in ipairs({ "overview","cpu","memory","history","events",
+                               "dependencies","diagnostics","metadata" }) do
+            NS.UI.AddonDetail:ShowTab(tab)
+        end
+        NS.UI.AddonDetail:Close()
+
+        local findings = mock.AuditText()
+        local unbounded, clipped = {}, {}
+        for _, f in ipairs(findings) do
+            if f.kind == "unbounded" then unbounded[#unbounded + 1] = f
+            else clipped[#clipped + 1] = f end
+        end
+        return unbounded, clipped
+    end
+
+    local function report(list, label)
+        for i = 1, math.min(6, #list) do
+            local f = list[i]
+            print(("      %s: %q needs %.0f px in %.0f"):format(
+                label, f.text:sub(1, 48), f.width, f.box))
+        end
+    end
+
+    -- At the default size.
+    NS.UI.MainWindow:Open()
+    local unbounded, clipped = auditAllPages()
+    report(unbounded, "escapes")
+    check("no text escapes its panel at the default window size",
+        #unbounded == 0, #unbounded .. " found")
+    check("almost nothing is clipped at the default window size",
+        #clipped <= 2, #clipped .. " clipped")
+
+    -- And at the minimum the window can be resized to, which is the case the
+    -- real client complained about.
+    NS.UI.MainWindow.frame:SetSize(940, 600)
+    unbounded, clipped = auditAllPages()
+    report(unbounded, "escapes at min size")
+    check("no text escapes its panel at the minimum window size",
+        #unbounded == 0, #unbounded .. " found")
+    report(clipped, "clipped at min size")
+    check("clipping at the minimum window size stays rare",
+        #clipped <= 3, #clipped .. " clipped")
+
+    -- Long addon names and long localisation strings are the two inputs that
+    -- break a layout in a way English test data never does.
+    local longName = "SuperExtendedRaidFrameEnhancementSuiteDeluxe"
+    local record = NS.Processes:Get("WeakAuras")
+    if record then
+        local originalTitle = record.title
+        record.title = longName
+        NS.UI.MainWindow:ShowPage("processes")
+        NS.UI.MainWindow:LayoutPage("processes")
+        NS.UI.MainWindow:RefreshCurrentPage()
+        NS.UI.AddonDetail:Open(record)
+        local findings = mock.AuditText()
+        local escaped = 0
+        for _, f in ipairs(findings) do
+            if f.kind == "unbounded" then escaped = escaped + 1 end
+        end
+        check("a very long addon name does not escape its row", escaped == 0, escaped)
+        NS.UI.AddonDetail:Close()
+        record.title = originalTitle
+    end
+
+    -- ...and the direct form of the reported failure: two font strings on one
+    -- row painting over each other. A label anchored LEFT and a value anchored
+    -- RIGHT, neither of them bounded, grow towards each other until they meet.
+    NS.UI.MainWindow.frame:SetSize(940, 600)
+    for _, key in ipairs(NS.UI.pageOrder) do
+        NS.UI.MainWindow:ShowPage(key)
+        NS.UI.MainWindow:LayoutPage(key)
+        NS.UI.MainWindow:RefreshCurrentPage()
+    end
+    local overlaps = mock.AuditTextOverlap()
+    for i = 1, math.min(6, #overlaps) do
+        local o = overlaps[i]
+        print(("      overlap %.0f px: %q over %q"):format(
+            o.overlap, tostring(o.a):sub(1, 28), tostring(o.b):sub(1, 28)))
+    end
+    check("no two labels on the same row paint over each other",
+        #overlaps == 0, #overlaps .. " overlapping pairs")
+
+    -- Long localisation strings. Every label in this addon is English today;
+    -- a German or Russian translation of the same label is routinely half again
+    -- as long, and a row that only just fits in English does not fit then.
+    -- Rather than wait for a translation, the widgets are stressed directly.
+    do
+        local LONG_LABEL = "Durchschnittliche Bildrate im Beobachtungsfenster"
+        local LONG_VALUE = "1.234,567 Millisekunden pro Sekunde"
+
+        NS.UI.MainWindow:ShowPage("dashboard")
+        NS.UI.MainWindow:LayoutPage("dashboard")
+        NS.UI.MainWindow:RefreshCurrentPage()
+
+        local rows = NS.UI.Pages.dashboard.overheadRows
+        check("the overhead card has rows to stress", rows and #rows > 0)
+        for _, row in ipairs(rows or {}) do
+            if row:IsShown() then
+                row:SetLabel(LONG_LABEL)
+                row:Set(LONG_VALUE)
+            end
+        end
+
+        local overlaps2 = mock.AuditTextOverlap()
+        for i = 1, math.min(4, #overlaps2) do
+            local o = overlaps2[i]
+            print(("      long-string overlap %.0f px: %q over %q"):format(
+                o.overlap, tostring(o.a):sub(1, 30), tostring(o.b):sub(1, 30)))
+        end
+        check("a long label and a long value on one row do not collide",
+            #overlaps2 == 0, #overlaps2 .. " overlapping pairs")
+
+        -- And they must be shortened rather than merely drawn on top of one
+        -- another somewhere off the row.
+        local anyShortened = false
+        for _, row in ipairs(rows or {}) do
+            if row:IsShown() and row.label:GetText() ~= LONG_LABEL then
+                anyShortened = true
+            end
+        end
+        check("an over-long label is shortened to fit", anyShortened)
+
+        NS.UI.MainWindow:RefreshCurrentPage()
+    end
+
+    -- Back to a normal size for the rest of the suite.
+    NS.UI.MainWindow.frame:SetSize(1180, 720)
+    for _, key in ipairs(NS.UI.pageOrder) do NS.UI.MainWindow:LayoutPage(key) end
 end
 
 --------------------------------------------------------------------------

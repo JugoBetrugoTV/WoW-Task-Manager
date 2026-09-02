@@ -194,11 +194,12 @@ function Page:RefreshDetail()
 
     self.header.title:SetText(session.isLive and "Current session"
         or Fmt.DateTime(session.startedAt))
-    self.header.sub:SetText(("%s - %s  |  %s %s (build %s)  |  %s  |  %s")
+    self.header.sub:SetText(UI.FitText(self.header.sub,
+        ("%s - %s  |  %s %s (build %s)  |  %s  |  %s")
         :format(session.character or "?", session.realm or "?",
                 session.flavorName or session.flavor or "?", session.version or "?",
                 session.build or "?", session.locale or "?",
-                Fmt.Duration(session.duration or 0)))
+                Fmt.Duration(session.duration or 0))))
 
     self.deleteButton:SetShown(not session.isLive and self.selectedIndex ~= nil)
 

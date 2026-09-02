@@ -108,19 +108,7 @@ function Page:Build(frame)
     self.legend:SetPoint("LEFT", previous, "RIGHT", 16, 0)
     self.legend:SetJustifyH("RIGHT")
 
-    local parts = {}
-    for _, entry in ipairs(Page.MARKER_LEGEND) do
-        local available = (not entry.cap) or WTM.Caps:Has(entry.cap)
-        local def = C.MARKERS[entry.kind]
-        if available then
-            parts[#parts + 1] = ("|cff%s%s|r %s")
-                :format(Theme:ToneHex(def and def.tone or "muted"),
-                        def and def.glyph or "|", entry.label)
-        else
-            parts[#parts + 1] = ("|cff5d6675%s unavailable|r"):format(entry.label)
-        end
-    end
-    self.legend:SetText(table.concat(parts, "   "))
+    self:RefreshLegend()
 
     ------------------------------------------------------------------
     -- Track stack
@@ -206,6 +194,10 @@ function Page:Build(frame)
     detail.body:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -M.padding, M.padding)
     detail.body:SetJustifyH("LEFT")
     detail.body:SetJustifyV("TOP")
+    -- A multi-line description in a box that is bounded on all four sides. It
+    -- wraps: clipping each line at the right edge would cut off the half of a
+    -- sentence that says what the number means.
+    UI.Wrap(detail.body, 0)
 
     self.range = "5m"
     self.rangeButtons["5m"]:SetSelected(true)
@@ -215,6 +207,29 @@ end
 --- consumers when you have flagged none.
 local ADDON_TRACK_LIMIT = 3
 local ADDON_TRACK_HEIGHT = 40
+
+--- Rebuilds the marker legend and fits it to the toolbar.
+---
+--- Its contents depend on what this client can produce, and its available width
+--- depends on the window size, so it is rebuilt on every layout rather than
+--- once at build time - fitted to the default width and then never revisited,
+--- it ran off the end of the toolbar at the minimum window size.
+function Page:RefreshLegend()
+    if not self.legend then return end
+    local parts = {}
+    for _, entry in ipairs(Page.MARKER_LEGEND) do
+        local available = (not entry.cap) or WTM.Caps:Has(entry.cap)
+        local def = C.MARKERS[entry.kind]
+        if available then
+            parts[#parts + 1] = ("|cff%s%s|r %s")
+                :format(Theme:ToneHex(def and def.tone or "muted"),
+                        def and def.glyph or "|", entry.label)
+        else
+            parts[#parts + 1] = ("|cff5d6675%s unavailable|r"):format(entry.label)
+        end
+    end
+    self.legend:SetText(UI.FitText(self.legend, table.concat(parts, "   ")))
+end
 
 function Page:PickTrackedAddons(out)
     out = out or {}
@@ -362,6 +377,9 @@ function Page:Refresh()
     if not self.tracks then return end
 
     local now = GetTime()
+    -- Cheap, and the toolbar width may have changed since the last refresh.
+    self:RefreshLegend()
+
     local rangeSeconds
     for _, range in ipairs(Page.ZOOM_LEVELS) do
         if range.key == self.range then rangeSeconds = range.seconds end
@@ -482,7 +500,7 @@ function Page:ShowIncident(spike)
         contextParts[#contextParts + 1] = ("group of %d"):format(context.groupSize)
     end
     if context.loading then contextParts[#contextParts + 1] = "loading screen" end
-    detail.subtitle:SetText(table.concat(contextParts, "   -   "))
+    detail.subtitle:SetText(table.concat(contextParts, "  -  "))
 
     local lines = {}
     lines[#lines + 1] = WTM.SpikeDetector:Describe(spike)

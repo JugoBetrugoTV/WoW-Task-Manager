@@ -216,6 +216,19 @@ if [ -f tools/test-recorder.lua ]; then
     fi
 fi
 
+# The end-to-end simulated session. It is not an assertion suite, but it is the
+# only thing that drives a full login-to-logout run - and it had rotted against
+# a renamed field without anything noticing, because nothing ran it.
+for iface in 120100 50504 20506 11509; do
+    if lua5.1 tools/run.lua "$iface" >/tmp/wtm-run-$iface.log 2>&1 \
+        && grep -q "== OK ==" /tmp/wtm-run-$iface.log; then
+        pass "simulated session runs clean on $iface"
+    else
+        fail "simulated session failed on $iface"
+        tail -20 /tmp/wtm-run-$iface.log | sed 's/^/          /'
+    fi
+done
+
 #---------------------------------------------------------------------------
 printf '\n'
 if [ $fails -eq 0 ]; then

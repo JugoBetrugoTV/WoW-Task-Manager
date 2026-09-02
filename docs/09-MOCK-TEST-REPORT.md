@@ -1,6 +1,6 @@
 # Mock-Testbericht
 
-Erzeugt am 2026-09-02 gegen Addon-Version 0.4.0.
+Erzeugt am 2026-09-02 gegen Addon-Version 0.5.0.
 
 > **Alles hier ist MOCK VERIFIED, nichts ist REAL CLIENT VERIFIED.**
 > Der Mock verhält sich so, wie ich glaube, dass der Client sich verhält. Wo
@@ -17,44 +17,66 @@ Addon- und Profiling-APIs, CVars und die Uhr nach. Darauf laufen drei Suiten:
 | `tools/test.lua` | Verhaltens-Assertions über die volle Matrix |
 | `tools/test-downsample.lua` | Spikes dürfen beim Downsampling nicht verschwinden |
 | `tools/test-recorder.lua` | Flight-Recorder-Härtung, Coalescing, DB-Migrationen |
+| `tools/run.lua` | Kompletter Login-bis-Logout-Durchlauf, alle vier Clients |
+
+### Seit 0.5.0: Text-Geometrie ist messbar
+
+Der Mock zeichnet nichts, konnte aber bis 0.4.0 auch die Frage nicht
+beantworten, die aus dem echten Client zurückkam: *passt dieser Text in seinen
+Kasten?* `SetPoint` war ein No-Op.
+
+Jetzt werden Anker aufgezeichnet und aufgelöst. Eine FontString hat damit eine
+echte Breite, und zwei Prüfungen laufen über jede Seite — bei Standardgrösse und
+bei der kleinstmöglichen Fenstergrösse:
+
+| Prüfung | Was sie findet |
+|---|---|
+| `AuditText` | Text, der breiter ist als sein Kasten. Zwei Klassen: **unbounded** (die FontString hat gar keine eigene Breite, WoW schneidet also nichts ab — sie zeichnet über das, was daneben steht) und **clipped** (Breite vorhanden, Text wird am Rand abgeschnitten). Budget für *unbounded*: **null**. |
+| `AuditTextOverlap` | Zwei FontStrings auf derselben Zeile, die sich überlappen. Genau der gemeldete Fall: ein Label links, ein Wert rechts, keins von beiden begrenzt, und irgendwann treffen sie sich in der Mitte. |
+
+Beide werden zusätzlich mit langen Addon-Namen und langen Lokalisierungsstrings
+gefüttert, weil ein Layout, das mit englischen Beschriftungen gerade so aufgeht,
+mit deutschen nicht mehr aufgeht. Setzt man die Begrenzung in `UI.StatRow`
+zurück, meldet die Suite sofort 132 px Überlappung — die Prüfung ist also keine,
+die immer grün ist.
 
 Gestartet mit `./tools/run-tests.sh` bzw. `./tools/release-check.sh`.
 
 ## Matrix: 4 Clients x Profiling an/aus x volle/abgeräumte API x Ace3 an/aus
 
 ```
-  PASS  Retail-12.1.0      profiling=on  api=normal   no-ace3    217 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=normal   ace3       217 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=degraded no-ace3    225 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=degraded ace3       225 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=normal   no-ace3    218 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=normal   ace3       218 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=degraded no-ace3    226 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=degraded ace3       226 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=normal   no-ace3    217 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=normal   ace3       217 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=degraded no-ace3    225 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=degraded ace3       225 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=normal   no-ace3    218 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=normal   ace3       218 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=degraded no-ace3    226 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=degraded ace3       226 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=normal   no-ace3    217 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=normal   ace3       217 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=degraded no-ace3    225 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=degraded ace3       225 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=normal   no-ace3    218 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=normal   ace3       218 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=degraded no-ace3    226 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=degraded ace3       226 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=normal   no-ace3    217 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=normal   ace3       217 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=degraded no-ace3    225 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=degraded ace3       225 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=normal   no-ace3    218 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=normal   ace3       218 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=degraded no-ace3    226 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=degraded ace3       226 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=normal   no-ace3    290 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=normal   ace3       290 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=degraded no-ace3    298 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=degraded ace3       298 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=normal   no-ace3    289 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=normal   ace3       289 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=degraded no-ace3    297 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=degraded ace3       297 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=normal   no-ace3    290 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=normal   ace3       290 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=degraded no-ace3    298 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=degraded ace3       298 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=normal   no-ace3    289 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=normal   ace3       289 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=degraded no-ace3    297 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=degraded ace3       297 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=normal   no-ace3    290 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=normal   ace3       290 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=degraded no-ace3    298 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=degraded ace3       298 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=normal   no-ace3    289 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=normal   ace3       289 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=degraded no-ace3    297 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=degraded ace3       297 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=normal   no-ace3    290 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=normal   ace3       290 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=degraded no-ace3    298 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=degraded ace3       298 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=normal   no-ace3    289 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=normal   ace3       289 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=degraded no-ace3    297 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=degraded ace3       297 passed, 0 failed, 0 lua errors
 syntax check:
   all 57 files parse
 ```

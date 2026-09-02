@@ -90,6 +90,9 @@ function Page:Build(frame)
             row.detail:SetJustifyH("LEFT")
             row.detail:SetJustifyV("TOP")
             row.detail:SetHeight(32)
+            -- Findings are sentences, not labels: they wrap, bounded to the
+            -- two lines the row is tall.
+            UI.Wrap(row.detail, 2)
             return row
         end,
         function(row, finding)
@@ -184,11 +187,11 @@ function Page:Refresh()
     self.header.verdict:SetText(health.text)
     self.header.verdict:SetTextColor(Theme:Tone(health.tone))
     self.header.score:SetText(("%d / 100"):format(score))
-    self.header.summary:SetText(
-        ("%s of session   -   avg %s FPS, 1%% low %s FPS   -   %d spikes (%.1f per minute)   -   CPU profiling %s")
+    self.header.summary:SetText(UI.FitText(self.header.summary,
+        ("%s of session  -  avg %s FPS, 1%% low %s FPS  -  %d spikes (%.1f per minute)  -  CPU profiling %s")
         :format(Fmt.Duration(info.duration), Fmt.FPS(info.avgFPS), Fmt.FPS(info.low1),
                 WTM.SpikeDetector.total, info.spikesPerMinute,
-                WTM.CPU.available and "on" or "off"))
+                WTM.CPU.available and "on" or "off")))
 
     WTM.Diagnostics:Build(findingScratch)
     self.findingsList:SetData(findingScratch)

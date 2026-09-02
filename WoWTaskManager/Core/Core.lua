@@ -222,6 +222,26 @@ commands["reset"] = function()
     WTM:Print("Runtime counters reset.")
 end
 
+commands["wipe"] = function()
+    local sessions = #WTM.db.global.sessions
+    local incidents = #WTM.db.global.incidents
+    WTM.Database:WipeHistory()
+    WTM:Print(("Deleted %d saved sessions and %d saved incidents. Settings are unchanged.")
+        :format(sessions, incidents))
+end
+
+--- Reloading is never automatic, anywhere in this addon: a CPU profiling change
+--- needs one, and being told so is different from having it happen mid-pull.
+--- It goes through Processes:ReloadUI so that a reload asked for during combat
+--- is queued until combat ends rather than refused or forced.
+commands["reload"] = function()
+    if type(_G.ReloadUI) ~= "function" then
+        WTM:Print("This client does not expose ReloadUI.")
+        return
+    end
+    WTM.Processes:ReloadUI()
+end
+
 commands["overhead"] = function()
     local o = WTM:GetModule("Overhead")
     if o then WTM:Print(o:Describe()) end
@@ -293,12 +313,16 @@ local COMMANDS = {
       help = "print this addon's own measured cost to chat" },
     { cmd = "benchmark",   label = "Run benchmark",        group = "tools", arg = "[seconds]",
       help = "measure this addon's own overhead over a few seconds and report it" },
-    { cmd = "dev",         label = "Developer tools",      group = "tools", arg = "[subcommand]",
-      help = "developer tools - injected data is always marked SIMULATED" },
+    { cmd = "reload",      label = "Reload UI",            group = "tools", confirm = true,
+      help = "reload the user interface - needed for a CPU profiling change to take effect" },
     { cmd = "reset",       label = "Reset runtime counters", group = "tools", confirm = true,
       help = "reset this session's counters - saved history is untouched" },
+    { cmd = "wipe",        label = "Delete saved history",  group = "tools", confirm = true,
+      help = "delete every saved session and incident - settings are untouched" },
     { cmd = "help",        label = "Print command list",   group = "tools",
       help = "print this list" },
+    { cmd = "dev",         label = "Developer tools",      group = "advanced", arg = "[subcommand]",
+      help = "developer tools - injected data is always marked SIMULATED" },
 }
 
 WTM.COMMANDS = COMMANDS

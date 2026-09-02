@@ -173,7 +173,8 @@ function UI.Graph(parent, opts)
     graph.titleText:SetPoint("RIGHT", graph.footer, "LEFT", -12, 0)
     graph.titleText:SetHeight(12)
     graph.titleText:SetJustifyH("LEFT")
-    graph.titleText:SetText(opts.title or "")
+    graph.titleFull = opts.title or ""
+    graph.titleText:SetText(UI.FitText(graph.titleText, graph.titleFull))
     graph.padding.top = 26
     plot:SetPoint("TOPLEFT", graph.padding.left, -graph.padding.top)
 
@@ -241,7 +242,14 @@ function UI.Graph(parent, opts)
         self.dirty = true
     end
 
-    function graph:SetTitle(text) self.titleText:SetText(text or "") end
+    --- The title is bounded by the footer to its right, and a title that does
+    --- not fit is shortened rather than drawn over it. Titles grow at runtime -
+    --- an unavailable metric appends its reason - so this cannot be decided
+    --- once at build time.
+    function graph:SetTitle(text)
+        self.titleFull = text or ""
+        self.titleText:SetText(UI.FitText(self.titleText, self.titleFull))
+    end
 
     ------------------------------------------------------------------
     -- Scale

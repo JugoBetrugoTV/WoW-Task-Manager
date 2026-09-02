@@ -141,6 +141,8 @@ function Page:Build(frame)
     self.coverage:SetPoint("TOPLEFT", self.graph, "BOTTOMLEFT", 2, -3)
     self.coverage:SetPoint("RIGHT", self.graph, "RIGHT", -2, 0)
     self.coverage:SetJustifyH("LEFT")
+    self.coverage:SetHeight(24)
+    UI.Wrap(self.coverage, 2)
 
     ------------------------------------------------------------------
     -- Fact grid + CPU table
@@ -176,6 +178,10 @@ function Page:Build(frame)
     self.windowText:SetPoint("TOPLEFT")
     self.windowText:SetPoint("RIGHT")
     self.windowText:SetJustifyH("LEFT")
+    -- An explanation rather than a label: clipping it to one line would cut off
+    -- the half that says what the number means.
+    self.windowText:SetHeight(28)
+    UI.Wrap(self.windowText, 2)
 
     self.cpuRows = {}
     for i = 1, 5 do
@@ -183,10 +189,15 @@ function Page:Build(frame)
         row:SetHeight(17)
         row:SetPoint("TOPLEFT", 0, -22 - (i - 1) * 17)
         row:SetPoint("TOPRIGHT", 0, -22 - (i - 1) * 17)
-        row.name = UI.Text(row, "small", "textPrimary")
-        row.name:SetPoint("LEFT")
+        -- Value first, then the name bounded against it: anchored to one edge
+        -- each, a long addon name and a long measurement grow towards each
+        -- other and overlap in the middle.
         row.value = UI.Text(row, "numericSm", "textSecondary", "RIGHT")
         row.value:SetPoint("RIGHT")
+        row.value:SetPoint("LEFT", row, "CENTER", -20, 0)
+        row.name = UI.Text(row, "small", "textPrimary")
+        row.name:SetPoint("LEFT")
+        row.name:SetPoint("RIGHT", row.value, "LEFT", -6, 0)
         row:SetScript("OnClick", function(self)
             if not self.entryName then return end
             local record = WTM.Processes:Get(self.entryName)
@@ -291,11 +302,12 @@ function Page:RefreshDetail()
     self.header.title:SetTextColor(Theme:Tone(tone))
     self.header.peak:SetText(Fmt.Ms(cluster.peakMs))
 
-    self.header.sub:SetText(("%s  -  %d affected frame%s over %.2f s  -  %s")
+    self.header.sub:SetText(UI.FitText(self.header.sub,
+        ("%s  -  %d affected frame%s over %.2f s  -  %s")
         :format(Fmt.Clock(cluster.startedAt, WTM.state.sessionEpoch, WTM.state.sessionStart),
                 cluster.frames, cluster.frames == 1 and "" or "s",
                 cluster.duration or 0,
-                cluster.closed and "closed" or "still open"))
+                cluster.closed and "closed" or "still open")))
 
     ------------------------------------------------------------------
     -- Flight recorder graph

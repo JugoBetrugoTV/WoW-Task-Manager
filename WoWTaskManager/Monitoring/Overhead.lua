@@ -156,6 +156,19 @@ function Overhead:GetTaskBreakdown(out)
     return out
 end
 
+--- What to say beside the UI cost. Measured time is never called "no cost":
+--- with nothing on screen the number is what the last visible window left
+--- behind in the current averaging window, and the note says exactly that.
+local function UICostNote(windowOpen, miniOpen, msPerSec)
+    if windowOpen and miniOpen then return "window and live monitor open" end
+    if windowOpen then return "window open" end
+    if miniOpen then return "live monitor only" end
+    if (msPerSec or 0) > 0.001 then
+        return "nothing on screen now - residual from the last window that was"
+    end
+    return "nothing on screen"
+end
+
 --- Measured breakdown, newest first. Categories with no measurement yet are
 --- returned with `measured = false` rather than a zero.
 function Overhead:GetBreakdown(out)
@@ -177,32 +190,61 @@ function Overhead:GetBreakdown(out)
         { key = "events",  label = "Event monitoring", ms = cur.eventsMsPerSec, measured = true,
           note = ("mode: %s"):format(WTM.Events:GetMode()) },
         { key = "ui",      label = "UI updates", ms = cur.uiMsPerSec, measured = true,
-          -- Say what is actually on screen. An earlier version printed
-          -- "window closed - no cost" next to a non-zero number, which is
-          -- exactly the kind of contradiction this addon is supposed to avoid.
-          note = windowOpen and (miniOpen and "window and live monitor open" or "window open")
-              or (miniOpen and "live monitor only" or "nothing shown") },
+          -- Say what is actually on screen, and never describe measured time as
+          -- costing nothing. An earlier version printed "window closed - no
+          -- cost" beside a non-zero number, which is exactly the contradiction
+          -- this addon exists to avoid. A figure with nothing on screen is
+          -- residual from the last window that was, and it says so.
+          note = UICostNote(windowOpen, miniOpen, cur.uiMsPerSec) },
     }
 
-    -- Whatever the scheduler spent that is not attributable to a task: walking
-    -- the task list every frame to see what is due.
+    -- Everything the scheduler spent that no task accounts for: walking the
+    -- task list every frame to see what is due, and the timing calls around
+    -- each dispatch.
     --
-    -- Without this row the categories did not add up to the total, and an
-    -- unexplained remainder in an overhead report is worse than a slightly
-    -- longer report.
+    -- This row is ALWAYS present, including when the remainder is zero or
+    -- negative. The point of a breakdown is that it reconciles against the
+    -- total; a remainder that only appears when it is convenient is not a
+    -- reconciliation, and an unexplained gap in an overhead report is worse
+    -- than a slightly longer report.
     local attributed = cur.frameMsPerSec + cur.samplingMsPerSec
         + cur.eventsMsPerSec + cur.uiMsPerSec
     local remainder = (cur.totalMsPerSec or 0) - attributed
-    if remainder > 0.001 then
-        rows[#rows + 1] = {
-            key = "dispatch", label = "Scheduler dispatch", ms = remainder, measured = true,
-            note = ("checking %d tasks each frame"):format(
-                (function() local n = 0 for _ in WTM.Scheduler:IterateTasks() do n = n + 1 end return n end)()),
-        }
+
+    local taskCount = 0
+    for _ in WTM.Scheduler:IterateTasks() do taskCount = taskCount + 1 end
+
+    local note
+    if remainder < -0.001 then
+        -- Should not happen: the categories are disjoint by construction. If it
+        -- ever does, saying so is the only honest option - silently clamping to
+        -- zero would hide a double count in the accounting itself.
+        note = ("categories exceed the measured total by %.3f ms/s - the accounting is double counting somewhere")
+            :format(-remainder)
+    elseif remainder <= 0.001 then
+        note = ("nothing left over; %d tasks checked each frame"):format(taskCount)
+    else
+        note = ("dispatch and timing around %d tasks, checked each frame"):format(taskCount)
     end
+
+    rows[#rows + 1] = {
+        key = "dispatch", label = "Scheduler / unattributed",
+        ms = remainder, measured = true, note = note,
+    }
 
     for i = 1, #rows do out[i] = rows[i] end
     return out
+end
+
+--- The sum of the breakdown rows, and the measured total they should equal.
+--- Exposed so the UI can state the reconciliation instead of asking the reader
+--- to add up the column themselves.
+function Overhead:ReconcileBreakdown()
+    local rows = self:GetBreakdown()
+    local sum = 0
+    for i = 1, #rows do sum = sum + (rows[i].ms or 0) end
+    local total = self.current.totalMsPerSec or 0
+    return sum, total, sum - total
 end
 
 function Overhead:Describe()

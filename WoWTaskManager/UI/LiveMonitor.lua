@@ -215,6 +215,10 @@ end
 function LiveMonitor:SetCollapsed(collapsed)
     WTM.db.profile.liveMonitor.collapsed = collapsed and true or false
     self:ApplySettings()
+    -- Expanding reveals sparklines that were not being drawn, so this refresh
+    -- needs a pass of its own rather than whatever the last tick left behind.
+    UI.MainWindow:InvalidateGraphs()
+    UI.MainWindow:BeginGraphPass()
     self:Refresh()
 end
 
@@ -277,9 +281,16 @@ function LiveMonitor:Refresh()
     end
 
     -- Sparklines follow the DATA rate, not the refresh rate: redrawing them on
-    -- every refresh is the same waste the main window's graphs had.
+    -- every refresh is the same waste the main window's graphs had. They also
+    -- take turns rather than all redrawing in the same frame, out of their own
+    -- budget - sharing one with the page's graphs meant whichever refreshed
+    -- first took every slot.
     if WTM.db.profile.liveMonitor.sparklines and UI.MainWindow:ShouldRedrawGraphs() then
-        for _, row in pairs(rows) do row.spark:Draw() end
+        for i, spec in ipairs(ROWS) do
+            if UI.MainWindow:TakeSparkSlot(i, #ROWS) then
+                rows[spec.key].spark:Draw()
+            end
+        end
     end
 end
 
@@ -288,6 +299,11 @@ end
 function LiveMonitor:Show()
     self:Build()
     self.frame:Show()
+    -- Refresh below runs outside the scheduler tick, so nobody has opened a
+    -- graph pass for it. Open one, or the panel appears with empty sparklines
+    -- and stays that way until the next tick.
+    UI.MainWindow:InvalidateGraphs()
+    UI.MainWindow:BeginGraphPass()
     WTM.db.profile.liveMonitor.shown = true
     WTM.Scheduler:SetEnabled("ui", true)
     self:Refresh()

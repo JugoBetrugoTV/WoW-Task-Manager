@@ -95,7 +95,12 @@ function UI.Card(parent, title, opts)
         card.titleText = card:CreateFontString(nil, "OVERLAY")
         Theme:SetFont(card.titleText, "heading", "textSecondary")
         card.titleText:SetPoint("TOPLEFT", M.padding, -M.paddingSmall - 2)
-        card.titleText:SetText(title)
+        -- Bounded by the card, not only anchored to its left edge. A title
+        -- longer than the card is common at the minimum window size, and
+        -- without a right anchor it drew straight out of the card.
+        card.titleText:SetPoint("RIGHT", card, "RIGHT", -M.padding, 0)
+        card.titleText:SetJustifyH("LEFT")
+        card.titleText:SetText(UI.FitText(card.titleText, title))
     end
 
     card.content = CreateFrame("Frame", nil, card)
@@ -103,7 +108,10 @@ function UI.Card(parent, title, opts)
     card.content:SetPoint("BOTTOMRIGHT", -M.padding, M.paddingSmall)
 
     function card:SetTitle(text)
-        if self.titleText then self.titleText:SetText(text) end
+        if self.titleText then
+            self.titleFull = text
+            self.titleText:SetText(UI.FitText(self.titleText, text or ""))
+        end
     end
     return card
 end
@@ -150,6 +158,41 @@ function UI.Wrap(fontString, maxLines)
         pcall(fontString.SetMaxLines, fontString, maxLines or 4)
     end
     return fontString
+end
+
+--- Shortens `text` until it fits the width `fontString` has been given, ending
+--- in an ellipsis when anything was dropped.
+---
+--- WoW clips an over-long non-wrapping font string at its right edge, mid-glyph
+--- and with no indication that anything is missing. An ellipsis at least says
+--- so. Where the width cannot be worked out, the text is returned untouched -
+--- guessing a width would be worse than leaving it alone.
+function UI.FitText(fontString, text)
+    text = tostring(text or "")
+    if text == "" then return text end
+
+    local width = fontString:GetWidth()
+    if not width or width <= 0 then return text end
+
+    fontString:SetText(text)
+    if fontString:GetStringWidth() <= width then return text end
+
+    -- Binary search on length: a linear trim is O(n) SetText calls on exactly
+    -- the strings that are already the longest.
+    local lo, hi, best = 1, #text, ""
+    while lo <= hi do
+        local mid = math.floor((lo + hi) / 2)
+        local candidate = text:sub(1, mid) .. "..."
+        fontString:SetText(candidate)
+        if fontString:GetStringWidth() <= width then
+            best = candidate
+            lo = mid + 1
+        else
+            hi = mid - 1
+        end
+    end
+    fontString:SetText(best)
+    return best
 end
 
 --- A label above a value, the shape used everywhere a number is shown.
@@ -473,6 +516,12 @@ function UI.EmptyState(parent, message)
     local frame = CreateFrame("Frame", nil, parent)
     frame.text = UI.Text(frame, "body", "textMuted", "CENTER")
     frame.text:SetPoint("CENTER")
+    -- These messages are whole paragraphs explaining why a panel is empty, and
+    -- an explanation is the last thing that should be cut in half. Bounded to
+    -- the panel and wrapped.
+    frame.text:SetPoint("LEFT", frame, "LEFT", 24, 0)
+    frame.text:SetPoint("RIGHT", frame, "RIGHT", -24, 0)
+    UI.Wrap(frame.text, 8)
     frame.text:SetText(message or "No data yet")
     function frame:SetMessage(text) self.text:SetText(text) end
     return frame

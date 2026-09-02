@@ -334,11 +334,11 @@ function Page:Refresh()
 
     local loaded = WTM.Processes:CountLoaded()
     local attribution = WTM.Processes.attribution
-    self.summary:SetText(("%d of %d loaded   -   %s%s")
+    self.summary:SetText(UI.FitText(self.summary, ("%d of %d loaded  -  %s%s")
         :format(loaded, #WTM.Processes.list,
                 attribution.totalFrames > 0
                     and ("%d frames scanned, %d attributed"):format(
                         attribution.totalFrames, attribution.matchedFrames)
                     or "frames not scanned",
-                self.hovering and "   -   sort paused while hovering" or ""))
+                self.hovering and "  -  sort paused while hovering" or "")))
 end

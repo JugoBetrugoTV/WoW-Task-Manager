@@ -65,8 +65,13 @@ print("== downsampling: spikes must survive ==")
 -- 1. The exact case from the brief: a bucket of 5 / 6 / 97 / 5 ms.
 --------------------------------------------------------------------------
 local graph = NS.UI.Graph(UIParent, { title = "frame time" })
-graph.plot._w, graph.plot._h = 12, 100     -- 12 px => 4 columns at 3 px each
-graph._w, graph._h = 60, 140
+-- The plot area is pinned to an exact size so the column count is known.
+-- Its anchors are cleared first: the harness resolves real geometry from
+-- anchors now, and anchors beat an explicitly set width, exactly as in the
+-- client.  12 px => 4 columns at 3 px each.
+graph:SetSize(60, 140)
+graph.plot:ClearAllPoints()
+graph.plot:SetSize(12, 100)
 
 local frameMs, times = {}, {}
 for i = 1, 16 do frameMs[i] = 5 + (i % 2) ; times[i] = i end
@@ -85,7 +90,8 @@ check("downsampling actually happened", #rendered < 16, "#rendered = " .. #rende
 -- 2. FPS is the one series where the LOW value is the bad one.
 --------------------------------------------------------------------------
 local fpsGraph = NS.UI.Graph(UIParent, { title = "fps", worstIsLow = true })
-fpsGraph.plot._w, fpsGraph.plot._h = 12, 100
+fpsGraph.plot:ClearAllPoints()
+fpsGraph.plot:SetSize(12, 100)
 local fps = {}
 for i = 1, 16 do fps[i] = 120 end
 fps[11] = 9                                  -- the drop
@@ -125,7 +131,8 @@ check("Recorder keeps the FPS trough", seriesTrough == 4, seriesTrough)
 -- 4. End to end: Recorder decimation feeding graph decimation.
 --------------------------------------------------------------------------
 local chained = NS.UI.Graph(UIParent, { title = "chained" })
-chained.plot._w, chained.plot._h = 30, 100
+chained.plot:ClearAllPoints()
+chained.plot:SetSize(30, 100)
 local v2, t2 = NS.Recorder:GetSeries("frameMaxMs", base, GetTime(), 120)
 chained:SetSeries(1, v2, t2, { label = "frame" })
 chained:SetTimeRange(base, GetTime())

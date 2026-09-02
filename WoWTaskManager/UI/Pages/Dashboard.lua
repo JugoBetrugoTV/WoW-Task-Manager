@@ -27,6 +27,12 @@ local UI    = WTM.UI
 local Theme = UI.Theme
 local T     = Theme.Get
 local M     = Theme.metrics
+
+-- How many overhead categories the card has room for, and how tall each row is.
+-- The card is sized from these, so adding a category widens the card instead of
+-- pushing a row off the bottom of it.
+local MAX_OVERHEAD_ROWS  = 6
+local OVERHEAD_ROW_HEIGHT = 15
 local Fmt   = WTM.Format
 
 local Page = UI.RegisterPage("dashboard", {})
@@ -133,6 +139,8 @@ function Page:Build(frame)
     notice.body:SetPoint("TOPLEFT", notice.title, "BOTTOMLEFT", 0, -4)
     notice.body:SetPoint("RIGHT", notice, "RIGHT", -300, 0)
     notice.body:SetJustifyH("LEFT")
+    notice.body:SetHeight(30)
+    UI.Wrap(notice.body, 2)
     notice.body:SetText("Everything else is recording normally. Per-addon CPU needs the client's scriptProfile CVar, which takes effect after a reload.")
 
     notice.enable = UI.Button(notice, "Enable profiling", function()
@@ -206,7 +214,10 @@ function Page:Build(frame)
     -- Footer: overhead + incidents
     ------------------------------------------------------------------
     local footer = CreateFrame("Frame", nil, frame)
-    footer:SetHeight(104)
+    -- Tall enough for every breakdown row plus the total. It was 104, which fit
+    -- four rows and a total into space for four - the overhead card overflowed
+    -- its own card, which is the bug class this addon was reported for.
+    footer:SetHeight(OVERHEAD_ROW_HEIGHT * (MAX_OVERHEAD_ROWS + 1) + 40)
     footer:SetPoint("BOTTOMLEFT", pad, pad)
     footer:SetPoint("BOTTOMRIGHT", -pad, pad)
     self.footer = footer
@@ -216,11 +227,12 @@ function Page:Build(frame)
     self.overheadCard:SetPoint("BOTTOMLEFT")
     self.overheadCard:SetWidth(380)
 
+    -- One row per breakdown category, plus one for the total.
     self.overheadRows = {}
-    for i = 1, 5 do
+    for i = 1, MAX_OVERHEAD_ROWS + 1 do
         local statRow = UI.StatRow(self.overheadCard.content, "")
-        statRow:SetPoint("TOPLEFT", 0, -(i - 1) * 15)
-        statRow:SetPoint("TOPRIGHT", 0, -(i - 1) * 15)
+        statRow:SetPoint("TOPLEFT", 0, -(i - 1) * OVERHEAD_ROW_HEIGHT)
+        statRow:SetPoint("TOPRIGHT", 0, -(i - 1) * OVERHEAD_ROW_HEIGHT)
         self.overheadRows[i] = statRow
     end
 
@@ -471,7 +483,7 @@ function Page:Refresh()
                 counts.stutter, counts.minor, info.spikesPerMinute, score)
     local suppressedNote = WTM.Suppression:Describe()
     if suppressedNote then detail = detail .. "  -  " .. suppressedNote end
-    self.banner.detail:SetText(detail)
+    self.banner.detail:SetText(UI.FitText(self.banner.detail, detail))
     self.banner.uptime:SetText(Fmt.Duration(info.duration))
 
     ------------------------------------------------------------------
@@ -521,7 +533,7 @@ function Page:Refresh()
 
         if unavailable then
             graph:ClearSeries()
-            graph:SetTitle(spec.title .. "   -   " .. unavailable)
+            graph:SetTitle(spec.title .. "  -  " .. unavailable)
         else
             local series = self.series[spec.key]
             WTM.Recorder:GetSeries(spec.field, fromTime, now, 300, series.values, series.times)
@@ -539,28 +551,40 @@ function Page:Refresh()
     ------------------------------------------------------------------
     -- Overhead breakdown
     ------------------------------------------------------------------
+    -- The categories are laid out first, then the total on the row after the
+    -- last one used. The total is not pinned to a fixed row: doing that meant
+    -- adding a category silently pushed one off the card.
     local breakdown = WTM.Overhead:GetBreakdown(breakdownScratch)
-    for i, statRow in ipairs(self.overheadRows) do
-        local entry = breakdown[i]
-        if entry then
-            statRow:Show()
-            statRow:SetLabel(entry.label)
-            if entry.measured then
-                statRow:Set(("%.3f ms/s"):format(entry.ms))
-            else
-                statRow:Set("not measured", "muted")
-            end
-        elseif i == #self.overheadRows then
-            statRow:Show()
-            statRow:SetLabel("|cffe6e9efTotal measured|r")
-            statRow:Set(("%.3f ms/s  (%.2f%% of a frame)")
-                :format(WTM.Overhead.current.totalMsPerSec,
-                        WTM.Overhead:GetFrameBudgetPercent()),
-                WTM.Overhead.current.verdict == "ok" and "ok" or "warn")
+    local shown = math.min(#breakdown, MAX_OVERHEAD_ROWS)
+
+    for i = 1, shown do
+        local entry, statRow = breakdown[i], self.overheadRows[i]
+        statRow:Show()
+        statRow:SetLabel(entry.label)
+        if entry.measured then
+            statRow:Set(("%.3f ms/s"):format(entry.ms))
         else
-            statRow:Hide()
+            statRow:Set("not measured", "muted")
         end
+        statRow.tooltip = entry.note
     end
+
+    local totalRow = self.overheadRows[shown + 1]
+    if totalRow then
+        totalRow:Show()
+        totalRow:SetLabel("|cffe6e9efTotal measured|r")
+        totalRow:Set(("%.3f ms/s  (%.2f%% of a frame)")
+            :format(WTM.Overhead.current.totalMsPerSec,
+                    WTM.Overhead:GetFrameBudgetPercent()),
+            WTM.Overhead.current.verdict == "ok" and "ok" or "warn")
+        -- The categories reconcile against this number; say by how much rather
+        -- than leaving the reader to add up the column.
+        local sum, total, delta = WTM.Overhead:ReconcileBreakdown()
+        totalRow.tooltip = ("Categories sum to %.3f ms/s against a measured total of %.3f ms/s (difference %.3f)."):
+            format(sum, total, delta)
+    end
+
+    for i = shown + 2, #self.overheadRows do self.overheadRows[i]:Hide() end
 
     ------------------------------------------------------------------
     -- Top consumers

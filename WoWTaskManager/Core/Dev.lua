@@ -273,7 +273,9 @@ function Dev:FinishBenchmark()
         end
     end
 
-    out(("  %-18s %6.3f ms/s"):format("TOTAL MEASURED", cur.totalMsPerSec))
+    local sum, total, delta = WTM.Overhead:ReconcileBreakdown()
+    out(("  %-18s %6.3f ms/s   |cff5d6675categories sum to %.3f, difference %.3f|r")
+        :format("TOTAL MEASURED", total, sum, delta))
     out(("  %-18s %6.3f %%  of the frame budget at the current %s FPS")
         :format("frame budget", WTM.Overhead:GetFrameBudgetPercent(),
                 Fmt.FPS(WTM.FrameTime.current.fps)))
@@ -339,6 +341,59 @@ commands = {
         out("|cff5d6675Everything injected is recorded with simulated = true and shown as SIMULATED.|r")
     end,
 }
+
+--------------------------------------------------------------------------
+-- Catalogue, for the Advanced section of the Settings page
+--------------------------------------------------------------------------
+--
+-- Same idea as WTM.COMMANDS: the buttons and `/wtm dev help` describe one list.
+-- `destructive` marks the entries that change measured state rather than only
+-- printing something, so the UI can ask before running them.
+local SUBCOMMANDS = {
+    { cmd = "spike",     label = "Inject frame spike",   destructive = true,
+      help = "inject a simulated frame spike - recorded and shown as SIMULATED" },
+    { cmd = "latency",   label = "Inject latency spike", destructive = true,
+      help = "mark a simulated latency spike" },
+    { cmd = "storm",     label = "Inject event storm",   destructive = true,
+      help = "inject a simulated event storm" },
+    { cmd = "memory",    label = "Allocate ballast",     destructive = true,
+      help = "allocate real memory held by this addon, to make growth visible" },
+    { cmd = "freemem",   label = "Release ballast",
+      help = "release the memory allocated above" },
+    { cmd = "caps",      label = "Dump capabilities",
+      help = "print the full capability matrix" },
+    { cmd = "scheduler", label = "Dump scheduler",
+      help = "print every sampling task and its measured cost" },
+    { cmd = "rings",     label = "Dump ring buffers",
+      help = "print ring buffer and history state" },
+    { cmd = "incident",  label = "Dump newest incident",
+      help = "print the most recent incident in full" },
+    { cmd = "suppress",  label = "Dump suppression",
+      help = "print why spikes are currently being suppressed" },
+}
+
+Dev.SUBCOMMANDS = SUBCOMMANDS
+
+--- Runs one catalogued dev subcommand. Returns false with a reason when dev
+--- mode is off, so a button can say why rather than doing nothing.
+function Dev:RunSubcommand(name)
+    if not WTM.db.profile.dev.enabled then
+        return false, "Dev mode is off."
+    end
+    local handler = commands[name]
+    if not handler then return false, ("Unknown dev command '%s'."):format(tostring(name)) end
+    handler()
+    return true
+end
+
+function Dev:IsEnabled()
+    return WTM.db.profile.dev.enabled and true or false
+end
+
+function Dev:SetEnabled(enabled)
+    if enabled then commands.on() else commands.off() end
+    return self:IsEnabled()
+end
 
 function Dev:HandleCommand(input)
     local cmd, rest = (input or ""):match("^%s*(%S*)%s*(.*)$")

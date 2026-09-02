@@ -186,6 +186,36 @@ local function Segmented(parent, label, options, get, set, description)
     return frame
 end
 
+--- A button that will not act on a single click.
+---
+--- Destructive controls sit on the same page as harmless ones, and the page is
+--- scrollable, so a misplaced click is a normal accident rather than an exotic
+--- one. The first click only arms the button; it disarms itself after a few
+--- seconds so a forgotten arm cannot be confirmed later by an unrelated click.
+local function ConfirmButton(parent, label, onConfirm, opts)
+    opts = opts or {}
+    local button
+    button = UI.Button(parent, label, function()
+        if not button.armed then
+            button.armed = true
+            button:SetText("Click again to confirm")
+            WTM:ScheduleTimer(function()
+                if button.armed then
+                    button.armed = false
+                    button:SetText(button.baseLabel or label)
+                end
+            end, 5)
+            return
+        end
+        button.armed = false
+        button:SetText(button.baseLabel or label)
+        onConfirm()
+    end, opts)
+    button.baseLabel = label
+    button.isConfirmButton = true
+    return button
+end
+
 --------------------------------------------------------------------------
 
 function Page:Build(frame)
@@ -402,11 +432,13 @@ function Page:Build(frame)
     self.sizeText:SetJustifyH("LEFT")
     y = y + 24
 
-    local wipeButton = UI.Button(canvas, "Delete all saved history", function()
-        WTM.Database:WipeHistory()
-        WTM:Print("Saved sessions and incidents deleted.")
+    local wipeButton = ConfirmButton(canvas, "Delete all saved history", function()
+        -- Through the command, so this button and /wtm wipe cannot drift apart.
+        local handler = WTM:GetCommandHandler("wipe")
+        if handler then handler("") end
         Page:Refresh()
     end, { height = 24 })
+    wipeButton.tooltip = "Deletes every saved session and every saved incident. Settings and this session's live counters are not affected, and it cannot be undone - the button asks for a second click."
     Add(wipeButton, 28)
 
     ------------------------------------------------------------------
@@ -433,6 +465,22 @@ function Page:Build(frame)
     resetCountersButton.tooltip =
         "Calls ResetCPUUsage. Other profiling addons read the same counters, so this is never done automatically - it would corrupt their numbers without warning."
     Add(resetCountersButton, 28)
+
+    -- A profiling change only takes effect after a reload, so the reload button
+    -- belongs here rather than only on the dashboard notice. It is its own
+    -- button on purpose: nothing in this addon reloads without a click.
+    local reloadButton = ConfirmButton(canvas, "Reload the user interface", function()
+        local handler = WTM:GetCommandHandler("reload")
+        if handler then handler("") end
+    end, { height = 24 })
+    reloadButton.tooltip = "Reloads the interface, which is what makes a CPU profiling change take effect. Queued until combat ends if you are fighting. Asks for a second click."
+    Add(reloadButton, 28)
+
+    local capsButton = UI.Button(canvas, "Print the capability report", function()
+        WTM.Caps:PrintReport()
+    end, { height = 24 })
+    capsButton.tooltip = "Prints what this client can and cannot measure, and why, to chat. The same report is on the System page. Same as /wtm caps."
+    Add(capsButton, 28)
 
     ------------------------------------------------------------------
     AddSection("INTERFACE")
@@ -501,6 +549,35 @@ function Page:Build(frame)
 
     ------------------------------------------------------------------
     AddSection("LIVE MONITOR")
+
+    -- A button, not only a checkbox: this is the control people look for, and
+    -- nobody should have to know that /wtm mini exists to find it.
+    local miniButton = UI.Button(canvas, "", function()
+        WTM.UI.LiveMonitor:Toggle()
+        Page:Refresh()
+    end, { height = 26, primary = true })
+    miniButton.tooltip = "The small always-on panel with FPS, frame time, latency, CPU, memory and event rate. Drag its header to move it; its position and collapsed state are remembered."
+    miniButton.Update = function()
+        miniButton:SetText(WTM.UI.LiveMonitor:IsShown()
+            and "Close the compact monitor" or "Open the compact monitor")
+    end
+    miniButton.Update()
+    Add(miniButton, 30)
+
+    local miniCollapse = UI.Button(canvas, "", function()
+        WTM.UI.LiveMonitor:SetCollapsed(not WTM.UI.LiveMonitor:IsCollapsed())
+        Page:Refresh()
+    end, { height = 24 })
+    miniCollapse.tooltip = "Collapsing keeps the panel on screen as a single line with the frame time and FPS. It keeps recording either way."
+    miniCollapse.Update = function()
+        miniCollapse:SetText(WTM.UI.LiveMonitor:IsCollapsed()
+            and "Expand it to the full readout" or "Collapse it to one line")
+        miniCollapse:SetEnabledState(WTM.UI.LiveMonitor:IsShown(),
+            "The compact monitor is not open.")
+    end
+    miniCollapse.Update()
+    Add(miniCollapse, 28)
+
     Add(Checkbox(canvas, "Show the compact live monitor",
         function() return WTM.UI.LiveMonitor:IsShown() end,
         function(v)
@@ -579,11 +656,31 @@ function Page:Build(frame)
     commandsNote:SetText("Everything below is also a chat command, but nothing here requires typing one. Hover a button to see what it does.")
     Add(commandsNote, 34)
 
+    -- Groups rendered here, in order. "advanced" is deliberately absent: its
+    -- one command has its own section further down, with the explanation that
+    -- belongs beside it. Anything else missing is a bug, and the check below
+    -- makes it a visible one rather than a quietly unreachable command.
     local GROUP_TITLES = {
         window = "Window",
         pages  = "Go to a page",
         tools  = "Tools",
     }
+    local RENDERED_ELSEWHERE = { advanced = true }
+
+    local orphaned = {}
+    for _, entry in ipairs(WTM.COMMANDS) do
+        if not GROUP_TITLES[entry.group] and not RENDERED_ELSEWHERE[entry.group] then
+            orphaned[#orphaned + 1] = entry.cmd
+        end
+    end
+    if #orphaned > 0 then
+        local warn = UI.Text(canvas, "small", "warn", "LEFT")
+        warn:SetWidth(COLUMN)
+        warn:SetHeight(16)
+        warn:SetText(("No button for: %s"):format(table.concat(orphaned, ", ")))
+        Add(warn, 20)
+    end
+    self.orphanedCommands = orphaned
 
     for _, group in ipairs({ "window", "pages", "tools" }) do
         local groupLabel = UI.Text(canvas, "small", "textSecondary", "LEFT")
@@ -604,29 +701,17 @@ function Page:Build(frame)
                 local invocation = "/wtm" .. (entry.cmd ~= "" and (" " .. entry.cmd) or "")
                 if entry.arg then invocation = invocation .. " " .. entry.arg end
 
-                local button
-                button = UI.Button(row, entry.label, function()
+                local function run()
                     local handler = WTM:GetCommandHandler(entry.cmd)
                     if not handler then return end
-                    if entry.confirm and not button.armed then
-                        -- Destructive: the first click only arms it, and it
-                        -- disarms itself so a stray click cannot come back
-                        -- later and be confirmed by an unrelated one.
-                        button.armed = true
-                        button:SetText("Click again to confirm")
-                        WTM:ScheduleTimer(function()
-                            if button.armed then
-                                button.armed = false
-                                button:SetText(entry.label)
-                            end
-                        end, 5)
-                        return
-                    end
-                    button.armed = false
-                    button:SetText(entry.label)
                     handler("")
                     Page:Refresh()
-                end, { height = 24, width = (COLUMN - 16) / 3 })
+                end
+
+                local opts = { height = 24, width = (COLUMN - 16) / 3 }
+                local button = entry.confirm
+                    and ConfirmButton(row, entry.label, run, opts)
+                    or UI.Button(row, entry.label, run, opts)
                 button.tooltipTitle = invocation
                 button.tooltip = entry.help ..
                     (entry.confirm and "\n\nThis one asks for a second click first." or "")
@@ -639,8 +724,70 @@ function Page:Build(frame)
     end
 
     ------------------------------------------------------------------
+    -- Developer tools, behind their own heading.
+    --
+    -- These inject data. Everything they inject is recorded with simulated =
+    -- true and rendered as SIMULATED wherever it appears, but it still lands in
+    -- the same history as real measurements, so it does not belong next to the
+    -- ordinary controls.
+    ------------------------------------------------------------------
+    AddSection("DEVELOPER / ADVANCED")
+
+    local devNote = UI.Text(canvas, "small", "textMuted", "LEFT")
+    devNote:SetWidth(COLUMN)
+    devNote:SetHeight(44)
+    UI.Wrap(devNote, 3)
+    devNote:SetText("For testing this addon itself. The injection commands write simulated samples into the real history; everything they produce is marked SIMULATED wherever it is shown. Nothing here is needed for normal use.")
+    Add(devNote, 48)
+
+    Add(Checkbox(canvas, "Enable developer mode",
+        function() return WTM.Dev:IsEnabled() end,
+        function(v)
+            WTM.Dev:SetEnabled(v)
+            Page:Refresh()
+        end,
+        "Unlocks the buttons below. Off by default, and off again after you turn it off - it is not remembered as a capability, only as a setting."))
+
+    local devButtons = {}
+    do
+        local row, inRow = nil, 0
+        for _, entry in ipairs(WTM.Dev.SUBCOMMANDS) do
+            if inRow == 0 then
+                row = CreateFrame("Frame", nil, canvas)
+                row:SetHeight(26)
+                Add(row, 30)
+            end
+
+            local function run()
+                local ok, reason = WTM.Dev:RunSubcommand(entry.cmd)
+                if not ok then WTM:Print(reason) end
+                Page:Refresh()
+            end
+
+            local opts = { height = 24, width = (COLUMN - 16) / 3 }
+            local button = entry.destructive
+                and ConfirmButton(row, entry.label, run, opts)
+                or UI.Button(row, entry.label, run, opts)
+            button:SetPoint("LEFT", (inRow * ((COLUMN - 16) / 3 + 8)), 0)
+            button.tooltipTitle = "/wtm dev " .. entry.cmd
+            button.tooltip = entry.help ..
+                (entry.destructive and "\n\nWrites a simulated sample into the real history." or "")
+            button.Update = function()
+                button:SetEnabledState(WTM.Dev:IsEnabled(),
+                    "Developer mode is off. Enable it above.")
+            end
+            button.Update()
+            devButtons[#devButtons + 1] = button
+            self.controls[#self.controls + 1] = button
+
+            inRow = inRow + 1
+            if inRow == 3 then inRow = 0 end
+        end
+    end
+
+    ------------------------------------------------------------------
     AddSection("RESET")
-    local resetRuntimeButton = UI.Button(canvas, "Reset runtime counters", function()
+    local resetRuntimeButton = ConfirmButton(canvas, "Reset runtime counters", function()
         WTM.Database:ResetRuntime()
         WTM:Print("Runtime counters reset. Saved history is untouched.")
         Page:Refresh()
@@ -648,7 +795,7 @@ function Page:Build(frame)
     resetRuntimeButton.tooltip = "Clears this session's spikes, incidents, CPU and memory counters and starts measuring again. Saved sessions and incidents are not affected."
     Add(resetRuntimeButton, 28)
 
-    local resetSettingsButton = UI.Button(canvas, "Reset all settings to defaults", function()
+    local resetSettingsButton = ConfirmButton(canvas, "Reset all settings to defaults", function()
         WTM.db:ResetProfile()
         WTM:Print("Settings reset to defaults. Some changes take effect after a reload.")
         Page:Refresh()

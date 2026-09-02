@@ -227,14 +227,17 @@ function MainWindow:Build()
         if self.currentPage then self:LayoutPage(self.currentPage) end
         self:InvalidateGraphs()
     end, function()
-        -- Live, while dragging.
+        -- Live, while dragging. Layout has to follow the drag or panels sit at
+        -- their old size and text runs into itself - but the graphs only get
+        -- marked stale, NOT forced into a full pass. Forcing one on every frame
+        -- of a drag is how resizing became the addon's own worst stutter.
         if self.currentPage then self:LayoutPage(self.currentPage) end
-        self:InvalidateGraphs()
+        self:MarkGraphsDirty()
     end)
 
     window:SetScript("OnSizeChanged", function()
         if MainWindow.currentPage then MainWindow:LayoutPage(MainWindow.currentPage) end
-        MainWindow:InvalidateGraphs()
+        MainWindow:MarkGraphsDirty()
     end)
 
     -- Sidebar
@@ -309,94 +312,150 @@ function MainWindow:ShowPage(key)
     page.frame:Show()
     self.currentPage = key
     UI.Sidebar:SetActive(key)
-    -- A page that was just shown has stale graphs by definition.
+    -- A page that was just shown has stale graphs by definition, and the
+    -- refresh below runs outside the scheduler tick, so the pass has to be
+    -- opened here or the page would appear blank until the next tick.
     self:InvalidateGraphs()
+    self:BeginGraphPass()
 
     if page.OnShow then pcall(page.OnShow, page) end
     self:RefreshCurrentPage()
 end
 
---- True when graphs on the visible page should actually be redrawn.
----
---- Redrawing a graph repositions hundreds of pooled textures, and it is by far
---- the most expensive thing this addon does - a live client measured 33 ms/s of
---- UI cost from redrawing six graphs twice a second, which is an entire 60 FPS
---- frame budget per redraw.
----
---- Buckets are one second apart, so redrawing faster than that cannot show new
---- data. Pages ask this before drawing; text and numbers still update on every
---- refresh because they are nearly free.
--- How many graphs may be redrawn in one pass.
+--------------------------------------------------------------------------
+-- Graph redraw pacing
+--------------------------------------------------------------------------
 --
--- The gate alone was not enough: six graphs still redrew together, and the
--- benchmark measured that single pass at ~15 ms - one whole frame. Spreading
--- them round-robin means at most two redraw per pass, so the work is amortised
--- over three passes instead of landing in one frame. The data is on a one
--- second cadence, so nothing visible is lost.
+-- Redrawing a graph repositions hundreds of pooled textures, and it is by far
+-- the most expensive thing this addon does. A live client measured 33 ms/s of
+-- UI cost from redrawing six graphs twice a second, and a single pass at
+-- ~15 ms - an entire 60 FPS frame budget landing in one frame.
+--
+-- Two mechanisms, and both are needed:
+--
+--   1. A GATE. Buckets are one second apart, so redrawing faster than the
+--      configured rate cannot show new data.
+--   2. A ROUND-ROBIN BUDGET. Even at the right rate, six graphs redrawing
+--      together is one 15 ms frame. At most GRAPHS_PER_PASS redraw per pass,
+--      so the work is amortised over three passes. Nothing visible is lost:
+--      the data underneath is on a one second cadence either way.
+--
+-- The decision is made ONCE per refresh tick, in BeginGraphPass, and everything
+-- else only reads it. It used to be made inside ShouldRedrawGraphs, which every
+-- caller called for itself - and because MainWindow:Refresh refreshes the live
+-- monitor first, the live monitor's call consumed the tick and the page's own
+-- graphs then got `false` every single time. With the live monitor open, the
+-- main window's graphs only ever redrew on a forced full pass.
 local GRAPHS_PER_PASS = 2
 
-function MainWindow:ShouldRedrawGraphs()
-    local now = GetTime()
-    local minInterval = WTM.db.profile.ui.graphUpdateRate or 1.0
-    if self.lastGraphDraw and (now - self.lastGraphDraw) < minInterval then
-        return false
-    end
-    -- Nothing new to draw and the window is not being resized.
-    if self.lastGraphRevision == WTM.Recorder.revision and not self.graphsDirty then
-        -- Still redraw occasionally so the time axis keeps scrolling.
-        if self.lastGraphDraw and (now - self.lastGraphDraw) < math.max(2, minInterval * 3) then
-            return false
-        end
-    end
-    self.lastGraphDraw = now
-    self.lastGraphRevision = WTM.Recorder.revision
-    self.graphsDirty = false
-
-    -- Open a new round-robin pass.
-    -- A layout change invalidates every graph at once, so that one pass draws
-    -- all of them; afterwards the round-robin resumes.
-    self.fullPass = self.forceFullGraphPass or false
-    self.forceFullGraphPass = false
-
-    self.graphSlotsLeft = GRAPHS_PER_PASS
-    self.graphCursor = self.graphCursor or 0
-    return true
+--- One round-robin budget: how many draws are left in this pass, and where the
+--- rotation stands. The page's graphs and the live monitor's sparklines get one
+--- each, so a visible live monitor cannot starve the page of its turn.
+local function NewBudget()
+    return { left = 0, cursor = 0, full = false }
 end
 
---- Asks for permission to redraw ONE graph in the current pass.
----
---- Pages call this per graph instead of drawing all of them: `index` keeps the
---- rotation stable so every graph gets its turn rather than the first two
---- always winning.
-function MainWindow:TakeGraphSlot(index, total)
-    if self.fullPass then return true end
-    if not self.graphSlotsLeft or self.graphSlotsLeft <= 0 then return false end
+local function OpenBudget(budget, full)
+    budget.left = GRAPHS_PER_PASS
+    budget.full = full and true or false
+end
+
+--- Asks a budget for permission to redraw ONE item this pass.
+--- `index` keeps the rotation stable, so every item gets its turn instead of
+--- the first two always winning.
+local function TakeSlot(budget, index, total)
+    if budget.full then return true end
+    if budget.left <= 0 then return false end
     if not total or total <= GRAPHS_PER_PASS then
-        self.graphSlotsLeft = self.graphSlotsLeft - 1
+        budget.left = budget.left - 1
         return true
     end
 
-    -- Whose turn is it this pass?
-    local offset = (self.graphCursor or 0)
-    local turn = ((index - 1 - offset) % total) < GRAPHS_PER_PASS
-    if turn then
-        self.graphSlotsLeft = self.graphSlotsLeft - 1
-        if self.graphSlotsLeft <= 0 then
-            self.graphCursor = (offset + GRAPHS_PER_PASS) % total
+    local offset = budget.cursor
+    if ((index - 1 - offset) % total) < GRAPHS_PER_PASS then
+        budget.left = budget.left - 1
+        if budget.left <= 0 then
+            budget.cursor = (offset + GRAPHS_PER_PASS) % total
         end
         return true
     end
     return false
 end
 
+--- Decides, once per refresh tick, whether this tick redraws graphs at all -
+--- and if so, opens a fresh round-robin budget for the page and another for the
+--- live monitor.
+---
+--- Call this exactly once at the top of a refresh, before anything that draws.
+function MainWindow:BeginGraphPass()
+    self.graphBudget = self.graphBudget or NewBudget()
+    self.sparkBudget = self.sparkBudget or NewBudget()
 
+    local now = GetTime()
+    local minInterval = WTM.db.profile.ui.graphUpdateRate or 1.0
 
---- Forces the next refresh to redraw graphs, e.g. after a resize or a page change.
-function MainWindow:InvalidateGraphs()
+    if self.lastGraphDraw and (now - self.lastGraphDraw) < minInterval then
+        self.graphPassOpen = false
+        return false
+    end
+    -- Nothing new to draw and no layout change pending.
+    if self.lastGraphRevision == WTM.Recorder.revision and not self.graphsDirty then
+        -- Still redraw occasionally so the time axis keeps scrolling.
+        if self.lastGraphDraw and (now - self.lastGraphDraw) < math.max(2, minInterval * 3) then
+            self.graphPassOpen = false
+            return false
+        end
+    end
+
+    self.lastGraphDraw = now
+    self.lastGraphRevision = WTM.Recorder.revision
+    self.graphsDirty = false
+
+    -- A full pass draws everything in one tick. It is reserved for the moments
+    -- where stale geometry would be visibly wrong - a page change, or the end
+    -- of a resize - and never used for the frame-by-frame updates of a drag,
+    -- which is what turned resizing into a stutter generator.
+    local full = self.forceFullGraphPass or false
+    self.forceFullGraphPass = false
+
+    OpenBudget(self.graphBudget, full)
+    OpenBudget(self.sparkBudget, full)
+    self.graphPassOpen = true
+    return true
+end
+
+--- True when graphs should be redrawn during this refresh tick.
+--- A pure read of the decision BeginGraphPass already made; calling it twice
+--- returns the same answer and consumes nothing.
+function MainWindow:ShouldRedrawGraphs()
+    return self.graphPassOpen == true
+end
+
+--- Permission to redraw one graph on the visible page.
+function MainWindow:TakeGraphSlot(index, total)
+    if not self.graphPassOpen then return false end
+    return TakeSlot(self.graphBudget, index, total)
+end
+
+--- Permission to redraw one sparkline in the live monitor. Separate budget on
+--- purpose: see the comment above BeginGraphPass.
+function MainWindow:TakeSparkSlot(index, total)
+    if not self.graphPassOpen then return false end
+    return TakeSlot(self.sparkBudget, index, total)
+end
+
+--- Marks the graph data as stale so the next tick redraws, without demanding
+--- that everything redraw at once. This is what a resize drag uses.
+function MainWindow:MarkGraphsDirty()
     self.graphsDirty = true
     self.lastGraphDraw = nil
-    -- A layout change invalidates every graph at once, so the round-robin is
-    -- suspended for one pass rather than leaving four of six stale.
+end
+
+--- Marks graphs stale AND demands one full pass: every graph redraws on the
+--- next tick. For page changes and the end of a resize, where leaving four of
+--- six graphs at the old geometry would look broken.
+function MainWindow:InvalidateGraphs()
+    self:MarkGraphsDirty()
     self.forceFullGraphPass = true
 end
 
@@ -427,6 +486,10 @@ function MainWindow:StopRefresh()
 end
 
 function MainWindow:Refresh()
+    -- One decision per tick, taken before anything draws, so the live monitor
+    -- and the visible page see the same answer instead of racing for it.
+    self:BeginGraphPass()
+
     -- The compact monitor updates on the same task, and may be visible while
     -- the main window is closed.
     if UI.LiveMonitor then UI.LiveMonitor:Refresh() end

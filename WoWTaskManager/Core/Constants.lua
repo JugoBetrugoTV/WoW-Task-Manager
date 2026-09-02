@@ -12,7 +12,7 @@ WTM.C = C
 C.ADDON_NAME    = ADDON_NAME
 C.ADDON_TITLE   = "WoW Task Manager"
 C.ADDON_SHORT   = "WTM"
-C.VERSION       = "0.4.0"
+C.VERSION       = "0.5.0"
 
 -- SavedVariables schema version.  Bump this whenever the stored shape changes
 -- and add a migration step in Core/Database.lua; never reinterpret old data in

@@ -99,9 +99,8 @@ function Region:SetColorTexture(...) checkColor("SetColorTexture", self, ...) en
 function Region:SetVertexColor(...) checkColor("SetVertexColor", self, ...) end
 
 local methods = {
-    "SetPoint","SetAllPoints","ClearAllPoints",
     "SetTexture","SetTexCoord","SetAlpha",
-    "SetJustifyH","SetJustifyV","SetWordWrap","SetNonSpaceWrap","SetMaxLines",
+    "SetJustifyH","SetJustifyV",
     "SetTextColor","SetShadowColor","SetShadowOffset","SetDrawLayer",
     "SetToplevel","SetClampedToScreen",
     "SetMovable","SetResizable","SetResizeBounds","SetMinResize","StartMoving",
@@ -137,29 +136,258 @@ function Region:IsVisible()
     end
     return true
 end
+--------------------------------------------------------------------------
+-- Anchors and resolved geometry
+--------------------------------------------------------------------------
+--
+-- SetPoint used to be a no-op, which meant the harness could not answer the one
+-- question the real client kept answering badly: does this text fit in the box
+-- it was given? Anchors are now recorded and resolved, so a font string that is
+-- anchored LEFT and RIGHT has a real width, and a label that outgrows it can be
+-- caught here instead of in a screenshot.
+--
+-- This is a deliberately small subset of the real anchoring system: horizontal
+-- edges only, no scale, no strata. It is enough to find text overflow and not
+-- enough to pretend it is a layout engine.
+
+local function invalidateLayout() M.layoutEpoch = (M.layoutEpoch or 0) + 1 end
+M.layoutEpoch = 0
+
+--- SetPoint has six accepted argument shapes in WoW. Normalise them all.
+local function parsePoint(a, b, c, d, e)
+    local point, relativeTo, relativePoint, x, y = a, nil, nil, 0, 0
+    if type(b) == "number" then            -- (point, x, y)
+        x, y = b, c or 0
+    elseif type(b) == "string" then        -- (point, relativePoint, x, y) is not
+        relativePoint, x, y = b, c or 0, d or 0   -- valid WoW, but be lenient
+    elseif b ~= nil then
+        relativeTo = b
+        if type(c) == "number" then        -- (point, rel, x, y)
+            x, y = c, d or 0
+        else
+            relativePoint, x, y = c, d or 0, e or 0
+        end
+    end
+    return { point = point, rel = relativeTo, relPoint = relativePoint or point,
+             x = x or 0, y = y or 0 }
+end
+
+function Region:SetPoint(a, b, c, d, e)
+    if not a then return end
+    local p = parsePoint(a, b, c, d, e)
+    -- Setting the same anchor point twice replaces it, as in the real client.
+    for i = 1, #self._points do
+        if self._points[i].point == p.point then
+            self._points[i] = p
+            invalidateLayout()
+            return
+        end
+    end
+    self._points[#self._points + 1] = p
+    invalidateLayout()
+end
+
+function Region:ClearAllPoints()
+    for i = #self._points, 1, -1 do self._points[i] = nil end
+    invalidateLayout()
+end
+
+function Region:SetAllPoints(rel)
+    rel = rel or self._parent
+    self:ClearAllPoints()
+    self:SetPoint("TOPLEFT", rel, "TOPLEFT", 0, 0)
+    self:SetPoint("BOTTOMRIGHT", rel, "BOTTOMRIGHT", 0, 0)
+end
+
+function Region:GetPoint(index)
+    local p = self._points[index or 1]
+    if not p then return nil end
+    return p.point, p.rel, p.relPoint, p.x, p.y
+end
+function Region:GetNumPoints() return #self._points end
+
+local LEFT_POINTS  = { LEFT = true, TOPLEFT = true, BOTTOMLEFT = true }
+local RIGHT_POINTS = { RIGHT = true, TOPRIGHT = true, BOTTOMRIGHT = true }
+
+--- Absolute left and right edges, or nil where they cannot be worked out.
+--- Memoised per layout epoch; recursion through a cycle yields nil rather than
+--- hanging.
+local function resolveEdges(region, seen)
+    if not region then return nil, nil end
+    if region._edgeEpoch == M.layoutEpoch then
+        return region._edgeLeft, region._edgeRight
+    end
+    seen = seen or {}
+    if seen[region] then return nil, nil end
+    seen[region] = true
+
+    local left, right, centre, fromText
+    if region == _G.UIParent or region == _G.WorldFrame then
+        left, right = 0, region._w or 1920
+    else
+        for _, p in ipairs(region._points) do
+            local rel = p.rel or region._parent
+            local rl, rr = resolveEdges(rel, seen)
+            if rl and rr then
+                local anchor
+                if LEFT_POINTS[p.relPoint] then anchor = rl
+                elseif RIGHT_POINTS[p.relPoint] then anchor = rr
+                else anchor = rl + (rr - rl) / 2 end
+
+                local at = anchor + p.x
+                if LEFT_POINTS[p.point] then left = at
+                elseif RIGHT_POINTS[p.point] then right = at
+                else centre = at end
+            end
+        end
+
+        -- One edge (or the centre) plus an explicit width gives the rest.
+        local w = region._explicitW
+        if not (left and right) and w then
+            if left then right = left + w
+            elseif right then left = right - w
+            elseif centre then left, right = centre - w / 2, centre + w / 2 end
+        end
+
+        -- A font string with one anchor and no width takes its other edge from
+        -- the text, exactly as the real client does - which is why anchoring a
+        -- button to the RIGHT of a bare label works in game. Without this the
+        -- chain simply stops here, and everything anchored beyond the label
+        -- becomes unresolvable.
+        --
+        -- Flagged, because a width that came from the text is NOT a width the
+        -- layout imposed: the overflow audit has to keep telling those apart.
+        if region._kind == "FontString" and not (left and right) then
+            local textWidth = region:GetStringWidth()
+            if left then right, fromText = left + textWidth, true
+            elseif right then left, fromText = right - textWidth, true end
+        end
+    end
+
+    seen[region] = nil
+    region._edgeEpoch = M.layoutEpoch
+    region._edgeLeft, region._edgeRight = left, right
+    region._edgeFromText = fromText or false
+    return left, right
+end
+
+--- The width this region actually occupies on screen, worked out from its
+--- anchors, falling back to an explicitly set width and finally to the parent.
+--- Separate from GetWidth so existing behaviour is untouched.
+--- The width the ANCHORS give this region, with no fallbacks. nil means the
+--- region has no width of its own - in the real client it would grow to fit its
+--- text and draw over whatever is beside it.
+function Region:GetAnchoredWidth()
+    local left, right = resolveEdges(self)
+    -- A width the text supplied is not a width the layout imposed. Reporting it
+    -- as one would make every unbounded string look bounded, which is exactly
+    -- the failure this audit exists to catch.
+    if self._edgeFromText then
+        if self._explicitW and self._explicitW > 0 then return self._explicitW end
+        return nil
+    end
+    if left and right and right - left > 1 then return right - left end
+    if self._explicitW and self._explicitW > 0 then return self._explicitW end
+    return nil
+end
+
+function Region:GetResolvedWidth()
+    local left, right = resolveEdges(self)
+    -- A non-positive span means the anchors could not really be worked out
+    -- (a relative frame with no resolvable width of its own, usually). Treat
+    -- that as unknown rather than reporting a negative box.
+    if left and right and right - left > 1 then return right - left end
+    if self._explicitW then return self._explicitW end
+    local parent = self._parent
+    if parent and parent ~= self then return parent:GetResolvedWidth() end
+    return nil
+end
+
+function Region:GetLeft() local l = resolveEdges(self) return l end
+function Region:GetRight() local _, r = resolveEdges(self) return r end
+
 --- Size is stored rather than discarded: layout code reads it back, and a
 --- widget that collapses or grows is only testable if it does.
-function Region:SetWidth(w) self._w = w end
-function Region:SetHeight(h) self._h = h end
-function Region:SetSize(w, h) self._w, self._h = w, h end
+--- The real client fires OnSizeChanged when a frame is resized, and layout code
+--- relies on it. Re-entry is guarded: a handler that resizes its own children
+--- is normal, a handler that resizes itself must not recurse forever.
+local function fireSizeChanged(region)
+    local handler = region._scripts and region._scripts.OnSizeChanged
+    if not handler or region._inSizeChanged then return end
+    region._inSizeChanged = true
+    local ok, err = pcall(handler, region, region._w, region._h)
+    region._inSizeChanged = false
+    if not ok then geterrorhandler()(err) end
+end
 
-function Region:GetWidth() return self._w end
+function Region:SetWidth(w)
+    self._w, self._explicitW = w, w
+    invalidateLayout()
+    fireSizeChanged(self)
+end
+function Region:SetHeight(h)
+    self._h, self._explicitH = h, h
+    invalidateLayout()
+    fireSizeChanged(self)
+end
+function Region:SetSize(w, h)
+    self._w, self._h = w, h
+    self._explicitW, self._explicitH = w, h
+    invalidateLayout()
+    fireSizeChanged(self)
+end
+
+--- Real geometry where the anchors allow it, which is what layout code in the
+--- addon expects. Returning the stored value regardless was its own source of
+--- nonsense: widths computed as "parent width minus padding" came out negative
+--- because the parent always claimed to be the default 100 wide.
+function Region:GetWidth()
+    return self:GetResolvedWidth() or self._w
+end
 function Region:GetHeight() return self._h end
 function Region:GetSize() return self._w, self._h end
-function Region:GetLeft() return 0 end
-function Region:GetRight() return self._w end
+
 function Region:GetTop() return self._h end
 function Region:GetBottom() return 0 end
+--- The centre of a frame, which is how a minimap button works out where the
+--- cursor is relative to the minimap.
+function Region:GetCenter()
+    local left, right = resolveEdges(self)
+    local x = (left and right) and (left + (right - left) / 2) or ((self._w or 0) / 2)
+    return x, (self._h or 0) / 2
+end
+
 function Region:GetEffectiveScale() return 1 end
 function Region:GetScale() return 1 end
 function Region:GetParent() return self._parent end
 function Region:GetName() return self._name end
 function Region:GetObjectType() return self._kind end
 function Region:SetText(t) self._text = tostring(t or "") end
+function Region:SetWordWrap(v) self._wordWrap = v and true or false end
+function Region:SetMaxLines(n) self._maxLines = n end
+function Region:SetNonSpaceWrap(v) self._nonSpaceWrap = v and true or false end
 function Region:GetText() return self._text end
 function Region:SetFont(path, size, flags) self._font = { path, size, flags } return true end
 function Region:GetFont() return self._font and self._font[1] or "Fonts\\FRIZQT__.TTF" end
-function Region:GetStringWidth() return #(self._text or "") * 6 end
+--- Colour codes and texture escapes are markup, not glyphs. Measuring them as
+--- text made every coloured label look twice as wide as it renders.
+local function visibleText(text)
+    text = tostring(text or "")
+    text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    text = text:gsub("|T.-|t", "MM")   -- an inline icon is about two glyphs wide
+    return text
+end
+
+--- Approximate rendered width. Not the real font metrics - the point is to
+--- catch a label that is obviously too long for its box, not to typeset.
+function Region:GetStringWidth()
+    local size = (self._font and self._font[2]) or 12
+    local widest = 0
+    for line in (visibleText(self._text) .. "\n"):gmatch("(.-)\n") do
+        widest = math.max(widest, #line)
+    end
+    return widest * size * 0.5
+end
 function Region:GetStringHeight() return 12 end
 function Region:SetScript(k, fn) self._scripts[k] = fn end
 function Region:GetScript(k) return self._scripts[k] end
@@ -302,6 +530,131 @@ function M.Tick(elapsed)
         local fn = frame._scripts.OnUpdate
         if fn and frame:IsVisible() then fn(frame, elapsed) end
     end
+end
+
+--------------------------------------------------------------------------
+-- Text overflow audit
+--------------------------------------------------------------------------
+--
+-- The one question a headless harness could never answer before: does this text
+-- fit in the box it was given? Two ways it can fail, and they fail differently:
+--
+--   "clipped"   the string has a resolved width and its text is wider - WoW
+--               cuts it off, so the reader loses the end of it.
+--   "unbounded" the string has no width of its own and its text is wider than
+--               the container it sits in - it does not clip, it draws straight
+--               over whatever is next to it. This is the one that produced
+--               "text runs into itself" in a real client.
+--
+-- Wrapping strings are exempt: they grow downwards by design, and their height
+-- is bounded by UI.Wrap's line cap.
+function M.AuditText(tolerance)
+    tolerance = tolerance or 2
+    -- A container narrower than this has not really been laid out - a panel on
+    -- a page that was never sized, or a detail pane that is still hidden. Text
+    -- "overflowing" a 20 px box says nothing about the real UI, and reporting
+    -- it would bury the findings that do.
+    local MIN_MEANINGFUL_BOX = 60
+    local findings = {}
+    for _, region in ipairs(M.allFrames) do
+        if region._kind == "FontString" and not region._wordWrap then
+            local text = region._text or ""
+            if text ~= "" then
+                local own = region:GetStringWidth()
+                -- Anchors only: a fallback to the parent's width would report a
+                -- string that has no width of its own as if it had one, which
+                -- hides the worse of the two failure modes.
+                local box = region:GetAnchoredWidth()
+                local parent = region._parent
+                local container = parent and parent:GetResolvedWidth()
+
+                if box and box < MIN_MEANINGFUL_BOX then
+                    -- not laid out; nothing to say
+                elseif box and own > box + tolerance then
+                    findings[#findings + 1] = {
+                        kind = "clipped", text = text, width = own, box = box, region = region,
+                        name = region._name or (parent and parent._name) or "unnamed",
+                    }
+                elseif not box and container and container >= MIN_MEANINGFUL_BOX
+                    and own > container + tolerance then
+                    findings[#findings + 1] = {
+                        kind = "unbounded", text = text, width = own, box = container, region = region,
+                        name = region._name or (parent and parent._name) or "unnamed",
+                    }
+                end
+            end
+        end
+    end
+    return findings
+end
+
+--- The span a font string actually paints over.
+---
+--- Bounded on both sides it is the box, because WoW clips to it. Anchored on
+--- one side only it is the anchor plus however wide the text turns out to be -
+--- which is the whole problem: nothing stops it.
+local function paintedSpan(fs)
+    local left, right = resolveEdges(fs)
+    local width = fs:GetStringWidth()
+    if left and right and right - left > 1 then return left, right end
+    if left then return left, left + width end
+    if right then return right - width, right end
+    return nil
+end
+
+--- Sibling font strings that paint over each other.
+---
+--- Restricted to short parents holding EXACTLY TWO font strings: the label and
+--- value shape. That is deliberately narrow. Vertical anchors are not resolved
+--- here, so in any richer parent - a graph's axis labels, say - two strings can
+--- overlap horizontally while sitting on different lines, and reporting those
+--- would bury the real finding in noise.
+---
+--- This is the check that catches the reported failure directly: a label
+--- anchored LEFT and a value anchored RIGHT, neither bounded, growing towards
+--- each other until they meet.
+function M.AuditTextOverlap(maxRowHeight, tolerance)
+    maxRowHeight = maxRowHeight or 30
+    tolerance = tolerance or 2
+    local findings = {}
+
+    for _, frame in ipairs(M.allFrames) do
+        -- An EXPLICIT height, not the default: a panel nobody sized would
+        -- otherwise look like a one-line row and every title-above-body pair
+        -- in it would be reported as an overlap.
+        -- Same guard as AuditText: a row 20 px wide has not been laid out, and
+        -- what its children do inside it says nothing about the real UI.
+        local rowWidth = frame:GetAnchoredWidth()
+        if frame._kind ~= "FontString" and frame._explicitH
+            and frame._explicitH <= maxRowHeight and frame:IsShown()
+            and rowWidth and rowWidth >= 60 then
+            local strings = {}
+            for _, child in ipairs(frame._children or {}) do
+                if child._kind == "FontString" and child:IsShown()
+                    and (child._text or "") ~= "" then
+                    local l, r = paintedSpan(child)
+                    if l then strings[#strings + 1] = { fs = child, left = l, right = r } end
+                end
+            end
+            if #strings == 2 then
+              for i = 1, #strings do
+                for j = i + 1, #strings do
+                    local a, b = strings[i], strings[j]
+                    local overlap = math.min(a.right, b.right) - math.max(a.left, b.left)
+                    if overlap > tolerance then
+                        findings[#findings + 1] = {
+                            overlap = overlap,
+                            a = a.fs._text, b = b.fs._text,
+                            parent = frame._name or "unnamed row",
+                            rowRef = frame,
+                        }
+                    end
+                end
+              end
+            end
+        end
+    end
+    return findings
 end
 
 --------------------------------------------------------------------------

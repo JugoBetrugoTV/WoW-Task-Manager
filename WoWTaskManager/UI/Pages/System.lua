@@ -99,6 +99,15 @@ function Page:Build(frame)
             row.note:SetPoint("LEFT", row.state, "RIGHT", 8, 0)
             row.note:SetPoint("RIGHT", row, "RIGHT", -6, 0)
             row.note:SetJustifyH("LEFT")
+
+            -- The note is fitted to the cell, so the full text has to be
+            -- reachable somewhere. Hovering the row is that somewhere.
+            row:EnableMouse(true)
+            row:SetScript("OnEnter", function(self2)
+                if not self2.noteFull or self2.noteFull == "" then return end
+                UI.ShowTooltip(self2, self2.label:GetText(), self2.noteFull)
+            end)
+            row:SetScript("OnLeave", UI.HideTooltip)
             return row
         end,
         function(row, entry)
@@ -107,13 +116,17 @@ function Page:Build(frame)
                 row.label:SetTextColor(T("accent"))
                 row.state:SetText("")
                 row.note:SetText("")
+                row.noteFull = nil
             else
                 row.label:SetText(entry.label)
                 row.label:SetTextColor(T("textPrimary"))
                 local info = STATE_LABEL[entry.state] or STATE_LABEL.no
                 row.state:SetText(info.text)
                 row.state:SetTextColor(Theme:Tone(info.tone))
-                row.note:SetText(entry.note or "")
+                -- One line in a table cell. Fitted rather than clipped
+                -- mid-word; the row's tooltip carries the whole note.
+                row.note:SetText(UI.FitText(row.note, entry.note or ""))
+                row.noteFull = entry.note or ""
             end
         end)
     self.capList:SetAllPoints(self.capCard.content)
@@ -197,7 +210,9 @@ function Page:Refresh()
     set("Database schema", schemaText, schemaTone)
     set("Saved database size", Fmt.Bytes(WTM.Database:EstimateSizeBytes()))
 
-    set("Event monitoring", ("%s - %s"):format(WTM.Events:GetMode(), WTM.Events:DescribeMode()))
+    -- The mode name is the value; the paragraph explaining it belongs on the
+    -- Settings page next to the control, not squeezed into a one-line cell.
+    set("Event monitoring", WTM.Events:GetMode())
 
     local suppressionText, suppressionTone = WTM.Suppression:Status()
     set("Spike detection", suppressionText, suppressionTone)

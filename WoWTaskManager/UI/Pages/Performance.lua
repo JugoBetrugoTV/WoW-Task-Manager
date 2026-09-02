@@ -233,8 +233,12 @@ function Page:Refresh()
     self.percentiles.low1.value:SetTextColor(Theme:Tone(
         (stats.avgFPS > 0 and stats.low1 / stats.avgFPS < 0.6) and "warn" or "ok"))
 
-    -- The histogram redraws on the same gate as the graphs.
-    if UI.MainWindow:ShouldRedrawGraphs() then
+    -- The histogram is as expensive as a graph, so it takes a turn in the same
+    -- rotation rather than redrawing on top of whichever graphs drew this pass.
+    -- It is item #graphs+1 of #graphs+1.
+    local histoIndex = #self.graphs + 1
+    if UI.MainWindow:ShouldRedrawGraphs()
+        and UI.MainWindow:TakeGraphSlot(histoIndex, histoIndex) then
         self.histogram:SetHistogram(
             WTM.FrameTime:GetHistogram(),
             WTM.Math.HistogramValue,
@@ -281,20 +285,21 @@ function Page:Refresh()
     WTM.Context:GetMarkersInRange(fromTime, now, markerScratch)
 
     local redraw = UI.MainWindow:ShouldRedrawGraphs()
-    local graphCount = #self.graphs
+    -- +1 for the histogram, which shares the rotation.
+    local graphCount = #self.graphs + 1
     for i, graph in ipairs(self.graphs) do
         local spec = graph.spec
         local series = self.series[spec.key]
 
         if spec.key == "cpu" and not WTM.CPU.available then
             graph:ClearSeries()
-            graph:SetTitle(spec.title .. "   -   " .. (WTM.CPU.reason or C.TXT_REQUIRES_PROFILING))
+            graph:SetTitle(spec.title .. "  -  " .. (WTM.CPU.reason or C.TXT_REQUIRES_PROFILING))
         elseif spec.key == "latency" and not WTM.Caps:Has("latency") then
             graph:ClearSeries()
-            graph:SetTitle(spec.title .. "   -   " .. C.TXT_UNAVAILABLE_CLIENT)
+            graph:SetTitle(spec.title .. "  -  " .. C.TXT_UNAVAILABLE_CLIENT)
         elseif spec.key == "events" and not WTM.Events.available then
             graph:ClearSeries()
-            graph:SetTitle(spec.title .. "   -   " .. C.TXT_UNAVAILABLE_CLIENT)
+            graph:SetTitle(spec.title .. "  -  " .. C.TXT_UNAVAILABLE_CLIENT)
         else
             WTM.Recorder:GetSeries(spec.field, fromTime, now, 300, series.values, series.times)
             graph:SetSeries(1, series.values, series.times, {
@@ -311,6 +316,6 @@ function Page:Refresh()
         end
     end
 
-    self.coverage:SetText(("history covers %s   -   %d buckets stored")
+    self.coverage:SetText(("history covers %s  -  %d buckets stored")
         :format(Fmt.Duration(WTM.Recorder:GetCoverage()), WTM.Recorder:CountBuckets()))
 end

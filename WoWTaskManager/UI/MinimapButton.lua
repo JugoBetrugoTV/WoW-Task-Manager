@@ -98,7 +98,8 @@ function MinimapButton:Build()
     ------------------------------------------------------------------
     button:SetScript("OnClick", function(_, mouseButton)
         if mouseButton == "RightButton" then
-            UI.LiveMonitor:Toggle()
+            -- Straight to Settings, which is where every other control lives.
+            UI.MainWindow:Open("settings")
         else
             UI.MainWindow:Toggle()
         end
@@ -111,8 +112,8 @@ function MinimapButton:Build()
         UI.TooltipLine("Spikes", tostring(WTM.SpikeDetector.total))
         UI.TooltipLine("Own overhead", ("%.2f ms/s"):format(WTM.Overhead.current.totalMsPerSec))
         UI.TooltipLine("", "")
-        UI.TooltipLine("Left click", "open the window", "muted")
-        UI.TooltipLine("Right click", "toggle the live monitor", "muted")
+        UI.TooltipLine("Left click", "open or close the window", "muted")
+        UI.TooltipLine("Right click", "go straight to Settings", "muted")
         UI.TooltipLine("Drag", "move around the minimap", "muted")
         UI.TooltipShow(self2)
     end)

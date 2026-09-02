@@ -303,9 +303,13 @@ print(("  spikes: %d total (%d freeze, %d heavy, %d stutter, %d minor)")
 print(("  events: %.0f/s now, %d total, %d distinct, %d storms")
     :format(NS.Events.current.perSecond, NS.Events.current.total,
             NS.Events:GetDistinctCount(), #NS.Events.storms))
-print(("  memory: %s lua, %s attributed, %d collections observed")
+-- "observed heap decreases", not "collections": WoW reports no GC statistics,
+-- and the field is called heapDrops precisely so this line cannot claim more
+-- than was measured.
+print(("  memory: %s lua, %s attributed, %d observed heap decreases")
     :format(NS.Format.Memory(NS.Memory.current.luaKB),
-            NS.Format.Memory(NS.Memory.current.addonSumKB), NS.Memory.gc.events))
+            NS.Format.Memory(NS.Memory.current.addonSumKB),
+            NS.Memory.heapDrops.events))
 print(("  recorder: %.0f s in the ring, %d history buckets, %d incidents")
     :format(NS.FlightRecorder:GetCoverageSeconds(), NS.Recorder:CountBuckets(),
             #NS.FlightRecorder.incidents))
@@ -325,6 +329,75 @@ for _, key in ipairs(NS.UI.pageOrder) do
     print(("   %-12s built=%s  refreshErrors=%d")
         :format(key, tostring(page.frame ~= nil and not page.buildFailed),
                 page.refreshErrors or 0))
+end
+
+--------------------------------------------------------------------------
+-- Graph redraw pacing
+--------------------------------------------------------------------------
+-- The mock clock only advances when the harness advances it, so debugprofilestop
+-- measures nothing here and a "ms/s" figure from this run would be fiction.
+-- What CAN be counted is the thing the pacing work was about: how many graphs
+-- redraw in a single refresh tick. That is a real number, and it is the number
+-- that turned into 15 ms on a live client.
+print("\n-- graph redraws per refresh tick --")
+do
+    local draws = 0
+    local Graph = getmetatable(NS.UI.MainWindow.frame) and nil
+    -- Count by wrapping Draw on every graph the pages built.
+    local wrapped = 0
+    for _, page in pairs(NS.UI.Pages) do
+        for _, graph in ipairs(page.graphs or {}) do
+            if not graph._countWrapped then
+                local original = graph.Draw
+                graph.Draw = function(self, ...) draws = draws + 1 return original(self, ...) end
+                graph._countWrapped = true
+                wrapped = wrapped + 1
+            end
+        end
+    end
+
+    NS.UI.MainWindow:ShowPage("performance")
+    local perTick = {}
+    for tick = 1, 6 do
+        draws = 0
+        -- A fresh tick's worth of data, then one refresh.
+        NS.Recorder.revision = (NS.Recorder.revision or 0) + 1
+        NS.UI.MainWindow.lastGraphDraw = nil
+        NS.UI.MainWindow:Refresh()
+        perTick[#perTick + 1] = draws
+    end
+    local worst, total = 0, 0
+    for _, n in ipairs(perTick) do
+        worst = math.max(worst, n)
+        total = total + n
+    end
+    -- What one tick used to cost: every graph on the page, together. A forced
+    -- full pass is exactly that, and it still happens on a page change - which
+    -- is why it is worth knowing how much bigger it is.
+    draws = 0
+    NS.Recorder.revision = (NS.Recorder.revision or 0) + 1
+    NS.UI.MainWindow.lastGraphDraw = nil
+    NS.UI.MainWindow:InvalidateGraphs()
+    NS.UI.MainWindow:Refresh()
+    local fullPassDraws = draws
+
+    print(("   %d graphs instrumented on the visible page"):format(wrapped))
+    print(("   redraws per tick: %s"):format(table.concat(perTick, ", ")))
+    print(("   worst paced tick: %d   average: %.1f"):format(worst, total / #perTick))
+    print(("   full pass (page change / end of resize): %d"):format(fullPassDraws))
+end
+
+print("\n-- measured overhead breakdown --")
+do
+    for _, row in ipairs(NS.Overhead:GetBreakdown()) do
+        print(("   %-26s %8s   %s"):format(row.label,
+            row.measured and ("%.3f ms/s"):format(row.ms) or "not measured",
+            row.note or ""))
+    end
+    local sum, total, delta = NS.Overhead:ReconcileBreakdown()
+    print(("   %-26s %8.3f ms/s   categories sum to %.3f (difference %.3f)")
+        :format("TOTAL MEASURED", total, sum, delta))
+    print("   (the mock clock does not advance on its own, so these are structural, not timings)")
 end
 
 print("\n-- opening addon detail on every tab --")
