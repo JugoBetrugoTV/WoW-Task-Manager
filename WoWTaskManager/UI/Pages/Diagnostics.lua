@@ -169,7 +169,7 @@ function Page:Build(frame)
     self.correlationNote:SetPoint("BOTTOMLEFT")
     self.correlationNote:SetPoint("BOTTOMRIGHT")
     self.correlationNote:SetJustifyH("LEFT")
-    self.correlationNote:SetWordWrap(true)
+    UI.Wrap(self.correlationNote)
 end
 
 function Page:OnShow() self:Refresh() end

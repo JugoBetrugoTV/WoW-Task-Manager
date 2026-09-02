@@ -155,7 +155,7 @@ function Page:Build(frame)
     self.listenerNote:SetPoint("BOTTOMLEFT")
     self.listenerNote:SetPoint("BOTTOMRIGHT")
     self.listenerNote:SetJustifyH("LEFT")
-    self.listenerNote:SetWordWrap(true)
+    UI.Wrap(self.listenerNote)
 
     self.sortKey = "rate"
     self:UpdateModeButtons()

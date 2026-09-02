@@ -122,26 +122,52 @@ not, `Core/Ace.lua` provides an API-compatible internal implementation of the
 five Ace3 modules the addon relies on. Nothing else in the codebase branches on
 which one is active.
 
+## Opening it
+
+Three equivalent ways, none of which requires typing anything:
+
+- the **minimap button** — left click opens the window, right click toggles the
+  live monitor, drag moves it around the minimap; it shows the current FPS
+- **ESC → Options → AddOns → WoW Task Manager** — deliberately just a short
+  description and a button, because duplicating the settings there would mean
+  two lists that disagree the first time one of them is edited
+- `/wtm` in chat
+
+A four-step introduction runs once on first login (what this measures, how to
+open it, why per-addon CPU needs a client setting, and how to read the results).
+It is skippable and can be replayed from the Settings page.
+
 ## Commands
+
+Every command below also exists as a **button on the Settings page**, under
+`COMMANDS`. The buttons and `/wtm help` are both generated from one catalogue
+(`WTM.COMMANDS` in `Core/Core.lua`), so a command with no button, or a button
+firing something the help text has never heard of, is not possible.
 
 ```
 /wtm                 open the window
-/wtm <page>          dashboard | processes | performance | timeline | events
-                     memory | diagnostics | sessions | system | settings
+/wtm <page>          dashboard | processes | performance | timeline | incidents
+                     events | memory | diagnostics | sessions | system | settings
+/wtm hide            close the window
+/wtm mini            toggle the compact always-on monitor
 /wtm profiling       toggle the scriptProfile CVar (takes effect after /reload)
 /wtm caps            print the runtime capability report
 /wtm overhead        print this addon's own cost
 /wtm reset           reset runtime counters
-/wtm mini            toggle the compact always-on monitor
+/wtm help            print the command list
 /wtm dev             developer tools (all injection marked SIMULATED)
 /wtm benchmark [s]   measure this addon's own overhead and report it
 ```
+
+The live monitor can be **collapsed to a single line** that keeps the frame time
+and FPS, from its own `-` button or from the Settings page. Its header also
+carries `cfg` (settings) and `open` (full window).
 
 ## Development
 
 ```
 apt-get install lua5.1      # the addon targets Lua 5.1, same as WoW
-./tools/run-tests.sh        # 16 scenarios
+./tools/run-tests.sh        # 32 scenarios
 ./tools/release-check.sh    # TOCs, includes, versions, wording rules, tests
 ```
 

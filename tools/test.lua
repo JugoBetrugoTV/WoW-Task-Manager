@@ -6,9 +6,19 @@ package.path = "./tools/?.lua;" .. package.path
 
 local INTERFACE = tonumber(arg and arg[1]) or 120100
 local PROFILE_ON = (arg and arg[2]) ~= "off"
+
+-- Remaining arguments are flags, in any order.
+local flags = {}
+for i = 3, (arg and #arg or 0) do flags[arg[i]] = true end
+
 -- "degraded" strips every optional API, to prove the feature-detection promise:
 -- the addon must load, run and report honestly on a client that has none of them.
-local DEGRADED = (arg and arg[3]) == "degraded"
+local DEGRADED = flags.degraded or false
+-- "ace3" loads a faithful Ace3 stand-in BEFORE the addon, so the Ace3 branch of
+-- Core/Ace.lua runs.  On a real client that branch is taken whenever any other
+-- installed addon embeds Ace3, so it is not an exotic configuration - it is the
+-- common one, and it was the untested one.
+local WITH_ACE3 = flags.ace3 or false
 
 local passed, failed = 0, 0
 local function check(name, condition, detail)
@@ -140,6 +150,40 @@ GetCVar, SetCVar = C_CVar.GetCVar, C_CVar.SetCVar
 GetCVarBool, GetCVarDefault, GetCVarInfo = C_CVar.GetCVarBool, C_CVar.GetCVarDefault, C_CVar.GetCVarInfo
 C_Timer = { After = function() end }
 
+--------------------------------------------------------------------------
+-- Options-panel registration, which differs per client.
+--
+-- Modern clients register a canvas category through Settings; older ones use
+-- InterfaceOptions_AddCategory. Neither is present on every supported client,
+-- so exactly one is exposed here per flavor and the addon has to find it by
+-- probing rather than by checking a version.
+--------------------------------------------------------------------------
+mock.optionsPanels = {}
+if INTERFACE >= 100000 then
+    Settings = {
+        RegisterCanvasLayoutCategory = function(frame, name)
+            mock.optionsPanels[#mock.optionsPanels + 1] = { frame = frame, name = name }
+            return { ID = "cat_" .. tostring(name), name = name }
+        end,
+        RegisterAddOnCategory = function(category)
+            mock.registeredCategory = category
+        end,
+        OpenToCategory = function(id)
+            mock.openedCategory = id
+            return true
+        end,
+    }
+else
+    function InterfaceOptions_AddCategory(frame)
+        mock.optionsPanels[#mock.optionsPanels + 1] = { frame = frame, name = frame.name }
+        return true
+    end
+    function InterfaceOptionsFrame_OpenToCategory(frame)
+        mock.openedCategory = frame and frame.name
+        return true
+    end
+end
+
 if DEGRADED then
     -- Remove everything the addon is only allowed to use after probing for it.
     GetNetStats = nil
@@ -156,6 +200,11 @@ if DEGRADED then
     GetCVarInfo = nil
     C_CVar.GetCVarInfo = nil
     C_Timer = nil
+    -- No way to add a panel under Options - AddOns at all. The addon must load
+    -- and work regardless; it simply has no entry there.
+    Settings = nil
+    InterfaceOptions_AddCategory = nil
+    InterfaceOptionsFrame_OpenToCategory = nil
     -- ...and make RegisterAllEvents unavailable, the way a hypothetical
     -- locked-down client would.
     local Frame = getmetatable(CreateFrame("Frame"))
@@ -163,6 +212,8 @@ if DEGRADED then
 end
 
 --------------------------------------------------------------------------
+if WITH_ACE3 then require("ace3stub").Install() end
+
 local NS = {}
 do
     local xml = assert(io.open("WoWTaskManager/Includes.xml"))
@@ -178,8 +229,8 @@ end
 mock.Fire("ADDON_LOADED", "WoWTaskManager")
 mock.Fire("PLAYER_LOGIN")
 
-print(("== %s, scriptProfile=%s%s =="):format(GetBuildInfo(), cvars.scriptProfile,
-    DEGRADED and ", DEGRADED API" or ""))
+print(("== %s, scriptProfile=%s%s%s =="):format(GetBuildInfo(), cvars.scriptProfile,
+    DEGRADED and ", DEGRADED API" or "", WITH_ACE3 and ", Ace3" or ""))
 
 --------------------------------------------------------------------------
 -- Compatibility
@@ -681,6 +732,295 @@ if not DEGRADED then
     check("the attribution summary reports them",
         NS.Processes:AttributionSummary():find("not frames") ~= nil,
         NS.Processes:AttributionSummary())
+end
+
+--------------------------------------------------------------------------
+-- Ace3 backend
+--------------------------------------------------------------------------
+-- Which backend is active depends on whether some OTHER addon in the player's
+-- list loaded Ace3, so both branches have to be exercised.
+
+check("backend matches the environment", NS.Ace.usingAce3 == WITH_ACE3,
+    tostring(NS.Ace.usingAce3))
+if WITH_ACE3 then
+    check("AceDB was actually used", NS.Database.backend == "AceDB-3.0", tostring(NS.Database.backend))
+else
+    check("internal DB was used", NS.Database.backend ~= "AceDB-3.0", tostring(NS.Database.backend))
+end
+-- Whichever backend is in play, the database has to behave the same.
+check("profile survives the backend", type(NS.db.profile) == "table")
+check("global survives the backend", type(NS.db.global) == "table")
+check("schema version readable", NS.db.global.schemaVersion ~= nil)
+
+--------------------------------------------------------------------------
+-- Slash commands
+--------------------------------------------------------------------------
+-- WoW invokes SlashCmdList[key](msg, editBox).  The handler therefore has to
+-- read the command out of the FIRST argument.  It did not: AceConsole embeds
+-- RegisterChatCommand with a different calling convention than the internal
+-- fallback, so on a client that had Ace3 loaded the handler received the chat
+-- edit box where the command string belonged, and /wtm threw on every use.
+-- These checks drive the command the way the client does, through whatever
+-- registration is actually installed.
+
+do
+    local slashKeys = {}
+    for name, value in pairs(_G) do
+        if type(name) == "string" and name:match("^SLASH_.+1$") and value == "/wtm" then
+            slashKeys[#slashKeys + 1] = name:match("^SLASH_(.+)1$")
+        end
+    end
+    -- Exactly one, or the command the player gets depends on table order. Two
+    -- registrations is what a second, AceConsole-installed RegisterChatCommand
+    -- would leave behind.
+    check("/wtm is registered exactly once", #slashKeys == 1,
+        table.concat(slashKeys, ", "))
+
+    local handler = slashKeys[1] and SlashCmdList[slashKeys[1]]
+    check("the registered command has a handler", type(handler) == "function")
+
+    if handler then
+        -- The second argument is the real trap: WoW passes the edit box frame.
+        local editBox = CreateFrame("EditBox", "WTMTestChatEditBox")
+        local errors = {}
+        local function run(input)
+            local ok, err = pcall(handler, input, editBox)
+            if not ok then errors[#errors + 1] = ("%q -> %s"):format(tostring(input), tostring(err)) end
+        end
+
+        -- Every command reachable from chat, minus the ones that destroy data
+        -- (reset) - those are covered by their own tests.
+        for _, cmd in ipairs({ "", "show", "dashboard", "processes", "performance",
+                               "timeline", "events", "memory", "diagnostics",
+                               "sessions", "system", "settings", "incidents",
+                               "mini", "hide", "overhead", "caps", "help",
+                               "nonsense-command", "  help  " }) do
+            run(cmd)
+        end
+        -- WoW passes "" for a bare slash, but a nil has been seen in the wild
+        -- when other addons re-dispatch commands.
+        run(nil)
+
+        for i = 1, math.min(6, #errors) do print("      /wtm " .. errors[i]) end
+        check("every /wtm command survives the client's calling convention",
+            #errors == 0, #errors .. " failed")
+
+        -- And it has to do something, not merely not crash.
+        NS.UI.MainWindow:Close()
+        run("dashboard")
+        check("/wtm dashboard opens the window", NS.UI.MainWindow:IsOpen())
+        check("/wtm dashboard selects the page",
+            NS.UI.MainWindow.currentPage == "dashboard",
+            tostring(NS.UI.MainWindow.currentPage))
+        run("processes")
+        check("/wtm processes switches page",
+            NS.UI.MainWindow.currentPage == "processes",
+            tostring(NS.UI.MainWindow.currentPage))
+        run("hide")
+        check("/wtm hide closes the window", not NS.UI.MainWindow:IsOpen())
+    end
+end
+
+--------------------------------------------------------------------------
+-- Minimap button
+--------------------------------------------------------------------------
+
+do
+    local mm = NS.UI.MinimapButton
+    check("the minimap button exists", mm.button ~= nil, mm:UnavailableReason())
+    check("it is shown by default", mm:IsShown())
+    check("it is parented to the minimap",
+        mm.button and mm.button:GetParent() == _G.Minimap)
+
+    -- It carries a live FPS readout, which only means anything if something
+    -- refreshes it while the main window is closed.
+    local task = NS.Scheduler:GetTask("minimap")
+    check("it has a refresh task of its own", task ~= nil)
+    check("the task is charged to the ui budget", task and task.category == "ui",
+        task and task.category)
+    check("the task runs while the button is shown", task and task.enabled)
+
+    mm:Refresh()
+    check("the readout says something", mm.button and mm.button.text:GetText() ~= nil,
+        mm.button and mm.button.text:GetText())
+
+    -- Hiding it must stop the task too, or a hidden button keeps costing.
+    mm:SetShown(false)
+    check("hiding it hides the button", not mm:IsShown())
+    check("hiding it stops the task", not NS.Scheduler:GetTask("minimap").enabled)
+    check("the choice is persisted", NS.db.profile.minimap.shown == false)
+
+    mm:Toggle()
+    check("toggling brings it back", mm:IsShown())
+    check("and restarts the task", NS.Scheduler:GetTask("minimap").enabled)
+end
+
+--------------------------------------------------------------------------
+-- Options - AddOns entry
+--------------------------------------------------------------------------
+-- Three registration APIs exist across the four clients and none is present
+-- everywhere, so what is asserted here is what this particular mock offers.
+
+do
+    local opts = NS.UI.Options
+    if DEGRADED then
+        check("no panel is claimed when the client offers no way to add one",
+            not opts.registered)
+        check("and the reason is stated", type(opts.unavailable) == "string",
+            tostring(opts.unavailable))
+        local ok, reason = opts:OpenBlizzardPanel()
+        check("opening it fails honestly rather than erroring",
+            ok == false and type(reason) == "string", tostring(reason))
+    else
+        check("an entry is registered", opts.registered, tostring(opts.unavailable))
+        check("through the API this client actually has",
+            opts.method == (INTERFACE >= 100000 and "settings" or "interfaceOptions"),
+            tostring(opts.method))
+        check("the panel was handed to the client", #mock.optionsPanels == 1,
+            #mock.optionsPanels)
+        check("under the addon's name",
+            mock.optionsPanels[1] and mock.optionsPanels[1].name == NS.C.ADDON_TITLE,
+            mock.optionsPanels[1] and tostring(mock.optionsPanels[1].name))
+        check("and it opens", opts:OpenBlizzardPanel())
+    end
+
+    -- The panel is deliberately almost empty, but it must not be a blank frame.
+    local panel = opts:BuildPanel()
+    check("the panel has content", panel ~= nil)
+    check("the panel carries an open button", opts.openButton ~= nil)
+end
+
+--------------------------------------------------------------------------
+-- Onboarding
+--------------------------------------------------------------------------
+
+do
+    local ob = NS.UI.Onboarding
+    ob:Open()
+    check("the introduction opens", ob:IsShown())
+    check("it starts at the first step", ob.index == 1, ob.index)
+
+    local seen = {}
+    for i = 1, 8 do
+        seen[ob.index] = ob.frame.title:GetText()
+        if ob.index >= 4 then break end
+        ob:Advance(1)
+    end
+    check("it has more than one step", ob.index > 1, ob.index)
+    check("every step says something",
+        seen[1] and seen[1] ~= "" and seen[ob.index] ~= "", tostring(seen[1]))
+
+    -- One of the steps has to explain the CPU profiling requirement, because a
+    -- player who does not know about it reads every CPU column as broken.
+    local mentionsProfiling = false
+    for _, text in pairs(seen) do
+        if text and text:lower():find("cpu") then mentionsProfiling = true end
+    end
+    check("it explains why per-addon CPU may be unavailable", mentionsProfiling)
+
+    ob:Advance(-1)
+    check("it can go back", ob.index < 4, ob.index)
+
+    check("it has not been marked seen yet", not ob:HasBeenSeen())
+    ob:Finish()
+    check("finishing closes it", not ob:IsShown())
+    check("finishing marks it seen", ob:HasBeenSeen())
+    check("which is persisted", NS.db.global.onboardingDone == true)
+end
+
+--------------------------------------------------------------------------
+-- Live monitor: collapsing
+--------------------------------------------------------------------------
+
+do
+    local lm = NS.UI.LiveMonitor
+    lm:Show()
+    local fullHeight = lm.frame:GetHeight()
+    check("the rows are visible when expanded", lm.rows.fps:IsShown())
+
+    lm:SetCollapsed(true)
+    check("collapsing hides the rows", not lm.rows.fps:IsShown())
+    check("collapsing shrinks the panel", lm.frame:GetHeight() < fullHeight,
+        lm.frame:GetHeight())
+    check("the header takes over the readout", lm.header.summary:IsShown())
+    lm:Refresh()
+    check("and the readout has numbers in it",
+        (lm.header.summary:GetText() or ""):find("%d") ~= nil,
+        lm.header.summary:GetText())
+    check("the button offers the way back", lm.header.collapse.text:GetText() == "+",
+        lm.header.collapse.text:GetText())
+    check("the state is persisted", NS.db.profile.liveMonitor.collapsed == true)
+
+    lm:SetCollapsed(false)
+    check("expanding restores the rows", lm.rows.fps:IsShown())
+    check("expanding restores the height", lm.frame:GetHeight() == fullHeight,
+        lm.frame:GetHeight())
+
+    -- Collapsed or not, it must still be reachable and closable.
+    check("the header has a settings button", lm.header.config ~= nil)
+    lm:Hide()
+    check("it closes", not lm:IsShown())
+end
+
+--------------------------------------------------------------------------
+-- Command catalogue
+--------------------------------------------------------------------------
+-- The user-facing promise is that nothing requires typing a chat command. That
+-- only holds if the button list and the command list are the same list.
+
+do
+    check("there is a command catalogue", type(NS.COMMANDS) == "table")
+    check("it is not trivially short", #NS.COMMANDS >= 15, #NS.COMMANDS)
+
+    local missingHandler, missingHelp, missingLabel = {}, {}, {}
+    for _, entry in ipairs(NS.COMMANDS) do
+        if type(NS:GetCommandHandler(entry.cmd)) ~= "function" then
+            missingHandler[#missingHandler + 1] = entry.cmd
+        end
+        if type(entry.help) ~= "string" or entry.help == "" then
+            missingHelp[#missingHelp + 1] = entry.cmd
+        end
+        if type(entry.label) ~= "string" or entry.label == "" then
+            missingLabel[#missingLabel + 1] = entry.cmd
+        end
+    end
+    check("every catalogued command actually runs something",
+        #missingHandler == 0, table.concat(missingHandler, ", "))
+    check("every catalogued command explains itself",
+        #missingHelp == 0, table.concat(missingHelp, ", "))
+    check("every catalogued command has a button label",
+        #missingLabel == 0, table.concat(missingLabel, ", "))
+
+    -- ...and the reverse: a command that exists but is not catalogued is a
+    -- command with no button, which is the thing being ruled out. "show" is a
+    -- deliberate alias for the bare command.
+    local catalogued = {}
+    for _, entry in ipairs(NS.COMMANDS) do catalogued[entry.cmd] = true end
+    catalogued["show"] = true
+    local uncatalogued = {}
+    local handler = SlashCmdList[slashKeyForWtm or ""]
+    for _, cmd in ipairs({ "", "show", "dashboard", "processes", "performance",
+                           "timeline", "events", "memory", "diagnostics",
+                           "sessions", "system", "settings", "incidents",
+                           "mini", "hide", "profiling", "reset", "overhead",
+                           "caps", "dev", "benchmark", "help" }) do
+        if not catalogued[cmd] then uncatalogued[#uncatalogued + 1] = cmd end
+    end
+    check("no command is missing from the catalogue",
+        #uncatalogued == 0, table.concat(uncatalogued, ", "))
+
+    -- /wtm help must print the catalogue rather than a hand-maintained copy.
+    local before = #DEFAULT_CHAT_FRAME.messages
+    NS:GetCommandHandler("help")("")
+    local printed = table.concat(DEFAULT_CHAT_FRAME.messages, "\n", before + 1)
+    local unmentioned = {}
+    for _, entry in ipairs(NS.COMMANDS) do
+        if entry.cmd ~= "" and not printed:find(entry.cmd, 1, true) then
+            unmentioned[#unmentioned + 1] = entry.cmd
+        end
+    end
+    check("/wtm help lists every catalogued command",
+        #unmentioned == 0, table.concat(unmentioned, ", "))
 end
 
 --------------------------------------------------------------------------

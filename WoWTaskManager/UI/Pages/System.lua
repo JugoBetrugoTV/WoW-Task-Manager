@@ -70,7 +70,7 @@ function Page:Build(frame)
     self.cvarNote:SetPoint("BOTTOMLEFT")
     self.cvarNote:SetPoint("BOTTOMRIGHT")
     self.cvarNote:SetJustifyH("LEFT")
-    self.cvarNote:SetWordWrap(true)
+    UI.Wrap(self.cvarNote)
     self.cvarNote:SetText("Only CVars that actually return a value on this client are listed. Nothing here is written to; protected and read-only CVars are never touched.")
 
     self.cvarRows = {}

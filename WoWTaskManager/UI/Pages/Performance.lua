@@ -281,6 +281,7 @@ function Page:Refresh()
     WTM.Context:GetMarkersInRange(fromTime, now, markerScratch)
 
     local redraw = UI.MainWindow:ShouldRedrawGraphs()
+    local graphCount = #self.graphs
     for i, graph in ipairs(self.graphs) do
         local spec = graph.spec
         local series = self.series[spec.key]
@@ -304,7 +305,7 @@ function Page:Refresh()
 
         graph:SetTimeRange(fromTime, now)
         graph:SetMarkers(markerScratch)
-        if redraw then
+        if redraw and UI.MainWindow:TakeGraphSlot(i, graphCount) then
             graph.dirty = true
             graph:Draw()
         end

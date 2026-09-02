@@ -112,11 +112,44 @@ end
 -- Text
 --------------------------------------------------------------------------
 
-function UI.Text(parent, style, colorKey, justify)
+--- Creates a font string.
+---
+--- Single line and non-wrapping by DEFAULT. WoW font strings wrap and grow
+--- downwards on their own, so a label that turns out longer than expected
+--- silently pushes itself over whatever is beneath it - which is exactly how a
+--- dashboard ends up with text running through its own graphs. Anything that
+--- genuinely needs to flow asks for it with `wrap = true`.
+function UI.Text(parent, style, colorKey, justify, wrap)
     local fs = parent:CreateFontString(nil, "OVERLAY")
     Theme:SetFont(fs, style or "body", colorKey or "textPrimary")
     fs:SetJustifyH(justify or "LEFT")
+    if wrap then
+        UI.Wrap(fs)
+    else
+        fs:SetWordWrap(false)
+        -- Clip rather than wrap when the text outgrows its box.
+        if fs.SetMaxLines then pcall(fs.SetMaxLines, fs, 1) end
+    end
     return fs
+end
+
+--- Lets a font string flow over several lines after the fact.
+---
+--- The line count is CAPPED by default, and that default is not zero. A
+--- wrapping font string with no height grows downwards on its own, so a notice
+--- that turns out two lines longer than the layout expected pushes itself
+--- straight through whatever sits beneath it - which is how this addon ended up
+--- with explanatory text running over its own graphs on a real client.
+---
+--- Pass an explicit count for text that is genuinely meant to be longer, or 0
+--- for deliberately unbounded (a scrolling body, where growing downwards is the
+--- point).
+function UI.Wrap(fontString, maxLines)
+    fontString:SetWordWrap(true)
+    if fontString.SetMaxLines then
+        pcall(fontString.SetMaxLines, fontString, maxLines or 4)
+    end
+    return fontString
 end
 
 --- A label above a value, the shape used everywhere a number is shown.
@@ -416,7 +449,7 @@ function UI.NoticePanel(parent, title, message, actionLabel, onAction, tone)
     panel.message:SetPoint("RIGHT", panel, "RIGHT", -14, 0)
     panel.message:SetJustifyH("LEFT")
     panel.message:SetText(message or "")
-    panel.message:SetWordWrap(true)
+    UI.Wrap(panel.message)
 
     local height = 44 + (panel.message:GetStringHeight() or 12)
 

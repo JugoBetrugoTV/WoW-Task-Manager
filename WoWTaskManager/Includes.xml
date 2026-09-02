@@ -79,4 +79,7 @@
     <Script file="UI\Pages\Settings.lua"/>
     <Script file="UI\LiveMonitor.lua"/>
     <Script file="UI\AddonDetail.lua"/>
+    <Script file="UI\MinimapButton.lua"/>
+    <Script file="UI\Options.lua"/>
+    <Script file="UI\Onboarding.lua"/>
 </Ui>

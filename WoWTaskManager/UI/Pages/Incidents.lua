@@ -90,7 +90,7 @@ function Page:Build(frame)
     self.listEmpty:SetPoint("TOPLEFT")
     self.listEmpty:SetPoint("RIGHT")
     self.listEmpty:SetJustifyH("LEFT")
-    self.listEmpty:SetWordWrap(true)
+    UI.Wrap(self.listEmpty)
 
     ------------------------------------------------------------------
     -- Right: detail
@@ -210,7 +210,7 @@ function Page:Build(frame)
     self.cpuNote:SetPoint("BOTTOMLEFT")
     self.cpuNote:SetPoint("BOTTOMRIGHT")
     self.cpuNote:SetJustifyH("LEFT")
-    self.cpuNote:SetWordWrap(true)
+    UI.Wrap(self.cpuNote)
 
     self.emptyState = UI.EmptyState(detail, "No incidents recorded yet")
     self.emptyState:SetAllPoints(detail)

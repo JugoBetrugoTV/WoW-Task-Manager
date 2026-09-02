@@ -212,15 +212,28 @@ function ConsoleMixin:Print(...)
     DEFAULT_CHAT_FRAME:AddMessage(PRINT_PREFIX .. table.concat(parts, " "))
 end
 
+--- Registers a slash command whose handler always receives exactly one
+--- argument: the input string.
+---
+--- This is deliberately NOT delegated to AceConsole, even when AceConsole is
+--- present, because the two disagree about the calling convention:
+---
+---     internal fallback   handler(self, input)
+---     AceConsole-3.0      handler(msg, editBox)
+---
+--- Whether Ace3 is loaded depends on which OTHER addons the player happens to
+--- have installed, so delegating made the signature of our own handlers vary
+--- with someone else's addon list. It shipped, and on a client with Ace3
+--- present `/wtm` passed the chat edit box where the command string was
+--- expected and threw. Owning this one function removes the ambiguity.
 function ConsoleMixin:RegisterChatCommand(command, handler)
     local key = "WTM_" .. command:upper()
     _G["SLASH_" .. key .. "1"] = "/" .. command
-    SlashCmdList[key] = function(input)
+    SlashCmdList[key] = function(msg)
         local fn = type(handler) == "function" and handler or self[handler]
-        if fn then
-            local ok, err = pcall(fn, self, input or "")
-            if not ok then geterrorhandler()(err) end
-        end
+        if not fn then return end
+        local ok, err = pcall(fn, type(msg) == "string" and msg or "")
+        if not ok then geterrorhandler()(err) end
     end
 end
 
@@ -374,6 +387,12 @@ function Ace.Embed(obj)
     else
         for k, v in pairs(ConsoleMixin) do obj[k] = obj[k] or v end
     end
+
+    -- Slash registration is ALWAYS ours, overwriting whatever AceConsole just
+    -- embedded. See the comment on ConsoleMixin:RegisterChatCommand: the two
+    -- implementations pass different arguments, and which one is active would
+    -- otherwise depend on whether some unrelated addon loaded Ace3.
+    obj.RegisterChatCommand = ConsoleMixin.RegisterChatCommand
 
     return obj
 end

@@ -1,6 +1,6 @@
 # Mock-Testbericht
 
-Erzeugt am 2026-09-01 20:31 UTC gegen Addon-Version 0.2.0.
+Erzeugt am 2026-09-02 gegen Addon-Version 0.4.0.
 
 > **Alles hier ist MOCK VERIFIED, nichts ist REAL CLIENT VERIFIED.**
 > Der Mock verhält sich so, wie ich glaube, dass der Client sich verhält. Wo
@@ -20,29 +20,43 @@ Addon- und Profiling-APIs, CVars und die Uhr nach. Darauf laufen drei Suiten:
 
 Gestartet mit `./tools/run-tests.sh` bzw. `./tools/release-check.sh`.
 
-## Matrix: 4 Clients x Profiling an/aus x volle/abgeräumte API
+## Matrix: 4 Clients x Profiling an/aus x volle/abgeräumte API x Ace3 an/aus
 
 ```
-  PASS  Retail-12.1.0      profiling=on  api=normal     158 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=degraded   168 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=normal     159 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=degraded   169 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=normal     158 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=degraded   168 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=normal     159 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=degraded   169 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=normal     158 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=degraded   168 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=normal     159 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=degraded   169 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=normal     158 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=degraded   168 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=normal     159 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=degraded   169 passed, 0 failed, 0 lua errors
-
+  PASS  Retail-12.1.0      profiling=on  api=normal   no-ace3    217 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=normal   ace3       217 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=degraded no-ace3    225 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=degraded ace3       225 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=normal   no-ace3    218 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=normal   ace3       218 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=degraded no-ace3    226 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=degraded ace3       226 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=normal   no-ace3    217 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=normal   ace3       217 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=degraded no-ace3    225 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=degraded ace3       225 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=normal   no-ace3    218 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=normal   ace3       218 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=degraded no-ace3    226 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=degraded ace3       226 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=normal   no-ace3    217 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=normal   ace3       217 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=degraded no-ace3    225 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=degraded ace3       225 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=normal   no-ace3    218 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=normal   ace3       218 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=degraded no-ace3    226 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=degraded ace3       226 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=normal   no-ace3    217 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=normal   ace3       217 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=degraded no-ace3    225 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=degraded ace3       225 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=normal   no-ace3    218 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=normal   ace3       218 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=degraded no-ace3    226 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=degraded ace3       226 passed, 0 failed, 0 lua errors
 syntax check:
-  all 54 files parse
-
+  all 57 files parse
 ```
 
 Die Variante **degraded** entfernt `RegisterAllEvents`, `GetNetStats`,
@@ -50,7 +64,24 @@ Die Variante **degraded** entfernt `RegisterAllEvents`, `GetNetStats`,
 `GetEventCPUUsage`, `GetFrameCPUUsage`, `GetScriptCPUUsage`,
 `GetPhysicalScreenSize`, `GetCVarInfo`, `GetTimePreciseSec` und
 `C_Timer` — und lässt `RegisterAllEvents` zusätzlich werfen. Das Addon muss
-trotzdem laden, laufen und ehrlich berichten.
+trotzdem laden, laufen und ehrlich berichten. Sie entfernt ausserdem
+`Settings` und `InterfaceOptions_AddCategory`, sodass der Fall „dieser Client
+bietet gar keinen Weg, einen Eintrag unter *Options → AddOns* anzulegen"
+mitgetestet wird.
+
+Die Variante **ace3** lädt vor dem Addon `tools/ace3stub.lua`, einen bewusst
+minimalen Ace3-Ersatz. Er existiert, weil der Ace3-Zweig von `Core/Ace.lua`
+vorher **von keinem einzigen Test ausgeführt wurde**: der Mock hatte kein Ace3,
+also lief immer der interne Fallback. Auf einem echten Client entscheidet
+darüber die Addon-Liste des Spielers — lädt *irgendein* installiertes Addon
+Ace3, läuft der andere Zweig. Genau daran ist `/wtm` in Test 2 zerbrochen.
+
+Der Stub bildet Ace3 nicht nach, sondern ist an genau den Stellen treu, an
+denen Ace3 und der Fallback sich **widersprechen**. Der wichtigste Fall:
+AceConsole ruft Slash-Handler als `func(msg, editBox)` auf, der interne
+Fallback als `func(input)`. Der Widerspruch ist im Stub exakt reproduziert,
+damit er als Testfehler auftaucht statt als Fehlermeldung im Spiel eines
+Spielers.
 
 ## Downsampling: der Fall aus dem Auftrag
 

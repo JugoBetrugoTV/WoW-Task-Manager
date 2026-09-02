@@ -254,7 +254,7 @@ function Page:Build(frame)
     self.incidentEmpty:SetPoint("TOPLEFT")
     self.incidentEmpty:SetPoint("RIGHT")
     self.incidentEmpty:SetJustifyH("LEFT")
-    self.incidentEmpty:SetWordWrap(true)
+    UI.Wrap(self.incidentEmpty)
 
     ------------------------------------------------------------------
     -- Top consumers, filling the remaining footer width
@@ -507,7 +507,8 @@ function Page:Refresh()
     local fromTime = now - rangeSeconds
 
     local redraw = UI.MainWindow:ShouldRedrawGraphs()
-    for _, graph in ipairs(self.graphs) do
+    local graphCount = #self.graphs
+    for graphIndex, graph in ipairs(self.graphs) do
         local spec = graph.spec
         local unavailable
         if spec.key == "cpu" and not WTM.CPU.available then
@@ -529,7 +530,7 @@ function Page:Refresh()
             graph:SetTitle(spec.title)
         end
         graph:SetTimeRange(fromTime, now)
-        if redraw then
+        if redraw and UI.MainWindow:TakeGraphSlot(graphIndex, graphCount) then
             graph.dirty = true
             graph:Draw()
         end

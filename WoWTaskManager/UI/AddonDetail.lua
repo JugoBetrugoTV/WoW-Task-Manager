@@ -227,7 +227,7 @@ function Detail:BuildOverview(panel)
     panel.notes:SetPoint("BOTTOMRIGHT")
     panel.notes:SetJustifyH("LEFT")
     panel.notes:SetJustifyV("TOP")
-    panel.notes:SetWordWrap(true)
+    UI.Wrap(panel.notes)
     self.overviewNotes = panel.notes
 end
 
@@ -266,7 +266,7 @@ function Detail:BuildPerformance(panel)
     self.perfNotice:SetPoint("BOTTOMRIGHT")
     self.perfNotice:SetJustifyH("LEFT")
     self.perfNotice:SetJustifyV("TOP")
-    self.perfNotice:SetWordWrap(true)
+    UI.Wrap(self.perfNotice)
 end
 
 function Detail:BuildMemory(panel)
@@ -300,7 +300,7 @@ function Detail:BuildMemory(panel)
     self.memNotice:SetPoint("BOTTOMRIGHT")
     self.memNotice:SetJustifyH("LEFT")
     self.memNotice:SetJustifyV("TOP")
-    self.memNotice:SetWordWrap(true)
+    UI.Wrap(self.memNotice)
 end
 
 function Detail:BuildEvents(panel)
@@ -308,7 +308,7 @@ function Detail:BuildEvents(panel)
     panel.note:SetPoint("TOPLEFT")
     panel.note:SetPoint("TOPRIGHT")
     panel.note:SetJustifyH("LEFT")
-    panel.note:SetWordWrap(true)
+    UI.Wrap(panel.note)
     self.eventsNote = panel.note
 
     self.eventRows = {}
@@ -357,7 +357,7 @@ function Detail:BuildHistory(panel)
     panel.note:SetPoint("TOPLEFT")
     panel.note:SetPoint("TOPRIGHT")
     panel.note:SetJustifyH("LEFT")
-    panel.note:SetWordWrap(true)
+    UI.Wrap(panel.note)
     self.historyNote = panel.note
 
     self.historyRows = {}
@@ -393,7 +393,7 @@ function Detail:BuildMetadata(panel)
     panel.note:SetPoint("BOTTOMLEFT")
     panel.note:SetPoint("BOTTOMRIGHT")
     panel.note:SetJustifyH("LEFT")
-    panel.note:SetWordWrap(true)
+    UI.Wrap(panel.note)
     panel.note:SetText("Read with GetAddOnMetadata, which returns only fields the addon actually declared in its .toc. \"not declared\" means the field is absent from the TOC, not that this tool could not read it.")
     self.metadataNote = panel.note
 end

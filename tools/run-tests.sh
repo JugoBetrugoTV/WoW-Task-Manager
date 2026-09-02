@@ -17,20 +17,24 @@ for spec in $FLAVORS; do
     name="${spec#*:}"
     for mode in on off; do
         for api in normal degraded; do
-            total=$((total + 1))
-            if [ "$api" = "degraded" ]; then
-                out=$(lua5.1 tools/test.lua "$iface" "$mode" degraded 2>&1)
-            else
-                out=$(lua5.1 tools/test.lua "$iface" "$mode" 2>&1)
-            fi
-            if [ $? -eq 0 ]; then
-                printf '  PASS  %-18s profiling=%-3s api=%-8s  %s\n' \
-                    "$name" "$mode" "$api" "$(echo "$out" | tail -1 | tr -s ' ')"
-            else
-                fails=$((fails + 1))
-                printf '  FAIL  %-18s profiling=%-3s api=%-8s\n' "$name" "$mode" "$api"
-                echo "$out" | sed 's/^/        /'
-            fi
+            # Whether Ace3 is loaded is decided by the player's OTHER addons,
+            # so both backends are part of the matrix, not an extra.
+            for ace in no-ace3 ace3; do
+                total=$((total + 1))
+                flags=""
+                [ "$api" = "degraded" ] && flags="$flags degraded"
+                [ "$ace" = "ace3" ] && flags="$flags ace3"
+                out=$(lua5.1 tools/test.lua "$iface" "$mode" $flags 2>&1)
+                if [ $? -eq 0 ]; then
+                    printf '  PASS  %-18s profiling=%-3s api=%-8s %-8s  %s\n' \
+                        "$name" "$mode" "$api" "$ace" "$(echo "$out" | tail -1 | tr -s ' ')"
+                else
+                    fails=$((fails + 1))
+                    printf '  FAIL  %-18s profiling=%-3s api=%-8s %-8s\n' \
+                        "$name" "$mode" "$api" "$ace"
+                    echo "$out" | sed 's/^/        /'
+                fi
+            done
         done
     done
 done

@@ -166,10 +166,12 @@ function UI.Graph(parent, opts)
     -- both became unreadable. There is always free space beside the title.
     graph.footer = UI.Text(graph, "tiny", "textMuted", "RIGHT")
     graph.footer:SetPoint("TOPRIGHT", -8, -7)
+    graph.footer:SetHeight(12)
 
     graph.titleText = UI.Text(graph, "heading", "textSecondary")
     graph.titleText:SetPoint("TOPLEFT", 10, -6)
-    graph.titleText:SetPoint("RIGHT", graph.footer, "LEFT", -10, 0)
+    graph.titleText:SetPoint("RIGHT", graph.footer, "LEFT", -12, 0)
+    graph.titleText:SetHeight(12)
     graph.titleText:SetJustifyH("LEFT")
     graph.titleText:SetText(opts.title or "")
     graph.padding.top = 26

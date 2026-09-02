@@ -326,6 +326,15 @@ end
 --- Buckets are one second apart, so redrawing faster than that cannot show new
 --- data. Pages ask this before drawing; text and numbers still update on every
 --- refresh because they are nearly free.
+-- How many graphs may be redrawn in one pass.
+--
+-- The gate alone was not enough: six graphs still redrew together, and the
+-- benchmark measured that single pass at ~15 ms - one whole frame. Spreading
+-- them round-robin means at most two redraw per pass, so the work is amortised
+-- over three passes instead of landing in one frame. The data is on a one
+-- second cadence, so nothing visible is lost.
+local GRAPHS_PER_PASS = 2
+
 function MainWindow:ShouldRedrawGraphs()
     local now = GetTime()
     local minInterval = WTM.db.profile.ui.graphUpdateRate or 1.0
@@ -342,13 +351,53 @@ function MainWindow:ShouldRedrawGraphs()
     self.lastGraphDraw = now
     self.lastGraphRevision = WTM.Recorder.revision
     self.graphsDirty = false
+
+    -- Open a new round-robin pass.
+    -- A layout change invalidates every graph at once, so that one pass draws
+    -- all of them; afterwards the round-robin resumes.
+    self.fullPass = self.forceFullGraphPass or false
+    self.forceFullGraphPass = false
+
+    self.graphSlotsLeft = GRAPHS_PER_PASS
+    self.graphCursor = self.graphCursor or 0
     return true
 end
+
+--- Asks for permission to redraw ONE graph in the current pass.
+---
+--- Pages call this per graph instead of drawing all of them: `index` keeps the
+--- rotation stable so every graph gets its turn rather than the first two
+--- always winning.
+function MainWindow:TakeGraphSlot(index, total)
+    if self.fullPass then return true end
+    if not self.graphSlotsLeft or self.graphSlotsLeft <= 0 then return false end
+    if not total or total <= GRAPHS_PER_PASS then
+        self.graphSlotsLeft = self.graphSlotsLeft - 1
+        return true
+    end
+
+    -- Whose turn is it this pass?
+    local offset = (self.graphCursor or 0)
+    local turn = ((index - 1 - offset) % total) < GRAPHS_PER_PASS
+    if turn then
+        self.graphSlotsLeft = self.graphSlotsLeft - 1
+        if self.graphSlotsLeft <= 0 then
+            self.graphCursor = (offset + GRAPHS_PER_PASS) % total
+        end
+        return true
+    end
+    return false
+end
+
+
 
 --- Forces the next refresh to redraw graphs, e.g. after a resize or a page change.
 function MainWindow:InvalidateGraphs()
     self.graphsDirty = true
     self.lastGraphDraw = nil
+    -- A layout change invalidates every graph at once, so the round-robin is
+    -- suspended for one pass rather than leaving four of six stale.
+    self.forceFullGraphPass = true
 end
 
 function MainWindow:RefreshCurrentPage()

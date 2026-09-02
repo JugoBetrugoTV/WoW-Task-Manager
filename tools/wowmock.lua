@@ -99,11 +99,11 @@ function Region:SetColorTexture(...) checkColor("SetColorTexture", self, ...) en
 function Region:SetVertexColor(...) checkColor("SetVertexColor", self, ...) end
 
 local methods = {
-    "SetPoint","SetAllPoints","ClearAllPoints","SetSize","SetWidth","SetHeight",
+    "SetPoint","SetAllPoints","ClearAllPoints",
     "SetTexture","SetTexCoord","SetAlpha",
     "SetJustifyH","SetJustifyV","SetWordWrap","SetNonSpaceWrap","SetMaxLines",
     "SetTextColor","SetShadowColor","SetShadowOffset","SetDrawLayer",
-    "SetFrameStrata","SetFrameLevel","SetToplevel","SetClampedToScreen",
+    "SetToplevel","SetClampedToScreen",
     "SetMovable","SetResizable","SetResizeBounds","SetMinResize","StartMoving",
     "StopMovingOrSizing","StartSizing","RegisterForDrag","RegisterForClicks",
     "EnableMouse","EnableMouseWheel","EnableKeyboard","SetClipsChildren",
@@ -116,6 +116,13 @@ local methods = {
 for _, name in ipairs(methods) do
     if not Region[name] then Region[name] = noop end
 end
+
+--- Frame level is a real API on every supported client and addons anchor
+--- layering to it, so it returns a number rather than being a no-op.
+function Region:SetFrameLevel(level) self._frameLevel = level end
+function Region:GetFrameLevel() return self._frameLevel or 1 end
+function Region:SetFrameStrata(strata) self._strata = strata end
+function Region:GetFrameStrata() return self._strata or "MEDIUM" end
 
 function Region:Show() self._shown = true end
 function Region:Hide() self._shown = false end
@@ -130,6 +137,12 @@ function Region:IsVisible()
     end
     return true
 end
+--- Size is stored rather than discarded: layout code reads it back, and a
+--- widget that collapses or grows is only testable if it does.
+function Region:SetWidth(w) self._w = w end
+function Region:SetHeight(h) self._h = h end
+function Region:SetSize(w, h) self._w, self._h = w, h end
+
 function Region:GetWidth() return self._w end
 function Region:GetHeight() return self._h end
 function Region:GetSize() return self._w, self._h end
@@ -297,6 +310,14 @@ end
 UIParent = CreateFrame("Frame", "UIParent")
 UIParent._w, UIParent._h = 1920, 1080
 WorldFrame = CreateFrame("Frame", "WorldFrame")
+-- Every supported client has a Minimap; addons anchor buttons to it by name.
+Minimap = CreateFrame("Frame", "Minimap", UIParent)
+Minimap._w, Minimap._h = 140, 140
+
+-- Panel management. HideUIPanel is what an addon calls to close the options
+-- window behind its own; it is only ever reached out of combat.
+function HideUIPanel(frame) if frame and frame.Hide then frame:Hide() end end
+function ShowUIPanel(frame) if frame and frame.Show then frame:Show() end end
 
 DEFAULT_CHAT_FRAME = { messages = {}, AddMessage = function(self, msg)
     self.messages[#self.messages + 1] = msg

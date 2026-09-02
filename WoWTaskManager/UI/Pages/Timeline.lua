@@ -375,7 +375,8 @@ function Page:Refresh()
     -- Tracks
     ------------------------------------------------------------------
     local redraw = UI.MainWindow:ShouldRedrawGraphs()
-    for _, track in ipairs(self.tracks) do
+    local trackCount = #self.tracks
+    for trackIndex, track in ipairs(self.tracks) do
         local spec = track.spec
         local series = self.series[spec.key]
 
@@ -401,7 +402,7 @@ function Page:Refresh()
         end
 
         track:SetTimeRange(fromTime, now)
-        if redraw then
+        if redraw and UI.MainWindow:TakeGraphSlot(trackIndex, trackCount) then
             track.dirty = true
             track:Draw()
         end

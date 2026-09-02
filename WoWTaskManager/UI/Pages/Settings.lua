@@ -294,7 +294,7 @@ function Page:Build(frame)
     thresholdNote:SetPoint("TOPLEFT", 0, -y)
     thresholdNote:SetWidth(COLUMN)
     thresholdNote:SetJustifyH("LEFT")
-    thresholdNote:SetWordWrap(true)
+    UI.Wrap(thresholdNote)
     thresholdNote:SetText("A frame counts as a spike only when it exceeds BOTH the absolute floor and the multiple of the rolling baseline. The floor stops a 144 Hz player from drowning in false positives; the multiplier stops a 25 Hz player from never seeing one.")
     y = y + 34
 
@@ -364,7 +364,7 @@ function Page:Build(frame)
     self.eventModeNote:SetPoint("TOPLEFT", 0, -y)
     self.eventModeNote:SetWidth(COLUMN)
     self.eventModeNote:SetJustifyH("LEFT")
-    self.eventModeNote:SetWordWrap(true)
+    UI.Wrap(self.eventModeNote)
     y = y + 30
 
     Add(Slider(canvas, "Event storm multiplier", 2, 20, 0.5,
@@ -415,7 +415,7 @@ function Page:Build(frame)
     self.profilingText:SetPoint("TOPLEFT", 0, -y)
     self.profilingText:SetWidth(COLUMN)
     self.profilingText:SetJustifyH("LEFT")
-    self.profilingText:SetWordWrap(true)
+    UI.Wrap(self.profilingText)
     y = y + 52
 
     local profilingButton = UI.Button(canvas, "Toggle scriptProfile", function()
@@ -436,6 +436,35 @@ function Page:Build(frame)
 
     ------------------------------------------------------------------
     AddSection("INTERFACE")
+    local minimapCheck = Checkbox(canvas, "Show the minimap button",
+        function() return WTM.UI.MinimapButton:IsShown() end,
+        function(v) WTM.UI.MinimapButton:SetShown(v) end,
+        "Left click opens the window, right click toggles the live monitor, drag moves it around the minimap. It shows the current FPS.")
+    -- Some clients have no Minimap frame at all. Say so rather than offering a
+    -- checkbox that silently does nothing.
+    local minimapReason = WTM.UI.MinimapButton:UnavailableReason()
+    if minimapReason then minimapCheck:SetEnabledState(false, minimapReason) end
+    Add(minimapCheck)
+    self.minimapCheck = minimapCheck
+
+    local optionsButton = UI.Button(canvas, "Open the Options - AddOns entry", function()
+        local ok, reason = WTM.UI.Options:OpenBlizzardPanel()
+        if not ok then WTM:Print(reason) end
+    end, { height = 24 })
+    optionsButton.tooltip =
+        "Shows this addon's entry under ESC - Options - AddOns. That entry is deliberately just a description and a button; the settings live here."
+    if not WTM.UI.Options.registered then
+        optionsButton:SetEnabledState(false, WTM.UI.Options.unavailable)
+    end
+    Add(optionsButton, 28)
+
+    local tourButton = UI.Button(canvas, "Show the introduction again", function()
+        WTM.UI.Onboarding:Open()
+    end, { height = 24 })
+    tourButton.tooltip =
+        "Replays the four-step introduction: what this measures, how to open it, why per-addon CPU needs a client setting, and how to read the results."
+    Add(tourButton, 28)
+
     Add(Checkbox(canvas, "Print a status line at login",
         function() return profile.general.printOnLogin end,
         function(v) profile.general.printOnLogin = v end))
@@ -478,6 +507,11 @@ function Page:Build(frame)
             if v then WTM.UI.LiveMonitor:Show() else WTM.UI.LiveMonitor:Hide() end
         end,
         "A small always-on panel with FPS, frame time, latency, CPU, memory and event rate. Drag its header to move it. Also toggled with /wtm mini."))
+
+    Add(Checkbox(canvas, "Collapse the live monitor to one line",
+        function() return WTM.UI.LiveMonitor:IsCollapsed() end,
+        function(v) WTM.UI.LiveMonitor:SetCollapsed(v) end,
+        "Hides the rows and keeps the header, which then carries the frame time and FPS. The panel keeps recording either way. Also on the panel's own - button."))
 
     Add(Checkbox(canvas, "Sparklines in the live monitor",
         function() return profile.liveMonitor.sparklines end,
@@ -527,6 +561,82 @@ function Page:Build(frame)
         WTM.Diagnostics:InvalidateCache()
     end,
     "How readily findings are reported. This changes what is SHOWN, never how anything is measured or how strongly it is worded: an association is described the same way at every setting, and no setting will make this addon claim causation."), 48)
+
+    ------------------------------------------------------------------
+    -- Every chat command, as a button.
+    --
+    -- The rows are generated from WTM.COMMANDS, which is also what /wtm help
+    -- prints, so this list cannot fall behind the commands that actually
+    -- exist. Nothing here is a second implementation: each button calls the
+    -- same handler the chat command calls.
+    ------------------------------------------------------------------
+    AddSection("COMMANDS")
+
+    local commandsNote = UI.Text(canvas, "small", "textMuted", "LEFT")
+    commandsNote:SetWidth(COLUMN)
+    commandsNote:SetHeight(30)
+    UI.Wrap(commandsNote, 2)
+    commandsNote:SetText("Everything below is also a chat command, but nothing here requires typing one. Hover a button to see what it does.")
+    Add(commandsNote, 34)
+
+    local GROUP_TITLES = {
+        window = "Window",
+        pages  = "Go to a page",
+        tools  = "Tools",
+    }
+
+    for _, group in ipairs({ "window", "pages", "tools" }) do
+        local groupLabel = UI.Text(canvas, "small", "textSecondary", "LEFT")
+        groupLabel:SetWidth(COLUMN)
+        groupLabel:SetText(GROUP_TITLES[group])
+        Add(groupLabel, 20)
+
+        -- Three across, so the page does not become one very long column.
+        local row, inRow = nil, 0
+        for _, entry in ipairs(WTM.COMMANDS) do
+            if entry.group == group then
+                if inRow == 0 then
+                    row = CreateFrame("Frame", nil, canvas)
+                    row:SetHeight(26)
+                    Add(row, 30)
+                end
+
+                local invocation = "/wtm" .. (entry.cmd ~= "" and (" " .. entry.cmd) or "")
+                if entry.arg then invocation = invocation .. " " .. entry.arg end
+
+                local button
+                button = UI.Button(row, entry.label, function()
+                    local handler = WTM:GetCommandHandler(entry.cmd)
+                    if not handler then return end
+                    if entry.confirm and not button.armed then
+                        -- Destructive: the first click only arms it, and it
+                        -- disarms itself so a stray click cannot come back
+                        -- later and be confirmed by an unrelated one.
+                        button.armed = true
+                        button:SetText("Click again to confirm")
+                        WTM:ScheduleTimer(function()
+                            if button.armed then
+                                button.armed = false
+                                button:SetText(entry.label)
+                            end
+                        end, 5)
+                        return
+                    end
+                    button.armed = false
+                    button:SetText(entry.label)
+                    handler("")
+                    Page:Refresh()
+                end, { height = 24, width = (COLUMN - 16) / 3 })
+                button.tooltipTitle = invocation
+                button.tooltip = entry.help ..
+                    (entry.confirm and "\n\nThis one asks for a second click first." or "")
+                button:SetPoint("LEFT", (inRow * ((COLUMN - 16) / 3 + 8)), 0)
+
+                inRow = inRow + 1
+                if inRow == 3 then inRow = 0 end
+            end
+        end
+    end
 
     ------------------------------------------------------------------
     AddSection("RESET")

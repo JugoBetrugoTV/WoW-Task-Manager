@@ -239,22 +239,90 @@ commands["benchmark"] = function(rest)
     WTM.Dev:Benchmark(rest)
 end
 
-commands["help"] = function()
-    WTM:Print("Commands:")
-    WTM:Print("  |cff4c8dff/wtm|r                open the window")
-    WTM:Print("  |cff4c8dff/wtm <page>|r         dashboard | processes | performance | timeline |")
-    WTM:Print("                        events | memory | diagnostics | sessions | system | settings")
-    WTM:Print("  |cff4c8dff/wtm profiling|r      toggle the scriptProfile CVar (needs /reload)")
-    WTM:Print("  |cff4c8dff/wtm caps|r           print the runtime capability report")
-    WTM:Print("  |cff4c8dff/wtm overhead|r       print this addon's own cost")
-    WTM:Print("  |cff4c8dff/wtm mini|r            toggle the compact always-on monitor")
-    WTM:Print("  |cff4c8dff/wtm reset|r          reset runtime counters")
-    WTM:Print("  |cff4c8dff/wtm dev|r             developer tools (injection is always marked SIMULATED)")
-    WTM:Print("  |cff4c8dff/wtm benchmark [s]|r   measure this addon's own overhead and report it")
+--==========================================================================
+-- Command catalogue
+--==========================================================================
+--
+-- The Settings page renders a button for every entry in this list, and /wtm
+-- help prints the same list. Both read it; neither maintains its own copy.
+-- A command that exists only in chat, or a button that fires something the
+-- help text has never heard of, is not possible as long as this stays the
+-- single source.
+--
+--   cmd      the word after /wtm ("" is the bare command)
+--   label    what the button says
+--   help     one line, used by /wtm help and as the button's tooltip
+--   group    which section of the Settings page the button belongs to
+--   arg      shown after the command in help when it takes one
+--   confirm  destructive: the button asks before running
+--
+local COMMANDS = {
+    { cmd = "",            label = "Open the window",      group = "window",
+      help = "open the window" },
+    { cmd = "dashboard",   label = "Dashboard",            group = "pages",
+      help = "live metrics, graphs and this addon's own overhead" },
+    { cmd = "processes",   label = "Processes",            group = "pages",
+      help = "the addon list with CPU, memory, events and spikes" },
+    { cmd = "performance", label = "Performance",          group = "pages",
+      help = "frame time distribution, percentiles and the histogram" },
+    { cmd = "timeline",    label = "Timeline",             group = "pages",
+      help = "every metric on one shared time axis" },
+    { cmd = "incidents",   label = "Incidents",            group = "pages",
+      help = "recorded stutters with the seconds before and after them" },
+    { cmd = "events",      label = "Events",               group = "pages",
+      help = "event rates and storm detection" },
+    { cmd = "memory",      label = "Memory",               group = "pages",
+      help = "Lua heap, per-addon memory and observed growth" },
+    { cmd = "diagnostics", label = "Diagnostics",          group = "pages",
+      help = "findings, stated as associations rather than causes" },
+    { cmd = "sessions",    label = "Sessions",             group = "pages",
+      help = "saved history from previous play sessions" },
+    { cmd = "system",      label = "System",               group = "pages",
+      help = "client, hardware and capability report" },
+    { cmd = "settings",    label = "Settings",             group = "pages",
+      help = "this page" },
+    { cmd = "hide",        label = "Close the window",     group = "window",
+      help = "close the window" },
+    { cmd = "mini",        label = "Toggle live monitor",  group = "window",
+      help = "toggle the compact always-on monitor" },
+    { cmd = "profiling",   label = "Toggle CPU profiling", group = "tools",
+      help = "toggle the scriptProfile CVar - takes effect after a UI reload" },
+    { cmd = "caps",        label = "Print capabilities",   group = "tools",
+      help = "print the runtime capability report to chat" },
+    { cmd = "overhead",    label = "Print own overhead",   group = "tools",
+      help = "print this addon's own measured cost to chat" },
+    { cmd = "benchmark",   label = "Run benchmark",        group = "tools", arg = "[seconds]",
+      help = "measure this addon's own overhead over a few seconds and report it" },
+    { cmd = "dev",         label = "Developer tools",      group = "tools", arg = "[subcommand]",
+      help = "developer tools - injected data is always marked SIMULATED" },
+    { cmd = "reset",       label = "Reset runtime counters", group = "tools", confirm = true,
+      help = "reset this session's counters - saved history is untouched" },
+    { cmd = "help",        label = "Print command list",   group = "tools",
+      help = "print this list" },
+}
+
+WTM.COMMANDS = COMMANDS
+
+--- The handler for a catalogue entry, so a button can run exactly what the
+--- chat command runs.
+function WTM:GetCommandHandler(cmd)
+    return commands[cmd or ""]
 end
 
-local function HandleSlash(_, input)
-    input = input or ""
+commands["help"] = function()
+    WTM:Print("Commands:")
+    for _, entry in ipairs(COMMANDS) do
+        local invocation = "/wtm" .. (entry.cmd ~= "" and (" " .. entry.cmd) or "")
+        if entry.arg then invocation = invocation .. " " .. entry.arg end
+        WTM:Print(("  |cff4c8dff%-24s|r %s"):format(invocation, entry.help))
+    end
+    WTM:Print("Every one of these is also a button on the Settings page.")
+end
+
+--- Receives the command string and nothing else; see
+--- ConsoleMixin:RegisterChatCommand for why that guarantee is worth having.
+local function HandleSlash(input)
+    input = type(input) == "string" and input or ""
     local cmd, rest = input:match("^%s*(%S*)%s*(.*)$")
     cmd = (cmd or ""):lower()
     local handler = commands[cmd]

@@ -38,6 +38,7 @@ function UI.MetricCard(parent, opts)
     card.sub:SetPoint("TOPLEFT", card.value, "BOTTOMLEFT", 1, -1)
     card.sub:SetPoint("RIGHT", card, "RIGHT", -12, 0)
     card.sub:SetJustifyH("LEFT")
+    card.sub:SetHeight(11)
 
     -- Status dot in the top right, driven by tone.
     card.dot = card:CreateTexture(nil, "OVERLAY")
@@ -51,11 +52,14 @@ function UI.MetricCard(parent, opts)
     card.spark:SetPoint("BOTTOMRIGHT", -1, 1)
     card.spark:SetHeight(opts.sparkHeight or 22)
 
-    card.notice = UI.Text(card, "small", "textMuted")
-    card.notice:SetPoint("TOPLEFT", 14, -30)
-    card.notice:SetPoint("RIGHT", card, "RIGHT", -12, 0)
+    -- The reason a measurement is unavailable can be a sentence, and a card is
+    -- ~150 px wide. Two lines, then it clips: the full text is in the tooltip.
+    card.notice = UI.Text(card, "tiny", "textMuted")
+    card.notice:SetPoint("TOPLEFT", 13, -28)
+    card.notice:SetPoint("RIGHT", card, "RIGHT", -11, 0)
     card.notice:SetJustifyH("LEFT")
-    card.notice:SetWordWrap(true)
+    card.notice:SetJustifyV("TOP")
+    UI.Wrap(card.notice, 3)
     card.notice:Hide()
 
     ------------------------------------------------------------------
@@ -80,6 +84,7 @@ function UI.MetricCard(parent, opts)
 
     --- Puts the card into its "this cannot be measured here" state.
     function card:SetUnavailable(reason)
+        self.unavailableReason = reason
         self.value:Hide()
         self.unit:Hide()
         self.sub:Hide()
@@ -108,13 +113,31 @@ function UI.MetricCard(parent, opts)
         if not self.unavailable then self.spark:Draw() end
     end
 
-    if opts.tooltip then
-        card:EnableMouse(true)
-        card:SetScript("OnEnter", function(self)
-            UI.ShowTooltip(self, opts.label, opts.tooltip)
-        end)
-        card:SetScript("OnLeave", UI.HideTooltip)
-    end
+    -- Always hoverable: the card is too small for a full explanation, so the
+    -- tooltip carries it - including the reason a value is unavailable, which
+    -- may be clipped on the card itself.
+    card:EnableMouse(true)
+    card:SetScript("OnEnter", function(self)
+        UI.TooltipClear(opts.label or "")
+        if self.unavailable and self.unavailableReason then
+            UI.TooltipLine(self.unavailableReason, nil, "warn")
+            UI.TooltipLine("", "")
+        end
+        if opts.tooltip then
+            local line = ""
+            for word in tostring(opts.tooltip):gmatch("%S+") do
+                if #line + #word + 1 > 58 then
+                    UI.TooltipLine(line, nil, "muted")
+                    line = word
+                else
+                    line = (line == "") and word or (line .. " " .. word)
+                end
+            end
+            if line ~= "" then UI.TooltipLine(line, nil, "muted") end
+        end
+        UI.TooltipShow(self)
+    end)
+    card:SetScript("OnLeave", UI.HideTooltip)
 
     return card
 end

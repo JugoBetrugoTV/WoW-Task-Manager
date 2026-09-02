@@ -83,11 +83,34 @@ function LiveMonitor:Build()
     header.title:SetPoint("LEFT", header.mark, "RIGHT", 6, 0)
     header.title:SetText("Task Manager")
 
-    header.open = UI.Button(header, "+", function()
+    -- Collapsed, the header carries the two numbers worth a glance, so the
+    -- panel is still useful at one line high.
+    header.summary = UI.Text(header, "numericSm", "textPrimary", "RIGHT")
+    header.summary:Hide()
+
+    ------------------------------------------------------------------
+    -- Header controls. Three buttons, right to left, each with a tooltip:
+    -- everything this panel can do is reachable without typing a command.
+    ------------------------------------------------------------------
+    header.open = UI.Button(header, "open", function()
         UI.MainWindow:Open()
-    end, { width = 18, height = 16, style = "tiny" })
+    end, { height = 16, style = "tiny", minWidth = 30 })
     header.open:SetPoint("RIGHT", -4, 0)
-    header.open.tooltip = "Open the full window"
+    header.open.tooltip = "Open the full window."
+
+    header.config = UI.Button(header, "cfg", function()
+        UI.MainWindow:Open("settings")
+    end, { height = 16, style = "tiny", minWidth = 26 })
+    header.config:SetPoint("RIGHT", header.open, "LEFT", -3, 0)
+    header.config.tooltip = "Open the Settings page, where every option and every command has a button."
+
+    header.collapse = UI.Button(header, "-", function()
+        LiveMonitor:SetCollapsed(not WTM.db.profile.liveMonitor.collapsed)
+    end, { width = 18, height = 16, style = "tiny" })
+    header.collapse:SetPoint("RIGHT", header.config, "LEFT", -3, 0)
+    header.collapse.tooltip = "Collapse to a single line. The panel stays on screen and keeps recording."
+    header.summary:SetPoint("RIGHT", header.collapse, "LEFT", -6, 0)
+    header.summary:SetPoint("LEFT", header.title, "RIGHT", 6, 0)
 
     UI.MakeMovable(frame, header, function()
         local point, _, _, x, y = frame:GetPoint()
@@ -127,8 +150,10 @@ function LiveMonitor:Build()
     frame:SetScript("OnEnter", function(self2)
         UI.TooltipClear("Live monitor")
         UI.TooltipLine("Drag", "the header to move")
-        UI.TooltipLine("Click +", "to open the full window")
-        UI.TooltipLine("/wtm mini", "to hide it again")
+        UI.TooltipLine("open", "the full window")
+        UI.TooltipLine("cfg", "the settings page")
+        UI.TooltipLine("- / +", "collapse or expand")
+        UI.TooltipLine("/wtm mini", "hide it again")
         local warning = WTM.Overhead:GetWarning()
         if warning then UI.TooltipLine(warning, nil, "warn") end
         UI.TooltipShow(self2)
@@ -150,8 +175,10 @@ function LiveMonitor:ApplySettings()
     self.frame.bg:SetColorTexture(T("windowBg", settings.opacity))
 
     for _, row in pairs(self.rows) do
-        row.spark:SetShown(settings.sparklines)
+        row.spark:SetShown(settings.sparklines and not settings.collapsed)
     end
+
+    self:ApplyCollapsed()
 
     -- Bound the sparklines to the data they display, once.
     if settings.sparklines and not self.ringsBound then
@@ -166,6 +193,37 @@ end
 
 --------------------------------------------------------------------------
 
+--- Applies the collapsed state to the frame. Collapsing hides the rows and
+--- shrinks the panel to its header; the two numbers that survive move into the
+--- header itself, so a collapsed panel is still a readout rather than a stub.
+function LiveMonitor:ApplyCollapsed()
+    if not self.frame then return end
+    local collapsed = WTM.db.profile.liveMonitor.collapsed and true or false
+
+    for _, row in pairs(self.rows) do
+        row:SetShown(not collapsed)
+    end
+    self.header.summary:SetShown(collapsed)
+    self.header.collapse:SetText(collapsed and "+" or "-")
+    self.header.collapse.tooltip = collapsed
+        and "Expand back to the full readout."
+        or "Collapse to a single line. The panel stays on screen and keeps recording."
+
+    self.frame:SetHeight(collapsed and 22 or (30 + #ROWS * ROW_HEIGHT))
+end
+
+function LiveMonitor:SetCollapsed(collapsed)
+    WTM.db.profile.liveMonitor.collapsed = collapsed and true or false
+    self:ApplySettings()
+    self:Refresh()
+end
+
+function LiveMonitor:IsCollapsed()
+    return WTM.db.profile.liveMonitor.collapsed and true or false
+end
+
+--------------------------------------------------------------------------
+
 function LiveMonitor:Refresh()
     local frame = self.frame
     if not frame or not frame:IsShown() then return end
@@ -173,6 +231,15 @@ function LiveMonitor:Refresh()
     local ft  = WTM.FrameTime.current
     local net = WTM.Network.current
     local rows = self.rows
+
+    if self:IsCollapsed() then
+        -- One line: the frame time that shows the bad frame, and the FPS that
+        -- everyone reads first anyway.
+        self.header.summary:SetText(("%.1f ms  %s"):format(ft.avgMs, Fmt.FPS(ft.fps)))
+        self.header.summary:SetTextColor(Theme:Tone(
+            ft.avgMs <= 20 and "ok" or (ft.avgMs <= 40 and "warn" or "crit")))
+        return
+    end
 
     rows.fps.value:SetText(Fmt.FPS(ft.fps))
     rows.fps.value:SetTextColor(Theme:Tone(

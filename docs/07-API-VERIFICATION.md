@@ -25,7 +25,7 @@ Die drei Classic-Clients sind weiterhin ausschliesslich MOCK VERIFIED.
 
 | Client | Version | Interface | Mock | Real Client |
 |---|---|---|:--:|:--:|
-| Retail / Midnight | 12.1.0 | `120100` | ✅ MOCK VERIFIED | ✅ **REAL CLIENT VERIFIED** (2026-09-01, Build 69497) |
+| Retail / Midnight | 12.1.0 | `120100` | ✅ MOCK VERIFIED | ✅ **REAL CLIENT VERIFIED** (2026-09-01 Build 69497, erneut 2026-09-02) |
 | MoP Classic | 5.5.4 | `50504` | ✅ MOCK VERIFIED | ⬜ **NOT TESTED** |
 | TBC Anniversary | 2.5.6 | `20506` | ✅ MOCK VERIFIED | ⬜ **NOT TESTED** |
 | Classic Era | 1.15.9 | `11509` | ✅ MOCK VERIFIED | ⬜ **NOT TESTED** |
@@ -53,6 +53,32 @@ schlechtester Frame 1252 ms.
 Zusätzlich beim Nachtesten gefunden: der **X-Button** der Titelleiste rief
 `Close()` auf dem Frame statt auf dem Fenster-Modul — er warf einen Fehler
 statt zu schliessen.
+
+### Test 2 — Retail 12.1.0, 2026-09-02
+
+Der Eigen-Overhead ist von **51.68 ms/s auf 1.20 ms/s** gefallen und liegt
+damit unter dem konfigurierten Budget. Das Fenster öffnet, das Dashboard
+zeichnet, `/wtm benchmark` läuft durch.
+
+**Ein Absturz, eine Klasse:**
+
+| Befund | Ursache |
+|---|---|
+| `Core.lua:258: attempt to call a nil value`, Locals `_=""`, `input=ChatFrame1EditBox` | Auf diesem Client ist **Ace3 von einem anderen Addon geladen**. Damit gewann `AceConsole:Embed` — und AceConsole ruft Slash-Handler als `func(msg, editBox)` auf, der interne Fallback als `func(self, input)`. Der Handler bekam die Chat-Eingabezeile, wo der Befehlsstring stehen sollte. |
+
+Die Ursache ist nicht der Signaturfehler selbst, sondern dass die
+**Signatur davon abhing, welche Addons der Spieler sonst installiert hat**.
+Behoben wurde beides: Slash-Registrierung ist jetzt immer unsere eigene,
+unabhängig vom Backend — und der Ace3-Zweig, der vorher von keinem Test
+ausgeführt wurde, ist seit 0.4.0 eine eigene Dimension der Testmatrix
+(`tools/ace3stub.lua`). Der wiederhergestellte Fehler lässt die Suite
+fallen, der Fix macht sie wieder grün.
+
+Ebenfalls aus diesem Test: Text wuchs weiterhin über seine Grenzen hinaus.
+`UI.Wrap` hatte als Voreinstellung **unbegrenzt viele Zeilen**; eine
+umbrechende FontString ohne Höhe wächst nach unten durch alles darunter.
+Die Voreinstellung ist jetzt begrenzt, unbegrenzt muss ausdrücklich
+angefordert werden.
 
 ---
 
@@ -124,6 +150,25 @@ nicht existiert, **fällt das Addon nicht aus** — das Feature meldet sich als
 | `GetCVar` / `SetCVar` | u. a. `scriptProfile` | `scriptProfile` erfolgreich gesetzt und gelesen | ✅ | ✅ |
 | `GetCVarInfo(name)` | Schreibbarkeit prüfen | existiert; Positionen noch nicht gegen einen geschützten CVar geprüft | ✅ | ◐ |
 
+### Oberfläche: Minimap-Button und Options-Eintrag
+
+Keine dieser APIs existiert auf allen vier Clients, und keine davon wird über
+eine Versionsnummer ausgewählt — alle drei Registrierungswege werden zur
+Laufzeit probiert, und wenn keiner greift, hat das Addon eben keinen Eintrag
+unter *Options → AddOns* und funktioniert unverändert weiter.
+
+| API | Verwendet für | Risiko | Mock | Real |
+|---|---|---|:--:|:--:|
+| `Minimap` (Frame) | Elternframe des Minimap-Buttons | Existiert auf allen vier Clients; fehlt er, wird kein Button gebaut und der Grund wird in den Settings angezeigt | ✅ | ⬜ |
+| `Frame:GetFrameLevel()` / `SetFrameLevel` | Button über der Minimap halten | Standard-Frame-API | ✅ | ⬜ |
+| `Interface\Minimap\MiniMap-TrackingBorder` | Ring um den Button | Blizzard-Textur, seit Vanilla vorhanden | ✅ | ⬜ |
+| `Settings.RegisterCanvasLayoutCategory` | Options-Eintrag (moderne Clients) | Nur auf Clients mit dem neuen Settings-System; `pcall`-geschützt | ✅ | ⬜ |
+| `Settings.RegisterAddOnCategory` | Eintrag unter *AddOns* einsortieren | dito | ✅ | ⬜ |
+| `Settings.OpenToCategory(id)` | Eintrag öffnen | Nimmt je nach Client eine ID oder einen Namen; Rückgabe wird nicht ausgewertet | ✅ | ⬜ |
+| `InterfaceOptions_AddCategory` | Options-Eintrag (ältere Clients) | Fallback, wenn `Settings` fehlt | ✅ | ⬜ |
+| `InterfaceOptionsFrame_OpenToCategory` | Eintrag öffnen (ältere Clients) | Wird zweimal aufgerufen, weil der erste Aufruf dort nur die Liste aufklappt | ✅ | ⬜ |
+| `HideUIPanel(frame)` | Options-Fenster schliessen, wenn unseres aufgeht | Nur ausserhalb des Kampfes, zusätzlich `pcall` | ✅ | ⬜ |
+
 ### Kontext
 
 | API / Event | Risiko | Mock | Real |
@@ -169,6 +214,9 @@ nicht existiert, **fällt das Addon nicht aus** — das Feature meldet sich als
 | Ladebildschirm-Suppression | Kein Zonenwechsel im Test |
 | Alt-Tab-Heuristik | Nicht getestet |
 | Nicht-enUS-Locale | Nicht getestet |
+| Minimap-Button | Neu in 0.4.0, im echten Client noch nicht gesehen |
+| Options → AddOns-Eintrag | Neu in 0.4.0; welcher der drei Registrierungswege auf 12.1.0 tatsächlich greift, ist nur im Spiel feststellbar |
+| Onboarding | Neu in 0.4.0, nie im echten Client gelaufen |
 
 ## Wie die Spalte auf PASS kommt
 

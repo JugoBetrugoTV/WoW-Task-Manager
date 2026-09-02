@@ -162,6 +162,9 @@ function Overhead:GetBreakdown(out)
     out = out or {}
     for i = #out, 1, -1 do out[i] = nil end
     local cur = self.current
+    local windowOpen = WTM.UI.MainWindow and WTM.UI.MainWindow:IsOpen()
+    local miniOpen = WTM.UI.LiveMonitor and WTM.UI.LiveMonitor:IsShown()
+
     local rows = {
         { key = "frame",   label = "Frame accounting", ms = cur.frameMsPerSec,
           measured = cur.frameCostMs ~= nil,
@@ -174,9 +177,30 @@ function Overhead:GetBreakdown(out)
         { key = "events",  label = "Event monitoring", ms = cur.eventsMsPerSec, measured = true,
           note = ("mode: %s"):format(WTM.Events:GetMode()) },
         { key = "ui",      label = "UI updates", ms = cur.uiMsPerSec, measured = true,
-          note = (WTM.UI.MainWindow and WTM.UI.MainWindow:IsOpen())
-              and "window open" or "window closed - no cost" },
+          -- Say what is actually on screen. An earlier version printed
+          -- "window closed - no cost" next to a non-zero number, which is
+          -- exactly the kind of contradiction this addon is supposed to avoid.
+          note = windowOpen and (miniOpen and "window and live monitor open" or "window open")
+              or (miniOpen and "live monitor only" or "nothing shown") },
     }
+
+    -- Whatever the scheduler spent that is not attributable to a task: walking
+    -- the task list every frame to see what is due.
+    --
+    -- Without this row the categories did not add up to the total, and an
+    -- unexplained remainder in an overhead report is worse than a slightly
+    -- longer report.
+    local attributed = cur.frameMsPerSec + cur.samplingMsPerSec
+        + cur.eventsMsPerSec + cur.uiMsPerSec
+    local remainder = (cur.totalMsPerSec or 0) - attributed
+    if remainder > 0.001 then
+        rows[#rows + 1] = {
+            key = "dispatch", label = "Scheduler dispatch", ms = remainder, measured = true,
+            note = ("checking %d tasks each frame"):format(
+                (function() local n = 0 for _ in WTM.Scheduler:IterateTasks() do n = n + 1 end return n end)()),
+        }
+    end
+
     for i = 1, #rows do out[i] = rows[i] end
     return out
 end

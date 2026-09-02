@@ -27,11 +27,18 @@ local defaults = {
         general = {
             printOnLogin      = true,
             openOnSpike       = false,
-            minimapButton     = true,
             scale             = 1.0,
             windowWidth       = 1180,
             windowHeight      = 720,
             lastPage          = "dashboard",
+        },
+
+        -- The minimap button stores its position the way every minimap button
+        -- does: as an angle around the minimap's centre, so it stays put when
+        -- the minimap is moved or resized by another addon.
+        minimap = {
+            shown = true,
+            angle = 200,
         },
 
         sampling = {
@@ -116,6 +123,10 @@ local defaults = {
         -- The compact always-on readout (/wtm mini).
         liveMonitor = {
             shown      = false,
+            -- Collapsed keeps the panel on screen as a single header line with
+            -- the two numbers worth glancing at, instead of forcing a choice
+            -- between six rows and nothing.
+            collapsed  = false,
             sparklines = true,
             width      = 210,
             scale      = 1.0,
@@ -156,6 +167,10 @@ local defaults = {
         -- shown once rather than on every login.
         firstRunAt = nil,
         firstRunReportShown = false,
+        -- The onboarding tour is shown once per account, not once per profile:
+        -- learning where the buttons are is not something a second character
+        -- needs to be taught again.
+        onboardingDone = false,
     },
 
     char = {
