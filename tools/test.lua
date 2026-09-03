@@ -1456,6 +1456,28 @@ do
 
     check("only one page is ever visible at a time", worst <= 1, worstAfter)
 
+    -- And the belt-and-braces repair: a page forced visible behind the
+    -- current one is caught on the next tick, hidden, and reported rather
+    -- than silently patched.
+    NS.UI.MainWindow:ShowPage("processes")
+    NS.UI.Pages.overview.frame:Show()
+    check("a stray page is detected", NS.UI.MainWindow:EnforceSinglePage() == 1)
+    check("and hidden again", NS.UI.Pages.overview.frame:IsShown() == false)
+    check("and named rather than patched in silence",
+        (NS.UI.MainWindow:DescribeStrayPages() or ""):find("overview", 1, true) ~= nil,
+        tostring(NS.UI.MainWindow:DescribeStrayPages()))
+
+    NS.Diagnostics:InvalidateCache()
+    local strayFindings = NS.Diagnostics:Build({})
+    local reported = false
+    for _, finding in ipairs(strayFindings) do
+        if finding.title:find("drawn over another", 1, true) then reported = true end
+    end
+    check("and reported as a fault in this addon", reported)
+
+    NS.UI.MainWindow.strayPages, NS.UI.MainWindow.pageRepairs = nil, nil
+    NS.Diagnostics:InvalidateCache()
+
     -- Stale layout. A page keeps the geometry it was built with until
     -- something lays it out again; only the visible page used to be relaid out
     -- on a resize. A real client showed one page's content drawn over another

@@ -339,6 +339,23 @@ function Diagnostics:Compute(out)
     end
 
     ------------------------------------------------------------------
+    -- This addon's own interface
+    ------------------------------------------------------------------
+    -- Reported rather than repaired in silence. A page that keeps showing when
+    -- it should not is drawn over whatever you switched to, and a client saw
+    -- exactly that; the repair runs on every tick, but if it is finding
+    -- something then there is a bug here worth a report.
+    local stray = WTM.UI.MainWindow:DescribeStrayPages()
+    if stray then
+        AddFinding(out, "crit",
+            ("A page was left drawn over another %d time%s"):format(
+                WTM.UI.MainWindow.pageRepairs or 0,
+                (WTM.UI.MainWindow.pageRepairs or 0) == 1 and "" or "s"),
+            ("Pages caught showing when another was selected: %s. They are hidden again automatically, so the interface repairs itself, but this is a fault in WoW Task Manager and worth reporting with the copy button on the Reports page."):format(stray),
+            nil, "overhead", "measured")
+    end
+
+    ------------------------------------------------------------------
     -- Lua errors
     ------------------------------------------------------------------
     -- Every finding below reports a count, a window or an overlap. None of

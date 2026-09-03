@@ -512,6 +512,51 @@ function MainWindow:InvalidateGraphs()
     self.forceFullGraphPass = true
 end
 
+--- Hides any page that is showing and should not be.
+---
+--- ShowPage already hides every other page, so in principle this can never
+--- find anything. In practice a real client showed one page's cards drawn over
+--- three different pages in a row, and neither reading the code nor the
+--- headless harness could produce it - so the invariant is enforced on the UI
+--- tick as well as at the moment of switching.
+---
+--- The cost is a loop over about twenty frames that are already hidden, which
+--- is nothing next to a single graph redraw. What it finds is COUNTED and
+--- named rather than quietly patched: a bug that repairs itself in silence is
+--- a bug that never gets fixed.
+function MainWindow:EnforceSinglePage()
+    local current = self.currentPage
+    if not current then return 0 end
+
+    local repaired = 0
+    for key, page in pairs(UI.Pages) do
+        if key ~= current and page.frame and page.frame:IsShown() then
+            page.frame:Hide()
+            repaired = repaired + 1
+            self.strayPages = self.strayPages or {}
+            self.strayPages[key] = (self.strayPages[key] or 0) + 1
+        end
+    end
+
+    if repaired > 0 then
+        self.pageRepairs = (self.pageRepairs or 0) + repaired
+    end
+    return repaired
+end
+
+--- The pages that have been caught showing when they should not have been,
+--- newest count first, for the diagnostics finding.
+function MainWindow:DescribeStrayPages()
+    if not self.strayPages then return nil end
+    local names = {}
+    for key, count in pairs(self.strayPages) do
+        names[#names + 1] = ("%s (%d)"):format(key, count)
+    end
+    if #names == 0 then return nil end
+    table.sort(names)
+    return table.concat(names, ", ")
+end
+
 function MainWindow:RefreshCurrentPage()
     local page = UI.Pages[self.currentPage]
     if page and page.frame and page.frame:IsVisible() and page.Refresh and not page.buildFailed then
@@ -550,6 +595,7 @@ function MainWindow:Refresh()
     if not self.frame or not self.frame:IsShown() then return end
     RefreshTopbar(self.frame)
     UI.Sidebar:Refresh()
+    self:EnforceSinglePage()
     self:RefreshCurrentPage()
 end
 
