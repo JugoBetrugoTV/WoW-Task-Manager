@@ -323,6 +323,7 @@ end
 function ErrorMonitor:Record(message, stack, isInternal, options)
     local kind = options and options.kind or "lua"
     local explicitAddon = options and options.addon or nil
+    local source = options and options.source or "handler"
     local now = GetTime()
 
     -- THE FAST PATH, taken before anything is computed. Exact string identity
@@ -376,6 +377,10 @@ function ErrorMonitor:Record(message, stack, isInternal, options)
         message     = tostring(message),
         stack       = stack,
         kind        = kind,
+        -- Where this reached us. "handler" is our own error handler;
+        -- "buggrabber" means another addon owns the handler and we are reading
+        -- from the integration point it publishes.
+        source      = source,
         addon       = addon,
         -- Distinguishes an addon the client named, or one read out of a file
         -- path, from no addon at all. Nothing here is ever guessed.
@@ -567,7 +572,25 @@ function ErrorMonitor:Install()
     chaining.ours = HandleError
     local ok = pcall(_G.seterrorhandler, chaining.ours)
     if not ok then
-        self.chaining.reason = "seterrorhandler refused the call on this client."
+        self.chaining.reason = "seterrorhandler threw on this client."
+        return false, self.chaining.reason
+    end
+
+    -- VERIFY. Calling seterrorhandler is not the same as being installed.
+    --
+    -- BugGrabber saves the real seterrorhandler, installs its own handler with
+    -- it, and then replaces the global with an empty function so nothing can
+    -- displace it. Our call then succeeds, throws nothing, and does nothing.
+    -- Without this read-back we reported "chained" while receiving no errors at
+    -- all - a real client had six hundred thousand errors in BugGrabber and
+    -- zero here.
+    local installed = _G.geterrorhandler()
+    if installed ~= chaining.ours then
+        chaining.previous = nil
+        chaining.hadPrevious = false
+        self.chaining.refused = true
+        self.chaining.reason =
+            "Another error addon owns the error handler and has made it permanent - it replaced seterrorhandler itself, so no later addon can install one. Nothing is broken and nothing was fought over."
         return false, self.chaining.reason
     end
 
@@ -598,6 +621,14 @@ end
 
 function ErrorMonitor:DescribeChain()
     if not self.chaining.installed then
+        if self.bridge and self.bridge.subscribed then
+            return ("%s Errors are being read from BugGrabber's published feed instead, so this page fills up normally%s."):format(
+                self.chaining.reason or "The error handler could not be installed.",
+                (self.backfilled or 0) > 0
+                    and (" - %d already-recorded error%s were taken over at login"):format(
+                        self.backfilled, self.backfilled == 1 and "" or "s")
+                    or ""), "ok"
+        end
         return self.chaining.reason or "Not installed.", "crit"
     end
     if self.chaining.displaced then
@@ -660,7 +691,10 @@ end
 
 --- Three words for a card, where DescribeChain gives a paragraph for a panel.
 function ErrorMonitor:ShortChainState()
-    if not self.chaining.installed then return "not installed", "crit" end
+    if not self.chaining.installed then
+        if self.bridge and self.bridge.subscribed then return "via BugGrabber", "ok" end
+        return "not installed", "crit"
+    end
     if self.chaining.displaced then return "displaced", "warn" end
     if self.chaining.hadPrevious then return "chained", "ok" end
     return "installed", "ok"
@@ -1107,6 +1141,113 @@ function ErrorMonitor:OnLuaWarning(event, warnType, message)
         { kind = "warning" })
 end
 
+--------------------------------------------------------------------------
+-- Reading from whoever owns the error handler
+--------------------------------------------------------------------------
+--
+-- BugGrabber makes itself permanent: it keeps a reference to the real
+-- seterrorhandler, installs with it, and then replaces the global with an
+-- empty function. No addon loading afterwards can install a handler, and
+-- that is deliberate on its part.
+--
+-- Racing it is not an option and would not be a good one: renaming this addon
+-- to load first would just move the problem onto whoever loses next time.
+-- What BugGrabber does offer is a published integration point - it announces
+-- every error it grabs, and BugSack is built on exactly that. So when it owns
+-- the handler we read from it instead of competing with it.
+--
+-- Nothing here reaches into its internals. It is the same three public calls
+-- any addon is invited to use.
+
+local BUGGRABBER_EVENT = "BugGrabber.BugGrabbed"
+
+--- The BugGrabber addon table, if a version with the API we need is loaded.
+local function BugGrabberAPI()
+    local grabber = _G.BugGrabber
+    if type(grabber) ~= "table" then return nil end
+    if type(grabber.GetErrorByID) ~= "function" then return nil end
+    return grabber
+end
+
+--- Ingests one error that BugGrabber grabbed.
+---
+--- Counted here the same way as anything else: one call, one occurrence. Its
+--- own counter is not copied, because it counts from its database rather than
+--- from this session, and mixing the two would produce a number that is true
+--- of neither.
+function ErrorMonitor:IngestFromBugGrabber(tableID)
+    if not settings().enabled then return end
+    local grabber = BugGrabberAPI()
+    if not grabber then return end
+
+    local ok, errorObject = pcall(grabber.GetErrorByID, grabber, tableID)
+    if not ok or type(errorObject) ~= "table" then return end
+
+    local message = tostring(errorObject.message or "")
+    if message == "" then return end
+
+    local group = self:Record(message, errorObject.stack, nil, { source = "buggrabber" })
+    -- BugGrabber collects the locals at the point of the error, which nothing
+    -- else here can do after the fact. Worth keeping when it is offered.
+    if group and errorObject.locals and not group.locals then
+        group.locals = errorObject.locals
+    end
+end
+
+--- Subscribes to BugGrabber's announcements. Returns true when subscribed.
+function ErrorMonitor:InstallBugGrabberBridge()
+    local grabber = BugGrabberAPI()
+    if not grabber then return false end
+
+    local registry = _G.EventRegistry
+    if type(registry) ~= "table" or type(registry.RegisterCallback) ~= "function" then
+        self.bridge = { available = true, subscribed = false,
+            reason = "This client has no EventRegistry, so BugGrabber's announcements cannot be subscribed to." }
+        return false
+    end
+
+    local subscribed = pcall(registry.RegisterCallback, registry, BUGGRABBER_EVENT,
+        function(_, tableID)
+            pcall(ErrorMonitor.IngestFromBugGrabber, ErrorMonitor, tableID)
+        end, self)
+
+    self.bridge = { available = true, subscribed = subscribed and true or false }
+    return self.bridge.subscribed
+end
+
+--- Backfills what BugGrabber already holds for THIS session, so the page is
+--- not empty at login after a session that had errors before we loaded.
+---
+--- Errors from earlier sessions are deliberately left alone: this page is
+--- about the session it is showing.
+function ErrorMonitor:BackfillFromBugGrabber()
+    local grabber = BugGrabberAPI()
+    if not grabber or type(grabber.GetDB) ~= "function" then return 0 end
+    if type(grabber.GetSessionId) ~= "function" then return 0 end
+
+    local okDb, db = pcall(grabber.GetDB, grabber)
+    local okSession, session = pcall(grabber.GetSessionId, grabber)
+    if not okDb or not okSession or type(db) ~= "table" then return 0 end
+
+    local taken = 0
+    for i = 1, #db do
+        local errorObject = db[i]
+        if type(errorObject) == "table" and errorObject.session == session
+           and type(errorObject.message) == "string" then
+            local group = self:Record(errorObject.message, errorObject.stack, nil,
+                { source = "buggrabber" })
+            if group then
+                if errorObject.locals and not group.locals then
+                    group.locals = errorObject.locals
+                end
+                taken = taken + 1
+            end
+        end
+    end
+    self.backfilled = taken
+    return taken
+end
+
 --- Registers the event-borne classes, each one feature-detected: a client that
 --- does not fire an event simply never produces that class, and the capability
 --- report says so rather than the page looking broken.
@@ -1151,9 +1292,16 @@ end
 
 function ErrorMonitor:OnEnable()
     self:InstallEventCapture()
+
     local ok, reason = self:Install()
     if not ok then
         WTM.Caps.errorChainReason = reason
+        -- Could not install. If the addon that owns the handler publishes its
+        -- errors, read from there rather than showing an empty page while the
+        -- client is visibly full of them.
+        if self:InstallBugGrabberBridge() then
+            self:BackfillFromBugGrabber()
+        end
     end
 
     -- Storm detection and the chain check share one slow task. Neither needs

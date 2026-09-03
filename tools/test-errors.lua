@@ -482,6 +482,110 @@ end
 check("neither does the combined report", offender == nil, tostring(offender))
 
 --------------------------------------------------------------------------
+print("\n== an addon that owns the handler permanently ==")
+--------------------------------------------------------------------------
+-- BugGrabber keeps a reference to the real seterrorhandler, installs with it,
+-- and then replaces the global with an empty function. Our call to it then
+-- succeeds, throws nothing, and does nothing at all. A real client had six
+-- hundred thousand errors in BugGrabber and zero here, while this page
+-- cheerfully reported "handler chained".
+--
+-- This reproduces that arrangement exactly.
+
+do
+    local realSet = seterrorhandler
+    local grabbed = {}
+    local grabberHandler = function(message) grabbed[#grabbed + 1] = tostring(message) end
+
+    -- What BugGrabber does, in the order it does it.
+    realSet(grabberHandler)
+    _G.seterrorhandler = function() end
+
+    Errors:Reset()
+    Errors.chaining.installed = false
+    Errors.chaining.hadPrevious = false
+    Errors.chaining.previous = nil
+    Errors.chaining.refused = nil
+    Errors.bridge = nil
+
+    local installed, why = Errors:Install()
+    check("installing is REFUSED rather than reported as success", installed == false)
+    check("and the refusal is explained", type(why) == "string" and #why > 20, why)
+    check("we do not claim a previous handler we never chained to",
+        Errors.chaining.hadPrevious == false)
+    check("the client's handler is left exactly as it was",
+        geterrorhandler() == grabberHandler)
+
+    -- And the error really does bypass us, which is the point.
+    mock.RaiseError("Interface/AddOns/SUI/Modules/NamePlates/_Core.lua:122: bad argument #1 to 'unpack'")
+    check("the error reaches the owner", #grabbed == 1, #grabbed)
+    check("and not us, because we are not installed", #Errors.groups == 0, #Errors.groups)
+
+    ------------------------------------------------------------------
+    -- So we read from its published feed instead.
+    local listeners = {}
+    _G.EventRegistry = {
+        RegisterCallback = function(_, event, fn) listeners[event] = fn end,
+        TriggerEvent = function(_, event, ...)
+            if listeners[event] then listeners[event](nil, ...) end
+        end,
+    }
+
+    local store = {}
+    _G.BugGrabber = {
+        GetSessionId = function() return 7 end,
+        GetDB = function() return store end,
+        GetErrorByID = function(_, id)
+            for i = 1, #store do
+                if tostring(store[i]) == id then return store[i] end
+            end
+        end,
+    }
+
+    -- Two errors it already holds for this session, and one from an older one.
+    store[1] = { message = "Interface/AddOns/SUI/Modules/NamePlates/_Options.lua:38: attempt to index field 'BuffFrame' (a nil value)",
+                 session = 7, counter = 110910, stack = "stack one", locals = "locals one" }
+    store[2] = { message = "Interface/AddOns/SUI/Modules/NamePlates/_Core.lua:122: bad argument #1 to 'unpack' (table expected, got no value)",
+                 session = 7, counter = 620527, stack = "stack two" }
+    store[3] = { message = "Interface/AddOns/Old/Old.lua:1: from a previous session",
+                 session = 6, counter = 3 }
+
+    check("the bridge subscribes", Errors:InstallBugGrabberBridge() == true)
+    local taken = Errors:BackfillFromBugGrabber()
+    check("this session's errors are taken over at login", taken == 2, taken)
+    check("and an older session's are not", #Errors.groups == 2, #Errors.groups)
+    check("the locals it collected are kept",
+        Errors.groups[1].locals == "locals one", tostring(Errors.groups[1].locals))
+    check("the stack it collected is kept",
+        Errors.groups[1].stack == "stack one", tostring(Errors.groups[1].stack))
+    check("they are marked as coming from BugGrabber",
+        Errors.groups[1].source == "buggrabber", Errors.groups[1].source)
+
+    -- A new error announced live.
+    store[4] = { message = "Interface/AddOns/SUI/New.lua:5: something new", session = 7, counter = 1 }
+    _G.EventRegistry:TriggerEvent("BugGrabber.BugGrabbed", tostring(store[4]))
+    check("a live announcement is ingested", #Errors.groups == 3, #Errors.groups)
+
+    -- The same one again folds, exactly like our own handler's duplicates.
+    _G.EventRegistry:TriggerEvent("BugGrabber.BugGrabbed", tostring(store[4]))
+    check("a repeat folds instead of adding a row", #Errors.groups == 3, #Errors.groups)
+    check("and is counted", Errors.groups[3].count == 2, Errors.groups[3].count)
+
+    -- The page must say what is going on rather than looking broken.
+    local text, tone = Errors:DescribeChain()
+    check("the page reports this as working, not as a failure", tone == "ok", tone)
+    check("and names BugGrabber as the source",
+        text:find("BugGrabber", 1, true) ~= nil, text)
+    check("the short form says so too", (Errors:ShortChainState()) == "via BugGrabber",
+        (Errors:ShortChainState()))
+
+    _G.BugGrabber, _G.EventRegistry = nil, nil
+    _G.seterrorhandler = realSet
+    Errors.bridge, Errors.backfilled = nil, nil
+    Errors.chaining.refused = nil
+end
+
+--------------------------------------------------------------------------
 print("\n== things that are not Lua errors ==")
 --------------------------------------------------------------------------
 -- A real client showed BugSack holding four entries while our page was empty.

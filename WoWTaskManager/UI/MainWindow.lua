@@ -316,12 +316,14 @@ function MainWindow:ShowPage(key)
     if not page.frame then
         -- Lazily built: a page nobody opens never costs anything.
         --
-        -- Built HIDDEN. CreateFrame returns a visible frame, so building a page
-        -- while another one is on screen used to put half-constructed widgets
-        -- over it for the length of the build.
+        -- Built VISIBLE, deliberately. Every other page was hidden above, so
+        -- there is nothing for a half-built one to appear over, and a
+        -- responsive grid measures the width it is given while it builds - a
+        -- hidden frame is the one case where that measurement cannot be
+        -- trusted. Hiding during the build bought nothing and risked a page
+        -- laid out against a width of zero.
         page.frame = CreateFrame("Frame", nil, self.frame.content)
         page.frame:SetAllPoints(self.frame.content)
-        page.frame:Hide()
         local ok, err = pcall(page.Build, page, page.frame)
         if not ok then
             geterrorhandler()(("WTM: page '%s' failed to build: %s"):format(key, tostring(err)))
@@ -332,6 +334,12 @@ function MainWindow:ShowPage(key)
     page.frame:Show()
     self.currentPage = key
     UI.Sidebar:SetActive(key)
+
+    -- Lay out AFTER the frame is on screen. A grid built or refreshed while
+    -- its page was hidden may have measured a width that was not yet real, and
+    -- the forced pass is the only one that resizes every cell rather than
+    -- reusing the sizes from last time.
+    if page.OnLayout then pcall(page.OnLayout, page, true) end
     -- A page that was just shown has stale graphs by definition, and the
     -- refresh below runs outside the scheduler tick, so the pass has to be
     -- opened here or the page would appear blank until the next tick.

@@ -266,6 +266,7 @@ commands["benchmark"] = function(rest)
     WTM.Dev:Benchmark(rest)
 end
 
+commands["recording"] = function() OpenPage("recording") end
 commands["errors"]  = function() OpenPage("errors") end
 commands["reports"] = function() OpenPage("reports") end
 
@@ -352,6 +353,8 @@ local COMMANDS = {
       help = "reset this session's counters - saved history is untouched" },
     { cmd = "wipe",        label = "Delete saved history",  group = "tools", confirm = true,
       help = "delete every saved session and incident - settings are untouched" },
+    { cmd = "recording",   label = "Recording",            group = "pages",
+      help = "what is being recorded, and the switch that starts and stops it" },
     { cmd = "errors",      label = "Lua errors",           group = "pages",
       help = "captured Lua errors, grouped, with stacks and context" },
     { cmd = "reports",     label = "Reports",              group = "pages",

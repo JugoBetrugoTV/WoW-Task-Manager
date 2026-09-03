@@ -1464,6 +1464,30 @@ do
     NS.Scheduler:Stop()
     check("a paused addon can say why", NS.Scheduler:WhyNotRunning() ~= nil)
 
+    -- Every /wtm command this addon tells the user to type has to exist. It
+    -- told a real client to run "/wtm recording", which did not.
+    local named = {}
+    local function collectCommands(text)
+        for command in tostring(text):gmatch("/wtm%s+([%a]+)") do
+            named[command] = true
+        end
+    end
+    collectCommands(NS.Scheduler:WhyNotRunning())
+    for _, source in ipairs({ "Core/Core.lua", "Core/Scheduler.lua",
+                              "Core/ErrorMonitor.lua", "UI/Pages/Errors.lua" }) do
+        local handle = io.open("WoWTaskManager/" .. source, "r")
+        if handle then collectCommands(handle:read("*a")) handle:close() end
+    end
+    local missingCommands = {}
+    for command in pairs(named) do
+        if not NS:GetCommandHandler(command) then
+            missingCommands[#missingCommands + 1] = command
+        end
+    end
+    table.sort(missingCommands)
+    check("every /wtm command the addon names actually exists",
+        #missingCommands == 0, table.concat(missingCommands, ", "))
+
     NS.UI.MainWindow:ShowPage("dashboard")
     NS.UI.MainWindow:RefreshCurrentPage()
     local verdict = NS.UI.Pages.dashboard.banner.verdict:GetText() or ""
