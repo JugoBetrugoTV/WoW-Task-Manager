@@ -171,6 +171,9 @@ end
 
 function MainWindow:Build()
     if self.frame then return self.frame end
+    -- A switched-off duplicate must not put a second window on the screen; a
+    -- second window over the first is the whole thing this guard exists for.
+    if WTM.duplicateOf then return nil end
 
     local profile = WTM.db.profile.general
 

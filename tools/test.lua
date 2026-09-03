@@ -1456,6 +1456,50 @@ do
 
     check("only one page is ever visible at a time", worst <= 1, worstAfter)
 
+    -- Two folders containing this addon load as two separate addons, each with
+    -- its own window, its own samplers and its own pages. Each hides its own
+    -- pages correctly and cannot see the other, so from the outside it looks
+    -- like every page showing through every other one - and everything is
+    -- measured twice. A real client reported exactly that picture.
+    do
+        local SECOND = "WoWTaskManager-Copy"
+        local second = {}
+        local loaded, failure = true, nil
+        local xml = io.open("WoWTaskManager/Includes.xml")
+        for line in xml:lines() do
+            local path = line:match('<Script file="([^"]+)"')
+            if path and loaded then
+                local chunk = loadfile("WoWTaskManager/" .. path:gsub("\\", "/"))
+                local ok, err = pcall(chunk, SECOND, second)
+                if not ok then loaded, failure = false, err end
+            end
+        end
+        xml:close()
+
+        check("a second copy loads without erroring", loaded, tostring(failure))
+        check("it recognises the copy that got there first",
+            second.duplicateOf == "WoWTaskManager", tostring(second.duplicateOf))
+        check("it does not steal the global from the running copy",
+            _G.WoWTaskManager == NS,
+            _G.WoWTaskManager and _G.WoWTaskManager.name or "nil")
+
+        -- And it stays switched off through a full boot.
+        mock.Fire("ADDON_LOADED", SECOND)
+        mock.Fire("PLAYER_LOGIN")
+        check("the second copy never initialises",
+            not (second.state and second.state.initialized),
+            tostring(second.state and second.state.initialized))
+        check("and never starts sampling",
+            not (second.state and second.state.enabled),
+            tostring(second.state and second.state.enabled))
+        check("and never builds a window",
+            second.UI == nil or second.UI.MainWindow == nil
+                or second.UI.MainWindow.frame == nil)
+
+        check("the running copy is untouched by it",
+            NS.state.enabled == true and NS.UI.MainWindow.frame ~= nil)
+    end
+
     -- And the belt-and-braces repair: a page forced visible behind the
     -- current one is caught on the next tick, hidden, and reported rather
     -- than silently patched.

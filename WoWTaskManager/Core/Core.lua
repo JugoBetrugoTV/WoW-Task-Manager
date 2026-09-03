@@ -16,8 +16,30 @@ local Compat = WTM.Compat
 local C      = WTM.C
 local Ace    = WTM.Ace
 
-_G.WoWTaskManager = WTM
+--------------------------------------------------------------------------
+-- One copy only
+--------------------------------------------------------------------------
+-- Two folders containing this addon load as two completely separate addons:
+-- separate namespaces, separate modules, separate samplers, and separate
+-- windows drawn on top of each other. Each one hides its own pages correctly
+-- and knows nothing about the other, so what it looks like from the outside is
+-- every page's content showing through every other page - and the measured
+-- overhead is doubled, because everything really is being sampled twice.
+--
+-- Nothing inside an addon can see its own duplicate except through the global
+-- namespace, which is why this is the first thing that happens here.
+local duplicateOf
+do
+    local existing = _G.WoWTaskManager
+    if type(existing) == "table" and type(existing.name) == "string"
+       and existing.name ~= ADDON_NAME then
+        duplicateOf = existing.name
+    end
+end
 
+if not duplicateOf then _G.WoWTaskManager = WTM end
+
+WTM.duplicateOf = duplicateOf
 WTM.name    = ADDON_NAME
 WTM.version = C.VERSION
 
@@ -82,6 +104,19 @@ WTM.state = {
 local function Initialize()
     if WTM.state.initialized then return end
 
+    -- A second copy does nothing at all except say so. Refusing is the only
+    -- honest option: two of these measuring the same client produce two sets of
+    -- numbers, two windows and twice the overhead, and there is no way to
+    -- decide which set is the real one.
+    if WTM.duplicateOf then
+        if not WTM.duplicateReported then
+            WTM.duplicateReported = true
+            print(("|cff4c8dffWoW Task Manager|r: |cffF0533FA second copy is installed|r. This one (|cffffffff%s|r) has switched itself off; |cffffffff%s|r is running. Delete one of the two folders from Interface/AddOns and reload."):format(
+                ADDON_NAME, WTM.duplicateOf))
+        end
+        return
+    end
+
     Compat.ApplyFlavorModule()
 
     WTM.Database:Initialize()
@@ -95,6 +130,7 @@ local function Initialize()
 end
 
 local function Enable()
+    if WTM.duplicateOf then return end
     if WTM.state.enabled or not WTM.state.initialized then return end
 
     WTM.state.loginTime    = GetTime()
