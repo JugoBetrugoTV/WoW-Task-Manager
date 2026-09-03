@@ -1482,23 +1482,46 @@ do
 
     -- And the consequence, checked directly: every widget a page builds has to
     -- descend from that page's frame, or hiding the page cannot hide it.
+    --
+    -- Checked over everything a page holds, not just its grid cells: a page
+    -- without a grid can make the same mistake, and the point of this check is
+    -- to catch it without knowing which field to look at.
+    local function descendsFrom(widget, ancestor)
+        local node, hops = widget, 0
+        while node and hops < 16 do
+            if node == ancestor then return true end
+            if type(node.GetParent) ~= "function" then return false end
+            node = node:GetParent()
+            hops = hops + 1
+        end
+        return false
+    end
+
+    local function isWidget(value)
+        return type(value) == "table" and type(value.GetParent) == "function"
+            and type(value.IsShown) == "function"
+    end
+
     local escaped = {}
     for _, key in ipairs(NS.UI.pageOrder) do
         local page = NS.UI.Pages[key]
-        if page.frame and type(page.grid) == "table" and page.grid.cells then
-            for _, cell in ipairs(page.grid.cells) do
-                local node, hops, reached = cell.frame, 0, false
-                while node and hops < 16 do
-                    if node == page.frame then reached = true break end
-                    node = node:GetParent()
-                    hops = hops + 1
+        if page.frame then
+            for field, value in pairs(page) do
+                if field ~= "frame" and isWidget(value)
+                   and not descendsFrom(value, page.frame) then
+                    escaped[#escaped + 1] = ("%s.%s"):format(key, tostring(field))
                 end
-                if not reached then
-                    escaped[#escaped + 1] = ("%s.%s"):format(key, tostring(cell.key))
+            end
+            if type(page.grid) == "table" and page.grid.cells then
+                for _, cell in ipairs(page.grid.cells) do
+                    if not descendsFrom(cell.frame, page.frame) then
+                        escaped[#escaped + 1] = ("%s cell %s"):format(key, tostring(cell.key))
+                    end
                 end
             end
         end
     end
+    table.sort(escaped)
     check("every widget a page builds descends from that page's frame",
         #escaped == 0, table.concat(escaped, ", "))
 
