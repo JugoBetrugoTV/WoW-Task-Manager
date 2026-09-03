@@ -79,7 +79,13 @@ local api = {
     end,
     GetAddOnMetadata = function(i, f)
         local a = type(i) == "number" and ADDONS[i]
-        if a and f == "Version" then return a[3] end
+        if not a then for _, e in ipairs(ADDONS) do if e[1] == i then a = e end end end
+        if not a then return nil end
+        if f == "Version" then return a[3] end
+        -- Title and SavedVariables are how a second copy of this addon is
+        -- recognised, including one that has been renamed.
+        if f == "Title" then return a[2] end
+        if f == "SavedVariables" then return a[7] end
         return nil
     end,
     IsAddOnLoaded = function(i)
@@ -1498,6 +1504,36 @@ do
 
         check("the running copy is untouched by it",
             NS.state.enabled == true and NS.UI.MainWindow.frame ~= nil)
+    end
+
+    -- A copy that is INSTALLED but disabled in the addon list never loads, so
+    -- the guard above cannot see it. It is one click away from producing two of
+    -- everything, so it is found by reading the installed list instead.
+    do
+        local found = NS:FindOtherCopies()
+        check("no other copy is reported when there is none", #found == 0,
+            table.concat(found, ", "))
+
+        -- Add one to the client's installed list, disabled, the way a leftover
+        -- folder sits there.
+        ADDONS[#ADDONS + 1] = { "WoWTaskManager-old", "WoW Task Manager", "0.6.0",
+                                false, false, 0, "WoWTaskManagerDB" }
+        found = NS:FindOtherCopies()
+        check("an installed but disabled copy is found",
+            #found == 1 and found[1] == "WoWTaskManager-old",
+            table.concat(found, ", "))
+
+        -- A renamed folder still declares the same database.
+        ADDONS[#ADDONS + 1] = { "MyPerfTool", "Something Else", "1.0",
+                                false, false, 0, "WoWTaskManagerDB" }
+        found = NS:FindOtherCopies()
+        check("so is a renamed one, by the database it declares", #found == 2,
+            table.concat(found, ", "))
+
+        ADDONS[#ADDONS] = nil
+        ADDONS[#ADDONS] = nil
+        check("and nothing is reported once they are gone",
+            #NS:FindOtherCopies() == 0)
     end
 
     -- And the belt-and-braces repair: a page forced visible behind the

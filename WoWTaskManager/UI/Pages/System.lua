@@ -40,14 +40,14 @@ function Page:Build(frame)
     self.infoCard = UI.Card(frame, "CLIENT", {})
     self.infoCard:SetWidth(380)
     self.infoCard:SetPoint("TOPLEFT", pad, -pad)
-    self.infoCard:SetHeight(370)
+    self.infoCard:SetHeight(388)
 
     self.infoRows = {}
     local INFO_KEYS = {
         "Client", "Version", "Build", "Build date", "Interface", "Project ID",
         "Locale", "Realm", "Character",
         "Screen resolution", "UI scale", "Addon folder count", "Loaded addons",
-        "Lua memory", "Addon version", "Library backend",
+        "Lua memory", "Addon version", "Other copies installed", "Library backend",
         "Database schema", "Saved database size", "Event monitoring",
         "Spike detection", "Baseline",
     }
@@ -199,6 +199,18 @@ function Page:Refresh()
     set("Realm",             GetRealmName())
     set("Character",         UnitName("player"))
     set("Screen resolution", ResolutionText())
+
+    -- Two copies of this addon draw two windows over each other and measure
+    -- everything twice, and neither can see the other from inside. Answering
+    -- it here means nobody has to go looking through Interface/AddOns.
+    self._copies = WTM:FindOtherCopies(self._copies or {})
+    if #self._copies == 0 then
+        set("Other copies installed", "none", "ok")
+    else
+        set("Other copies installed", table.concat(self._copies, ", "), "crit")
+        self.infoRows["Other copies installed"].tooltip =
+            "Each of these is another folder containing this addon. Two copies load as two separate addons with two windows and two sets of samplers. Delete the folder you are not using and reload."
+    end
     set("UI scale",          ("%.3f"):format(UIParent:GetEffectiveScale()))
     set("Addon folder count", tostring(#WTM.Processes.list))
     set("Loaded addons",     tostring(loaded))

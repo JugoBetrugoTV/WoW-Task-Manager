@@ -101,6 +101,36 @@ WTM.state = {
     sessionEpoch = nil,
 }
 
+--- Every installed folder that looks like another copy of this addon.
+---
+--- The duplicate guard above only sees a copy that actually LOADED. A second
+--- copy that is disabled in the addon list, or that failed to load, is
+--- invisible to it and is still sitting there waiting to be switched on. This
+--- reads the installed list instead, so the answer to "do I have two of these?"
+--- comes from the client rather than from the player going through Explorer.
+function WTM:FindOtherCopies(out)
+    out = out or {}
+    for i = #out, 1, -1 do out[i] = nil end
+
+    local total = Compat.GetNumAddOns()
+    for i = 1, total do
+        local folder = Compat.GetAddOnInfo(i)
+        if folder and folder ~= ADDON_NAME then
+            local title = Compat.GetAddOnMetadata(i, "Title") or ""
+            -- Match on the saved-variables name as well as the folder: a
+            -- renamed copy still declares the same database, and two addons
+            -- writing one database is its own problem.
+            local saved = Compat.GetAddOnMetadata(i, "SavedVariables") or ""
+            if folder:find("WoWTaskManager", 1, true)
+               or WTM.Format.StripColors(title):find("Task Manager", 1, true)
+               or saved:find("WoWTaskManagerDB", 1, true) then
+                out[#out + 1] = folder
+            end
+        end
+    end
+    return out
+end
+
 local function Initialize()
     if WTM.state.initialized then return end
 
@@ -171,6 +201,15 @@ local function Enable()
         if not WTM.Caps.cpuProfiling then
             WTM:Print("Addon CPU profiling is off, so per-addon CPU is unavailable. Everything else works. |cff4c8dff/wtm profiling|r to enable it.")
         end
+    end
+
+    -- A second copy that is installed but switched off in the addon list never
+    -- loads, so the guard at the top of this file cannot see it. It is still
+    -- worth saying: it is one click away from producing two of everything.
+    local others = WTM:FindOtherCopies()
+    if #others > 0 then
+        WTM:Print(("|cffD29922Another copy of this addon is installed|r: %s. Two copies measure the same client twice and draw two windows over each other. Delete the folder you are not using."):format(
+            table.concat(others, ", ")))
     end
 
     local schemaNote, schemaTone = WTM.Database:DescribeSchema()
