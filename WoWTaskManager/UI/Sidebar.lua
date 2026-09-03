@@ -44,6 +44,8 @@ local NAV = {
     { key = "diagnostics", label = "Diagnostics" },
     { key = "impact",      label = "Addon impact" },
     { key = "compare",     label = "Compare" },
+    { key = "errors",      label = "Lua errors" },
+    { key = "reports",     label = "Reports" },
 
     { heading = "History" },
     { key = "sessions",    label = "Sessions" },
@@ -232,6 +234,14 @@ function Sidebar:Refresh()
     badge("timeline", spikes, spikes > 0 and "warn" or nil)
     badge("events", storms, storms > 0 and "warn" or nil)
     badge("sessions", #WTM.db.global.sessions)
+
+    -- The error badge counts occurrences, not distinct bugs: one error firing
+    -- two hundred times is the thing worth walking over to look at. Ignored
+    -- errors are excluded from the badge and only from the badge - the count
+    -- underneath still has them.
+    local errorCount = WTM.Errors:CountVisible()
+    badge("errors", errorCount, WTM.Errors.stats.internal > 0 and "crit"
+        or (errorCount > 0 and "warn" or nil))
 
     local findings = WTM.Diagnostics:Build(self._findingScratch or {})
     self._findingScratch = findings

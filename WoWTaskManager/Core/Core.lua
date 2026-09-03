@@ -259,6 +259,32 @@ commands["benchmark"] = function(rest)
     WTM.Dev:Benchmark(rest)
 end
 
+commands["errors"]  = function() OpenPage("errors") end
+commands["reports"] = function() OpenPage("reports") end
+
+--- Safe mode is a switch this addon throws at ITSELF after repeated internal
+--- faults. It is the one state the user needs a way out of without a reload,
+--- so it gets a command; there is deliberately no way to turn it ON by hand,
+--- because "make the addon act as though it is broken" is not a useful state
+--- to be able to ask for.
+commands["safemode"] = function(rest)
+    local argument = (rest or ""):match("^%s*(%S*)"):lower()
+    if argument == "off" then
+        if not WTM.Errors.safeMode.active then
+            WTM:Print("Safe mode is not on.")
+            return
+        end
+        WTM.Errors:LeaveSafeMode()
+        WTM:Print("Safe mode off. The suspended module is running again; if it faults repeatedly it will switch itself off once more.")
+    elseif WTM.Errors.safeMode.active then
+        WTM:Print(("Safe mode is ON: %s"):format(
+            WTM.Errors.safeMode.reason or "reason not recorded"))
+        WTM:Print("Recording never stopped. Use /wtm safemode off to bring the suspended module back.")
+    else
+        WTM:Print("Safe mode is off. It switches itself on only after repeated faults inside this addon.")
+    end
+end
+
 --==========================================================================
 -- Command catalogue
 --==========================================================================
@@ -319,6 +345,12 @@ local COMMANDS = {
       help = "reset this session's counters - saved history is untouched" },
     { cmd = "wipe",        label = "Delete saved history",  group = "tools", confirm = true,
       help = "delete every saved session and incident - settings are untouched" },
+    { cmd = "errors",      label = "Lua errors",           group = "pages",
+      help = "captured Lua errors, grouped, with stacks and context" },
+    { cmd = "reports",     label = "Reports",              group = "pages",
+      help = "paste-ready problem reports" },
+    { cmd = "safemode",    label = "Safe mode status",     group = "tools", arg = "[off]",
+      help = "show safe mode, or turn it off after this addon suspended one of its own modules" },
     { cmd = "help",        label = "Print command list",   group = "tools",
       help = "print this list" },
     { cmd = "dev",         label = "Developer tools",      group = "advanced", arg = "[subcommand]",

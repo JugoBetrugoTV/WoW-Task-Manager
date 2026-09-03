@@ -209,6 +209,33 @@ function Caps:Detect()
     Set("fileAccess", "no", "Sandbox: no file system access.")
     Set("protectedActions", "no", "Protected functions are never called or worked around.")
 
+    ------------------------------------------------------------------
+    -- Lua error capture
+    ------------------------------------------------------------------
+    local hasHandlerApi = type(_G.seterrorhandler) == "function"
+        and type(_G.geterrorhandler) == "function"
+    Set("errorCapture", hasHandlerApi and "yes" or "no",
+        hasHandlerApi and "seterrorhandler / geterrorhandler"
+        or "This client exposes no way to intercept Lua errors.")
+
+    -- Chaining works wherever the handler API does, but it can be undone at any
+    -- moment by another addon installing its handler afterwards. That is not a
+    -- failure and not something to fight over - it is reported instead.
+    Set("errorChaining", hasHandlerApi and "partial" or "no",
+        hasHandlerApi
+            and "The previous handler is captured and always called. Another addon loading later can still take the slot, which is detected and reported."
+            or C.TXT_UNAVAILABLE_CLIENT)
+
+    Set("errorStacks", type(_G.debugstack) == "function" and "yes" or "no",
+        type(_G.debugstack) == "function" and "debugstack"
+        or "No stack traces: debugstack is not available, so only the message is recorded.")
+
+    -- Always heuristic, on every client. There is no API that maps an error to
+    -- the addon that raised it; the only signal is the file path in the
+    -- message, and plenty of errors carry no usable path at all.
+    Set("errorAttribution", "partial",
+        "Parsed from the Interface/AddOns path in the error message. Errors from the default UI, from string chunks, or with no path are reported as Unknown rather than guessed at.")
+
     return self.matrix
 end
 
@@ -302,6 +329,8 @@ Caps.GROUPS = {
     { title = "Addon control", keys = { "addonMetadata", "addonDependencies", "addonLoadOnDemand",
                                         "addonEnableState", "addonEnableDisable", "addonLoadNow",
                                         "addonUnload", "addonKill", "savedVarSize", "reloadUI" } },
+    { title = "Lua errors",    keys = { "errorCapture", "errorChaining", "errorStacks",
+                                        "errorAttribution" } },
     { title = "Context",       keys = { "instanceInfo", "groupSize", "combatMarkers", "encounterMarkers",
                                         "keystoneMarkers", "loadingMarkers", "zoneMarkers" } },
     { title = "System",        keys = { "physicalResolution", "cvarMaxFPS", "cvarMaxFPSBk",

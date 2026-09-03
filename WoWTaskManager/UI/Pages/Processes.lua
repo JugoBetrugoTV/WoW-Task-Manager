@@ -52,6 +52,8 @@ local function cpuValue(get)
     end
 end
 
+local columnErrorScratch
+
 local COLUMNS = {
     {
         key = "name", title = "Name", flex = 3, sort = "name",
@@ -211,7 +213,37 @@ local COLUMNS = {
         end,
         tooltip = "A presentation aid, not a measurement: it compresses smoothed CPU, sustained memory growth and spike involvement into one sortable number so the list can lead with what is worth looking at.",
     },
+    {
+        key = "errors", title = "Errors", width = 58, justify = "RIGHT", sort = "errors",
+        value = function(record)
+            local count = WTM.Errors:CountForAddon(record.name)
+            return count > 0 and tostring(count) or ""
+        end,
+        tone = function(record)
+            local count = WTM.Errors:CountForAddon(record.name)
+            if count >= C.ERROR_REPEAT_THRESHOLD then return "crit" end
+            return count > 0 and "warn" or "muted"
+        end,
+        tooltip = "Lua errors raised from this addon's own folder this session, counting repeats. Attribution comes from the file path in the error and nothing else, so an error this addon triggered inside another one is counted there.",
+    },
+    {
+        key = "lasterror", title = "Last error", width = 78, justify = "RIGHT",
+        sort = "lasterror",
+        value = function(record)
+            local groups = WTM.Errors:ForAddon(record.name, columnErrorScratch)
+            local last
+            for i = 1, #groups do
+                if not last or (groups[i].lastAt or 0) > last then last = groups[i].lastAt end
+            end
+            return last and Fmt.Ago(last) or ""
+        end,
+        tone = function() return "muted" end,
+        tooltip = "How long ago this addon last raised a Lua error.",
+    },
 }
+
+-- Reused by the two error columns, which run once per visible row per refresh.
+columnErrorScratch = {}
 
 --------------------------------------------------------------------------
 
@@ -446,6 +478,15 @@ function Page:ShowRowMenu(row, record)
           onClick = function()
               WTM.Database:SetWatched(record.name, not watched)
               Page:Rebuild(true)
+          end },
+        { label = "Show errors",
+          disabled = WTM.Errors:CountForAddon(record.name) == 0,
+          reason = "No Lua error has been attributed to this addon this session.",
+          tooltip = "Opens the Errors page filtered to this addon.",
+          onClick = function()
+              UI.MainWindow:ShowPage("errors")
+              local page = UI.Pages.errors
+              if page and page.FilterByAddon then page:FilterByAddon(record.name) end
           end },
         { label = "Copy name",
           tooltip = "Puts the addon's name in an edit box you can copy from - WoW gives addons no clipboard access.",

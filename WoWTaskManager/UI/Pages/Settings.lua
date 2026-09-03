@@ -640,6 +640,114 @@ function Page:Build(frame)
     "How readily findings are reported. This changes what is SHOWN, never how anything is measured or how strongly it is worded: an association is described the same way at every setting, and no setting will make this addon claim causation."), 48)
 
     ------------------------------------------------------------------
+    AddSection("ERROR MONITORING")
+
+    local errorsNote = UI.Text(canvas, "small", "textMuted", "LEFT")
+    errorsNote:SetWidth(COLUMN)
+    errorsNote:SetHeight(44)
+    UI.Wrap(errorsNote, 3)
+    errorsNote:SetText("This addon installs its error handler in FRONT of whatever was there before and passes every error on unchanged, so BugGrabber, BugSack or any other error addon keeps working exactly as it did. Turning capture off here stops the recording; it never removes the handler, because removing it would be this addon deciding what the previous one gets to see.")
+    Add(errorsNote, 44)
+
+    Add(Checkbox(canvas, "Capture Lua errors",
+        function() return profile.errors.enabled end,
+        function(v) profile.errors.enabled = v end,
+        "Records errors as they arrive. With this off, errors still reach every other handler - this addon simply writes nothing down."))
+
+    Add(Checkbox(canvas, "Group duplicates",
+        function() return profile.errors.groupDuplicates end,
+        function(v) profile.errors.groupDuplicates = v end,
+        "Folds identical errors into one entry with a counter. Off, one error firing in OnUpdate would write thousands of entries and the cost of writing them would be the next thing you had to diagnose."))
+
+    Add(Checkbox(canvas, "Announce new errors in chat",
+        function() return profile.errors.notifications end,
+        function(v) profile.errors.notifications = v end,
+        "One line per NEW error, never per repeat, and never more often than the cooldown below."))
+
+    Add(Slider(canvas, "Notification cooldown", 5, 300, 5,
+        function() return profile.errors.notifyCooldown end,
+        function(v) profile.errors.notifyCooldown = v end,
+        function(v) return ("%d s"):format(v) end,
+        "The shortest gap between two chat notices. During a storm the notices are what makes the storm worse, so this floor exists."))
+
+    Add(Checkbox(canvas, "Mark errors on the timeline",
+        function() return profile.errors.timelineMarkers end,
+        function(v) profile.errors.timelineMarkers = v end,
+        "Puts each new error on the shared time axis, next to the frame times around it. Overlap in time only - nothing causal is claimed by the marker."))
+
+    Add(Checkbox(canvas, "Include errors in diagnostics",
+        function() return profile.errors.includeInDiagnostics end,
+        function(v)
+            profile.errors.includeInDiagnostics = v
+            WTM.Diagnostics:InvalidateCache()
+        end,
+        "Lets error storms and repeating errors appear as findings on the Diagnostics page."))
+
+    Add(Checkbox(canvas, "Show the error count on the minimap button",
+        function() return profile.errors.minimapBadge end,
+        function(v)
+            profile.errors.minimapBadge = v
+            if UI.MinimapButton and UI.MinimapButton.Refresh then
+                UI.MinimapButton:Refresh()
+            end
+        end,
+        "A small count on the minimap icon, so a storm is visible without opening anything."))
+
+    Add(Checkbox(canvas, "Count ignored errors",
+        function() return profile.errors.countIgnored end,
+        function(v) profile.errors.countIgnored = v end,
+        "Ignoring an error hides it from the notices and from the top of the list. It never stops it being counted, and this switch only decides whether the badge and the totals include ignored errors as well."))
+
+    Add(Checkbox(canvas, "Keep errors across sessions",
+        function() return profile.errors.keepAcrossSessions end,
+        function(v) profile.errors.keepAcrossSessions = v end,
+        "Writes a trimmed copy of this session's errors to the database at logout, so a bug you saw last night is still there this morning."))
+
+    Add(Slider(canvas, "Error storm threshold", 5, 100, 5,
+        function() return profile.errors.stormThreshold end,
+        function(v) profile.errors.stormThreshold = v end,
+        function(v) return ("%d in %d s"):format(v, C.ERROR_STORM_WINDOW_SEC) end,
+        "How many errors inside the window count as a storm. A storm is a finding about the whole client; a single error repeating is a separate one."))
+
+    Add(Slider(canvas, "Repeating error threshold", 5, 200, 5,
+        function() return profile.errors.repeatThreshold end,
+        function(v) profile.errors.repeatThreshold = v end,
+        function(v) return ("%d occurrences"):format(v) end,
+        "How often one error has to fire before it is called out on its own."))
+
+    Add(Slider(canvas, "Distinct errors kept", 50, 1000, 50,
+        function() return profile.errors.maxUnique end,
+        function(v) profile.errors.maxUnique = v end,
+        function(v) return ("%d"):format(v) end,
+        "Distinct fingerprints held in memory. Repeats never add to this - they increment a counter on the entry that already exists."))
+
+    Add(Slider(canvas, "Stack trace length kept", 500, 10000, 500,
+        function() return profile.errors.maxStackLength end,
+        function(v) profile.errors.maxStackLength = v end,
+        function(v) return ("%d characters"):format(v) end,
+        "How much of each stack trace is stored. A trace is captured once per distinct error, never per repeat."))
+
+    Add(Segmented(canvas, "When the distinct-error cap is reached", {
+        { key = "keep",  label = "Keep the oldest",
+          detail = "new distinct errors are counted but not detailed" },
+        { key = "evict", label = "Drop the oldest",
+          detail = "the first errors of the session are lost" },
+    },
+    function() return profile.errors.evictOldest and "evict" or "keep" end,
+    function(v) profile.errors.evictOldest = (v == "evict") end,
+    "Either way the total keeps rising, so the count stays honest. What differs is which errors keep their stack and their context."), 48)
+
+    Add(ConfirmButton(canvas, "Clear the ignore list", function()
+        WTM.Errors:ClearIgnored()
+        WTM:Print("Every ignored error and addon is shown again.")
+    end, { description = "Un-ignores every error and every addon you have ignored. Nothing is deleted: ignoring never removed anything." }))
+
+    Add(ConfirmButton(canvas, "Clear captured errors", function()
+        WTM.Errors:Reset()
+        WTM:Print("Captured errors cleared. Capture continues.")
+    end, { description = "Empties this session's error list. It does not touch saved sessions and it does not stop capture." }))
+
+    ------------------------------------------------------------------
     -- Every chat command, as a button.
     --
     -- The rows are generated from WTM.COMMANDS, which is also what /wtm help

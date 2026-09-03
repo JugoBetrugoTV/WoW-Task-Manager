@@ -12,12 +12,12 @@ WTM.C = C
 C.ADDON_NAME    = ADDON_NAME
 C.ADDON_TITLE   = "WoW Task Manager"
 C.ADDON_SHORT   = "WTM"
-C.VERSION       = "0.6.0"
+C.VERSION       = "0.7.0"
 
 -- SavedVariables schema version.  Bump this whenever the stored shape changes
 -- and add a migration step in Core/Database.lua; never reinterpret old data in
 -- place without one.
-C.SCHEMA_VERSION = 2
+C.SCHEMA_VERSION = 3
 
 --------------------------------------------------------------------------
 -- Spike classification
@@ -283,7 +283,64 @@ C.MARKERS = {
     -- can find again afterwards is a line of chat, not a diagnostic.
     alert     = { glyph = "!",  label = "Alert",        tone = "warn"   },
     custom    = { glyph = "#",  label = "Marker",       tone = "info"   },
+    luaerror  = { glyph = "x",  label = "Lua error",    tone = "crit"   },
+    errorstorm= { glyph = "X",  label = "Error storm",  tone = "crit"   },
 }
+
+--------------------------------------------------------------------------
+-- Lua error monitoring
+--------------------------------------------------------------------------
+--
+-- Errors are supposed to be rare, so the handler is allowed to do real work
+-- for a NEW error. A storm is the case that has to stay cheap, which is what
+-- the fingerprint fast path and these caps are for.
+
+-- Distinct fingerprints held in memory. A session that produces more than this
+-- has a problem the detail of the 401st bug will not help with.
+C.ERROR_MAX_UNIQUE = 400
+
+-- Longest stack trace stored per group, in characters. WoW stacks are rarely
+-- longer than this; the cap exists so a pathological one cannot dominate the
+-- saved database.
+C.ERROR_MAX_STACK = 4000
+
+-- Many errors in a short window, from anywhere.
+C.ERROR_STORM_THRESHOLD  = 25
+C.ERROR_STORM_WINDOW_SEC = 10
+
+-- One fingerprint firing over and over. Distinct from a storm: a single bug
+-- repeating is a different finding from a scatter of unrelated ones.
+C.ERROR_REPEAT_THRESHOLD = 25
+
+-- Buckets the error rate graph divides its window into. Ten over a ten-second
+-- window is one per second, which is as fine as the data goes.
+C.ERROR_RATE_BUCKETS = 10
+
+-- Occurrence timestamps kept per group, newest overwriting oldest. This is a
+-- fixed-size array written in place: a repeat costs one store, never an
+-- allocation, so a storm cannot make the ring the thing that hurts.
+C.ERROR_TIME_RING = 24
+
+-- Distinct errors from one addon before the addon itself is the finding rather
+-- than any one of its bugs.
+C.ERROR_MULTI_THRESHOLD = 3
+
+-- How far either side of an incident an error still counts as overlapping it.
+-- Overlap in time only; nothing causal is claimed by it.
+C.ERROR_INCIDENT_SLACK_SEC = 5
+
+-- Errors saved to the database per session, and how many sessions of them.
+C.ERROR_MAX_SAVED_GROUPS   = 60
+C.ERROR_MAX_SAVED_SESSIONS = 5
+
+-- Repeated internal faults before this addon starts switching its own pieces
+-- off rather than continuing to throw.
+C.SAFE_MODE_THRESHOLD  = 5
+C.SAFE_MODE_WINDOW_SEC = 10
+
+C.TXT_ERROR_OVERLAP_NOTE =
+    "Overlap in time. An error and a stutter arriving together is a place to " ..
+    "look, not a demonstration that one produced the other."
 
 --------------------------------------------------------------------------
 -- Context bit flags packed into a flight recorder slot

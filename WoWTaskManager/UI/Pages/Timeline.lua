@@ -498,6 +498,14 @@ local function AcquireMarkerButton(page, index)
         UI.TooltipClear(def and def.label or self.marker.kind)
         UI.TooltipLine(self.marker.label or "")
         UI.TooltipLine("Time", Fmt.Ago(GetTime() - self.marker.t))
+        if self.marker.kind == "luaerror" and self.marker.ref then
+            local group = self.marker.ref
+            UI.TooltipLine("Occurrences", tostring(group.count or 1))
+            UI.TooltipLine("Where", ("%s:%s")
+                :format(group.file or "?", tostring(group.line or "?")))
+            UI.TooltipLine("", "")
+            UI.TooltipLine("Click to open the error.", nil, "muted")
+        end
         if self.spike then
             UI.TooltipLine("", "")
             for line in WTM.SpikeDetector:Describe(self.spike):gmatch("[^\n]+") do
@@ -508,6 +516,13 @@ local function AcquireMarkerButton(page, index)
     end)
     button:SetScript("OnLeave", UI.HideTooltip)
     button:SetScript("OnClick", function(self)
+        -- An error marker points at the error itself, not at a spike near it.
+        -- Opening the incident instead would be the tool quietly asserting the
+        -- two are the same event.
+        if self.marker and self.marker.ref and self.marker.kind == "luaerror" then
+            UI.ErrorDetail:Open(self.marker.ref)
+            return
+        end
         if not self.spike then return end
         page:ShowIncident(self.spike)
         -- The full record lives on the Incidents page; jump there with the

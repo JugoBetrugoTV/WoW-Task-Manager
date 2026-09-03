@@ -225,7 +225,7 @@ function Page:Refresh()
         local now = GetTime()
         local from = now - math.max(60, math.min(1800,
             now - (WTM.state.sessionStart or now)))
-        WTM.Recorder:GetSeries("frameMs", from, now, 400, seriesValues, seriesTimes)
+        WTM.Recorder:GetSeries("frameAvgMs", from, now, 400, seriesValues, seriesTimes)
         self.graph:SetSeries(1, seriesValues, seriesTimes,
             { label = "Frame time", colorIndex = 2 })
         self.graph:SetTimeRange(from, now)

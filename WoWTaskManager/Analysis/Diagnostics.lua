@@ -162,6 +162,8 @@ function Diagnostics:Build(out)
 end
 
 --- The actual analysis.  Always writes into `out`.
+local errorAddonScratch = {}
+
 function Diagnostics:Compute(out)
     for i = #out, 1, -1 do out[i] = nil end
 
@@ -333,6 +335,112 @@ function Diagnostics:Compute(out)
                 ("%d spike%s with no addon above its own average"):format(
                     unattributed, unattributed == 1 and "" or "s"),
                 "These are consistent with work outside addon Lua: shader compilation, asset streaming, the game engine itself, or the server. An addon cannot see any of those directly.", nil, "cpu", "measured")
+        end
+    end
+
+    ------------------------------------------------------------------
+    -- Lua errors
+    ------------------------------------------------------------------
+    -- Every finding below reports a count, a window or an overlap. None of
+    -- them says an error caused anything: an error and a stutter arriving
+    -- together is a place to look, and the wording never goes past that.
+    if WTM.db.profile.errors.includeInDiagnostics and WTM.Caps:Has("errorCapture") then
+        local Errors = WTM.Errors
+        local storms = Errors.storms
+
+        if #storms > 0 then
+            local last = storms[#storms]
+            AddFinding(out, "crit",
+                ("Lua error storm: %d errors in %d seconds"):format(last.count, last.window),
+                ("%d storm%s this session. A storm is many errors from anywhere in a short window, which usually means one broken addon is throwing in a loop or several are reacting to the same event."):format(
+                    #storms, #storms == 1 and "" or "s"),
+                nil, "other", "measured")
+        end
+
+        local repeatThreshold = WTM.db.profile.errors.repeatThreshold
+            or C.ERROR_REPEAT_THRESHOLD
+        for i = 1, #Errors.groups do
+            local group = Errors.groups[i]
+            if (group.count or 0) >= repeatThreshold then
+                AddFinding(out, group.internal and "crit" or "warn",
+                    ("Repeating Lua error: %s x%d"):format(
+                        group.addon or "unattributed", group.count),
+                    ("%s\n\nRaised at %s:%s. An error inside a frequently called function costs time every time it is raised, and the client's own handler runs on each one."):format(
+                        Fmt.Truncate((group.message or ""):gsub("\n", " "), 140),
+                        group.file or "?", tostring(group.line or "?")),
+                    nil, "other", "measured")
+            end
+        end
+
+        -- Several distinct errors from one addon is a different signal from one
+        -- error repeating: it points at the addon rather than at one function.
+        local byAddon = errorAddonScratch
+        for key in pairs(byAddon) do byAddon[key] = nil end
+        for i = 1, #Errors.groups do
+            local addon = Errors.groups[i].addon
+            if addon then byAddon[addon] = (byAddon[addon] or 0) + 1 end
+        end
+        for addon, distinct in pairs(byAddon) do
+            if distinct >= C.ERROR_MULTI_THRESHOLD then
+                AddFinding(out, "warn",
+                    ("%d distinct Lua errors from %s"):format(distinct, addon),
+                    "Several different failures in one addon this session. Attribution is from the file path in each error and nothing else.",
+                    nil, "other", "measured")
+            end
+        end
+
+        local overlapping, inCombat = 0, 0
+        for i = 1, #Errors.groups do
+            local group = Errors.groups[i]
+            if Errors:OverlapsSpikes(group) > 0 then overlapping = overlapping + 1 end
+            if group.context and group.context.combat then inCombat = inCombat + 1 end
+        end
+
+        if overlapping > 0 then
+            AddFinding(out, "warn",
+                ("%d Lua error%s overlapped a recorded stutter"):format(
+                    overlapping, overlapping == 1 and "" or "s"),
+                C.TXT_ERROR_OVERLAP_NOTE .. " The Errors page can filter to just these, and each one shows the frame times around it.",
+                nil, "pacing", "measured")
+        end
+
+        if inCombat > 0 then
+            AddFinding(out, "warn",
+                ("%d Lua error%s first seen in combat"):format(
+                    inCombat, inCombat == 1 and "" or "s"),
+                "Errors raised during combat are the ones most likely to be noticed as a stutter, because the client is busiest then. This counts where each error was FIRST seen; repeats are not re-checked.",
+                nil, "other", "measured")
+        end
+
+        if Errors.stats.internal > 0 then
+            AddFinding(out, "crit",
+                ("WoW Task Manager raised %d Lua error%s of its own"):format(
+                    Errors.stats.internal, Errors.stats.internal == 1 and "" or "s"),
+                "These are this addon's own faults and they are never hidden. They are listed on the Errors page like any other, marked as internal, and they belong in a bug report against this addon.",
+                nil, "overhead", "measured")
+        end
+
+        if Errors.safeMode.active then
+            AddFinding(out, "crit",
+                "Safe mode is on",
+                ("Switched on after repeated internal faults: %s. Recording continues; the analysis module that was faulting is off until /wtm safemode off or the next reload."):format(
+                    Errors.safeMode.reason or "reason not recorded"),
+                nil, "overhead", "measured")
+        end
+
+        if Errors.chaining.displaced then
+            AddFinding(out, "muted",
+                "Another addon now owns the error handler",
+                "An error addon installed its handler after this one, so errors no longer reach here and the Errors page has stopped filling up. Nothing is broken - that addon is handling them - and this addon deliberately does not reinstall itself over it.",
+                nil, "other", "measured")
+        end
+
+        if Errors.stats.droppedByCap > 0 then
+            AddFinding(out, "muted",
+                ("%d distinct errors were not recorded in detail"):format(
+                    Errors.stats.droppedByCap),
+                "The distinct-error cap was reached. Their occurrences are still counted in the total; only the stack and context were not kept. The cap is on the Settings page.",
+                nil, "other", "measured")
         end
     end
 

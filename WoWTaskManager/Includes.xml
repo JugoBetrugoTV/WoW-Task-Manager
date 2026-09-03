@@ -32,6 +32,7 @@
     <Script file="Core\Database.lua"/>
     <Script file="Core\Scheduler.lua"/>
     <Script file="Core\Dev.lua"/>
+    <Script file="Core\ErrorMonitor.lua"/>
 
     <!-- Monitoring -->
     <Script file="Monitoring\Context.lua"/>
@@ -58,6 +59,7 @@
     <Script file="Analysis\Diagnostics.lua"/>
     <Script file="Analysis\Impact.lua"/>
     <Script file="Analysis\Observations.lua"/>
+    <Script file="Analysis\Reports.lua"/>
 
     <!-- UI -->
     <Script file="UI\Theme.lua"/>
@@ -80,6 +82,8 @@
     <Script file="UI\Pages\Compare.lua"/>
     <Script file="UI\Pages\Alerts.lua"/>
     <Script file="UI\Pages\Recording.lua"/>
+    <Script file="UI\Pages\Errors.lua"/>
+    <Script file="UI\Pages\Reports.lua"/>
     <Script file="UI\Pages\Processes.lua"/>
     <Script file="UI\Pages\Performance.lua"/>
     <Script file="UI\Pages\Incidents.lua"/>
@@ -92,6 +96,7 @@
     <Script file="UI\Pages\Settings.lua"/>
     <Script file="UI\LiveMonitor.lua"/>
     <Script file="UI\AddonDetail.lua"/>
+    <Script file="UI\ErrorDetail.lua"/>
     <Script file="UI\MinimapButton.lua"/>
     <Script file="UI\Options.lua"/>
     <Script file="UI\Onboarding.lua"/>

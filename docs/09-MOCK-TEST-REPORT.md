@@ -1,6 +1,6 @@
 # Mock-Testbericht
 
-Erzeugt am 2026-09-02 gegen Addon-Version 0.5.0.
+Erzeugt am 2026-09-03 gegen Addon-Version 0.7.0.
 
 > **Alles hier ist MOCK VERIFIED, nichts ist REAL CLIENT VERIFIED.**
 > Der Mock verhält sich so, wie ich glaube, dass der Client sich verhält. Wo
@@ -17,6 +17,8 @@ Addon- und Profiling-APIs, CVars und die Uhr nach. Darauf laufen drei Suiten:
 | `tools/test.lua` | Verhaltens-Assertions über die volle Matrix |
 | `tools/test-downsample.lua` | Spikes dürfen beim Downsampling nicht verschwinden |
 | `tools/test-recorder.lua` | Flight-Recorder-Härtung, Coalescing, DB-Migrationen |
+| `tools/test-errors.lua` | Der Error-Handler-Vertrag und die Duplikat-Fast-Path |
+| `tools/test-scale.lua` | 220 Addons, 140 Incidents, 300 Errors, leere Session |
 | `tools/run.lua` | Kompletter Login-bis-Logout-Durchlauf, alle vier Clients |
 
 ### Seit 0.5.0: Text-Geometrie ist messbar
@@ -45,40 +47,40 @@ Gestartet mit `./tools/run-tests.sh` bzw. `./tools/release-check.sh`.
 ## Matrix: 4 Clients x Profiling an/aus x volle/abgeräumte API x Ace3 an/aus
 
 ```
-  PASS  Retail-12.1.0      profiling=on  api=normal   no-ace3    290 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=normal   ace3       290 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=degraded no-ace3    298 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=degraded ace3       298 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=normal   no-ace3    289 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=normal   ace3       289 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=degraded no-ace3    297 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=degraded ace3       297 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=normal   no-ace3    290 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=normal   ace3       290 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=degraded no-ace3    298 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=degraded ace3       298 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=normal   no-ace3    289 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=normal   ace3       289 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=degraded no-ace3    297 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=degraded ace3       297 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=normal   no-ace3    290 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=normal   ace3       290 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=degraded no-ace3    298 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=degraded ace3       298 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=normal   no-ace3    289 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=normal   ace3       289 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=degraded no-ace3    297 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=degraded ace3       297 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=normal   no-ace3    290 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=normal   ace3       290 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=degraded no-ace3    298 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=degraded ace3       298 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=normal   no-ace3    289 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=normal   ace3       289 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=degraded no-ace3    297 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=degraded ace3       297 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=normal   no-ace3    400 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=normal   ace3       400 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=degraded no-ace3    410 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=degraded ace3       410 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=normal   no-ace3    401 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=normal   ace3       401 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=degraded no-ace3    411 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=degraded ace3       411 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=normal   no-ace3    400 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=normal   ace3       400 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=degraded no-ace3    411 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=degraded ace3       410 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=normal   no-ace3    401 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=normal   ace3       401 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=degraded no-ace3    412 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=degraded ace3       411 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=normal   no-ace3    400 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=normal   ace3       400 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=degraded no-ace3    411 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=degraded ace3       410 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=normal   no-ace3    401 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=normal   ace3       401 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=degraded no-ace3    412 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=degraded ace3       411 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=normal   no-ace3    400 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=normal   ace3       400 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=degraded no-ace3    411 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=degraded ace3       410 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=normal   no-ace3    401 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=normal   ace3       401 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=degraded no-ace3    412 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=degraded ace3       411 passed, 0 failed, 0 lua errors
 syntax check:
-  all 57 files parse
+  all 75 files parse
 ```
 
 Die Variante **degraded** entfernt `RegisterAllEvents`, `GetNetStats`,
@@ -104,6 +106,96 @@ AceConsole ruft Slash-Handler als `func(msg, editBox)` auf, der interne
 Fallback als `func(input)`. Der Widerspruch ist im Stub exakt reproduziert,
 damit er als Testfehler auftaucht statt als Fehlermeldung im Spiel eines
 Spielers.
+
+## Error-Monitor: der Handler-Vertrag (neu in 0.7.0)
+
+```
+== handler chaining ==
+== fingerprinting ==
+== this addon's own errors ==
+== ignoring counts, it just does not shout ==
+== scale: a storm of one bug ==
+== caps ==
+== storms and repeats ==
+== safe mode ==
+== correlation is never causation ==
+== a client that cannot do this at all ==
+
+   79 passed, 0 failed, 0 lua errors
+```
+
+Der Error-Handler ist die einzige Stelle im Addon, an der ein Bug **ein anderes
+Addon** kaputtmachen kann. Deshalb hat er eine eigene Suite, und deshalb testet
+sie den Vertrag statt der Oberfläche.
+
+`tools/wowmock.lua` hatte bis 0.6.0 einen konstanten Error-Handler, den man
+weder lesen noch ersetzen konnte — Verkettung war schlicht nicht testbar.
+Jetzt sind `seterrorhandler` und `geterrorhandler` echt: der Mock hält einen
+aktuellen Handler, gibt ihn heraus, nimmt einen neuen an, und
+`mock.RaiseError(msg)` schickt eine Nachricht durch genau den Weg, den der
+Client benutzt.
+
+Fünf Anordnungen werden aufgebaut und einzeln geprüft:
+
+| Anordnung | Was gelten muss |
+|---|---|
+| Nichts war vorher installiert | Handler ist drin, `hadPrevious` sagt die Wahrheit |
+| Ein Handler war vorher da (der BugGrabber-Fall) | Er bekommt jeden Fehler, **genau einmal**, mit unveränderter Nachricht und unveränderten Zusatzargumenten |
+| Aufzeichnung ist abgeschaltet | Es wird nichts gespeichert, der vorherige Handler bekommt trotzdem alles |
+| Unsere eigene Buchhaltung wirft | Der vorherige Handler bekommt den Fehler trotzdem; unser Fehler wird gemerkt, nicht verschluckt |
+| Jemand installiert **nach** uns | Wird erkannt, gemeldet, akzeptiert — wir erobern nichts zurück |
+
+Dazu die Rekursion: der vorherige Handler wirft selbst einen Fehler, während
+wir ihn gerade aufrufen. Der Test misst die Verschachtelungstiefe.
+
+**Das hat einen echten Bug gefunden.** Die Wiedereintritts-Sperre wurde
+freigegeben, *bevor* der vorherige Handler aufgerufen wurde. Ein Error-Addon,
+das beim Behandeln selbst wirft, wäre damit in eine gegenseitige Rekursion
+gelaufen. Die Sperre umschliesst jetzt auch die Weitergabe.
+
+### Zehntausend Duplikate
+
+Der Auftrag verlangte, dass 10 000 identische Callbacks nicht 10 000
+SavedVariable-Einträge erzeugen. Sie erzeugen einen — und die Suite prüft
+ausserdem, dass sie fast nichts kosten:
+
+| Gemessen | Ergebnis |
+|---|---|
+| Gespeicherte Gruppen nach 10 000 Duplikaten | 1 |
+| Gezählte Vorkommen | 10 000 |
+| Zeilen in der Datenbank nach `Persist()` | 1 |
+| Heap-Wachstum über 40 000 Duplikate (`tools/run.lua`) | **0 KB** |
+| Kosten eines Duplikats gegen einen neuen Fehler | **7x billiger** |
+
+**Zwei echte Bugs, beide von dieser Messung gefunden.**
+
+Der erste: der Fingerabdruck wurde *vor* der Duplikat-Prüfung berechnet, und
+Fingerprinting heisst `gsub`, und `gsub` heisst ein neuer String — pro Fehler,
+auch beim zehntausendsten identischen. Jetzt wird zuerst der exakte
+Nachrichtentext in einer Memo-Tabelle nachgeschlagen; ein Bug, der in
+`OnUpdate` feuert, liefert jedes Mal denselben String, und das ist genau der
+Fall, in dem es auf Geschwindigkeit ankommt.
+
+Der zweite war schlimmer: das gleitende Fenster für Rate und Storm-Erkennung
+war eine Liste von Zeitstempeln, getrimmt mit `table.remove(liste, 1)`. Bei
+10 000 Fehlern in einer Minute ist das eine 10 000-Einträge-Liste, aus deren
+Kopf 10 000-mal entfernt wird — O(n) pro Fehler, also O(n²) über den Storm.
+Ausgerechnet in dem Zustand, für den das Feature existiert. Ersetzt durch 60
+feste Zähler, einen pro Sekunde: O(1) pro Fehler, keine Allokation, keine
+Vergrösserung.
+
+### Was die Suite ausserdem festnagelt
+
+* Ein ignorierter Fehler wird **weiter gezählt**. Die Suite prüft beide Seiten:
+  der Zähler steigt, und nur die Anzeige schweigt.
+* Eigene Fehler des Addons sind auch dann in der Liste, wenn man
+  `WoWTaskManager` in die Ignorier-Liste schreibt.
+* Safe Mode schaltet nach fünf internen Fehlern in zehn Sekunden **nur** die
+  UI-Aufgabe ab; die Aufzeichnung läuft weiter, und der Test raised danach
+  einen weiteren Fehler und prüft, dass er ankommt. Über die Zeit verteilte
+  interne Fehler lösen ihn nicht aus.
+* Kein erzeugter Berichtstext enthält *caused*, *because of*, *responsible
+  for*, *due to* oder *led to*. Das ist eine Assertion, keine Absicht.
 
 ## Downsampling: der Fall aus dem Auftrag
 

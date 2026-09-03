@@ -317,6 +317,82 @@ do
 end
 
 --------------------------------------------------------------------------
+-- 6b. A lot of errors, and the pages that render them
+--------------------------------------------------------------------------
+-- 300 distinct bugs plus a storm of one, which is what the Errors page, the
+-- dashboard widgets, the process columns and the detail view actually have to
+-- draw when a client is having a bad night.
+
+do
+    local before = #mock.errors
+
+    for i = 1, 300 do
+        NS.Errors:Record(("Interface/AddOns/Addon%d/File.lua:%d: %s")
+            :format(i % 40, i, ("a fairly long failure message that has to fit in a row "):rep(2)),
+            ("Interface/AddOns/Addon%d/File.lua:%d: in function <anonymous>\n"):format(i % 40, i):rep(6),
+            false)
+    end
+    for _ = 1, 5000 do
+        NS.Errors:Record("Interface/AddOns/Loud/Loud.lua:1: over and over", nil, false)
+    end
+    NS.Errors:Record("Interface/AddOns/WoWTaskManager/Thing.lua:1: our own", nil, true)
+
+    check("300 distinct errors and a 5000-strong storm are held",
+        #NS.Errors.groups >= 300, #NS.Errors.groups)
+
+    local start = os.clock()
+    NS.UI.MainWindow:ShowPage("errors")
+    NS.UI.MainWindow:LayoutPage("errors")
+    NS.UI.MainWindow:RefreshCurrentPage()
+    local elapsed = (os.clock() - start) * 1000
+    print(("      errors page with %d groups: %.1f ms of harness time")
+        :format(#NS.Errors.groups, elapsed))
+    check("the errors page renders them", #mock.errors == before,
+        (#mock.errors - before) .. " errors")
+
+    NS.UI.MainWindow:ShowPage("dashboard")
+    NS.UI.MainWindow:LayoutPage("dashboard")
+    NS.UI.MainWindow:RefreshCurrentPage()
+    check("the dashboard error widgets render them", #mock.errors == before,
+        (#mock.errors - before) .. " errors")
+
+    NS.UI.MainWindow:ShowPage("reports")
+    NS.UI.MainWindow:LayoutPage("reports")
+    NS.UI.MainWindow:RefreshCurrentPage()
+    NS.UI.Pages.reports:Generate("errors")
+    check("a report over 300 errors generates", #mock.errors == before,
+        (#mock.errors - before) .. " errors")
+
+    -- The detail view, on the noisiest error and on one with no addon at all.
+    NS.UI.ErrorDetail:Open(NS.Errors:MostFrequent())
+    for _, tab in ipairs({ "overview", "stack", "context", "timeline",
+                           "incidents", "related" }) do
+        NS.UI.ErrorDetail:ShowTab(tab)
+    end
+    NS.UI.ErrorDetail:Close()
+    check("every error detail tab renders", #mock.errors == before,
+        (#mock.errors - before) .. " errors")
+    for i = before + 1, math.min(#mock.errors, before + 4) do
+        print("      " .. mock.errors[i])
+    end
+
+    -- Diagnostics has to survive 300 findings-worth of input.
+    NS.Diagnostics:InvalidateCache()
+    NS.UI.MainWindow:ShowPage("diagnostics")
+    NS.UI.MainWindow:LayoutPage("diagnostics")
+    NS.UI.MainWindow:RefreshCurrentPage()
+    check("diagnostics renders with hundreds of error findings",
+        #mock.errors == before, (#mock.errors - before) .. " errors")
+
+    -- And the process list, whose two error columns query the monitor per row.
+    NS.UI.MainWindow:ShowPage("processes")
+    NS.UI.MainWindow:LayoutPage("processes")
+    NS.UI.MainWindow:RefreshCurrentPage()
+    check("the process list renders its error columns at scale",
+        #mock.errors == before, (#mock.errors - before) .. " errors")
+end
+
+--------------------------------------------------------------------------
 -- 7. Degraded to nothing, at scale
 --------------------------------------------------------------------------
 -- A client that can measure almost nothing, with a very large addon list, is

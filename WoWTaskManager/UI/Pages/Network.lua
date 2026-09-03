@@ -162,7 +162,7 @@ function Page:Refresh()
     WTM.Context:GetMarkersInRange(from, now, markerScratch)
 
     if available then
-        WTM.Recorder:GetSeries("latencyWorld", from, now, 300, latValues, latTimes)
+        WTM.Recorder:GetSeries("latW", from, now, 300, latValues, latTimes)
         self.graph:SetSeries(1, latValues, latTimes,
             { label = "World latency", colorIndex = 3 })
         self.graph:SetTitle("WORLD LATENCY")
@@ -174,7 +174,7 @@ function Page:Refresh()
     self.graph:SetMarkers(markerScratch)
 
     -- The overlay reuses the same window so the two series line up exactly.
-    WTM.Recorder:GetSeries("frameMs", from, now, 300, frameValues, frameTimes)
+    WTM.Recorder:GetSeries("frameAvgMs", from, now, 300, frameValues, frameTimes)
     self.overlay:ClearSeries()
     self.overlay:SetSeries(1, frameValues, frameTimes,
         { label = "Frame time (ms)", colorIndex = 2 })

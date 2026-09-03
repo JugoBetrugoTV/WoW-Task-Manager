@@ -36,6 +36,7 @@ local TABS = {
     { key = "history",      label = "History" },
     { key = "events",       label = "Events" },
     { key = "dependencies", label = "Dependencies" },
+    { key = "errors",       label = "Errors" },
     { key = "diagnostics",  label = "Diagnostics" },
     { key = "metadata",     label = "Metadata" },
 }
@@ -132,6 +133,7 @@ function Detail:Build()
     self:BuildEvents(self.panels.events)
     self:BuildDependencies(self.panels.dependencies)
     self:BuildHistory(self.panels.history)
+    self:BuildErrors(self.panels.errors)
     self:BuildDiagnostics(self.panels.diagnostics)
     self:BuildMetadata(self.panels.metadata)
 
@@ -443,6 +445,108 @@ function Detail:RefreshMetadata()
     set("Addon index", tostring(record.index))
 end
 
+--------------------------------------------------------------------------
+-- Errors
+--------------------------------------------------------------------------
+
+local function AddonErrorRow(parent)
+    local row = CreateFrame("Button", nil, parent)
+    row.count = UI.Text(row, "small", "textPrimary", "RIGHT")
+    row.count:SetPoint("LEFT", 4, 0)
+    row.count:SetWidth(44)
+
+    row.when = UI.Text(row, "small", "textMuted")
+    row.when:SetPoint("LEFT", row.count, "RIGHT", 8, 0)
+    row.when:SetWidth(84)
+
+    row.message = UI.Text(row, "small", "textSecondary")
+    row.message:SetPoint("LEFT", row.when, "RIGHT", 8, 0)
+    row.message:SetPoint("RIGHT", -6, 0)
+    return row
+end
+
+local function UpdateAddonErrorRow(row, group)
+    row.count:SetText(("x%d"):format(group.count or 1))
+    row.count:SetTextColor(Theme:Tone(
+        (group.count or 1) >= C.ERROR_REPEAT_THRESHOLD and "crit" or "warn"))
+    row.when:SetText(UI.FitText(row.when, Fmt.Ago(group.lastAt)))
+    row.message:SetText(UI.FitText(row.message,
+        ("%s:%s  %s"):format(group.file or "?", tostring(group.line or "?"),
+            Fmt.StripColors(group.message or ""))))
+end
+
+function Detail:BuildErrors(panel)
+    self.errorRows = StatColumn(panel, {
+        "Errors this session", "Distinct errors", "Last error", "Overlapping incidents",
+    })
+    for _, row in pairs(self.errorRows) do row:SetWidth(340) end
+
+    self.errorNote = UI.Text(panel, "small", "textMuted")
+    self.errorNote:SetPoint("TOPLEFT", 360, 0)
+    self.errorNote:SetPoint("TOPRIGHT")
+    self.errorNote:SetHeight(74)
+    self.errorNote:SetJustifyH("LEFT")
+    self.errorNote:SetJustifyV("TOP")
+    UI.Wrap(self.errorNote)
+
+    self.errorList = UI.ScrollList(panel, 22, AddonErrorRow, UpdateAddonErrorRow,
+        function(group)
+            Detail:Close()
+            UI.ErrorDetail:Open(group)
+        end)
+    self.errorList:SetPoint("TOPLEFT", 0, -5 * 18 - 10)
+    self.errorList:SetPoint("BOTTOMRIGHT")
+
+    self.errorEmpty = UI.EmptyState(panel, "")
+    self.errorEmpty:SetPoint("TOPLEFT", 0, -5 * 18 - 10)
+    self.errorEmpty:SetPoint("BOTTOMRIGHT")
+    self.errorEmpty:Hide()
+end
+
+function Detail:RefreshErrors()
+    local record = self.record
+    local rows = self.errorRows
+    local Errors = WTM.Errors
+
+    local list = Errors:ForAddon(record.name, self._addonErrors or {})
+    self._addonErrors = list
+
+    local occurrences, overlapping = 0, 0
+    local last
+    for i = 1, #list do
+        local group = list[i]
+        occurrences = occurrences + (group.count or 0)
+        if not last or (group.lastAt or 0) > (last.lastAt or 0) then last = group end
+        if Errors:OverlapsSpikes(group) > 0 then overlapping = overlapping + 1 end
+    end
+
+    rows["Errors this session"]:Set(Fmt.Comma(occurrences),
+        occurrences > 0 and "warn" or "ok")
+    rows["Distinct errors"]:Set(tostring(#list))
+    rows["Last error"]:Set(last and Fmt.Ago(last.lastAt) or "never")
+    rows["Overlapping incidents"]:Set(overlapping > 0 and tostring(overlapping) or "none",
+        overlapping > 0 and "warn" or nil)
+
+    self.errorList:SetData(list)
+    self.errorList:SetShown(#list > 0)
+    self.errorEmpty:SetShown(#list == 0)
+
+    if not WTM.Caps:Has("errorCapture") then
+        self.errorEmpty:SetMessage(
+            "This client does not expose seterrorhandler, so no Lua error can be captured at all.")
+    else
+        self.errorEmpty:SetMessage(("No Lua error has been attributed to %s this session.")
+            :format(record.title or record.name))
+    end
+
+    self.errorNote:SetText(
+        "|cff9aa4b5How an error is attributed|r\nOnly from the file path in the " ..
+        "message: an error raised in Interface/AddOns/" .. tostring(record.name) ..
+        "/ is this addon's. An error this addon caused somewhere else carries " ..
+        "that other file's path, and is listed there. Nothing is inferred from " ..
+        "the message text.")
+end
+
 function Detail:BuildDiagnostics(panel)
     panel.body = UI.Text(panel, "small", "textSecondary")
     panel.body:SetPoint("TOPLEFT")
@@ -572,6 +676,7 @@ function Detail:Refresh()
     elseif tab == "events" then self:RefreshEvents()
     elseif tab == "dependencies" then self:RefreshDependencies()
     elseif tab == "history" then self:RefreshHistory()
+    elseif tab == "errors" then self:RefreshErrors()
     elseif tab == "diagnostics" then self:RefreshDiagnostics() end
 end
 

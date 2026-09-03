@@ -111,6 +111,8 @@ local methods = {
     "SetBackdrop","Raise","Lower","SetHitRectInsets","SetAutoFocus","ClearFocus",
     "SetFocus","HighlightText","SetIgnoreParentScale","SetPropagateKeyboardInput",
     "SetBlendMode","SetDesaturated","SetRotation","SetParent","SetID","SetMouseClickEnabled",
+    "SetMultiLine","SetMaxLetters","SetCountInvisibleLetters","SetCursorPosition","SetFontObject",
+    "SetTextInsets","SetHyperlinksEnabled","SetSpacing","Insert","SetEnabled",
 }
 for _, name in ipairs(methods) do
     if not Region[name] then Region[name] = noop end
@@ -679,13 +681,45 @@ end }
 SlashCmdList = {}
 UISpecialFrames = {}
 
-function geterrorhandler()
-    return function(err)
-        M.errors[#M.errors + 1] = tostring(err)
-        print("  !! LUA ERROR: " .. tostring(err))
-    end
-end
+--------------------------------------------------------------------------
+-- Error handler
+--------------------------------------------------------------------------
+--
+-- A real settable handler, not a constant. Chaining one error handler onto
+-- another is the whole mechanism behind the error monitor, and a mock that
+-- returns a fresh closure every call cannot test it: nothing can observe
+-- whether the previous handler was preserved, replaced, or called twice.
+
 M.errors = {}
+
+--- The handler that was in place before anything installed its own. Stands in
+--- for the client's built-in one; everything it receives is recorded so a test
+--- can assert that a chained handler really did pass the error on.
+M.defaultErrorHandler = function(err)
+    M.errors[#M.errors + 1] = tostring(err)
+    if M.verbose then print("  !! LUA ERROR: " .. tostring(err)) end
+end
+
+local currentErrorHandler = M.defaultErrorHandler
+
+function geterrorhandler() return currentErrorHandler end
+function seterrorhandler(handler)
+    if type(handler) ~= "function" then return end
+    currentErrorHandler = handler
+end
+
+--- Raises an error the way the client does: straight into whatever handler is
+--- installed at this moment.
+function M.RaiseError(message)
+    currentErrorHandler(message)
+end
+
+--- Puts the handler chain back to a bare client, for tests that install their
+--- own arrangement.
+function M.ResetErrorHandler()
+    currentErrorHandler = M.defaultErrorHandler
+    for i = #M.errors, 1, -1 do M.errors[i] = nil end
+end
 
 function wipe(t) for k in pairs(t) do t[k] = nil end return t end
 function tinsert(...) return table.insert(...) end

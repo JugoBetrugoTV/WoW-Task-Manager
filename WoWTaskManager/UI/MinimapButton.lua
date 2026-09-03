@@ -88,6 +88,13 @@ function MinimapButton:Build()
     border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
     button.border = border
 
+    -- The error badge: a count in the top-right corner of the disc, shown only
+    -- when there is something to show. A monitor whose badge is always lit is
+    -- a badge nobody reads.
+    button.errorBadge = UI.Text(button, "tiny", "textPrimary", "RIGHT")
+    button.errorBadge:SetPoint("TOPRIGHT", -6, -6)
+    button.errorBadge:SetText("")
+
     local highlight = button:CreateTexture(nil, "HIGHLIGHT")
     highlight:SetSize(20, 20)
     highlight:SetPoint("CENTER")
@@ -110,6 +117,14 @@ function MinimapButton:Build()
         UI.TooltipLine("FPS", Fmt.FPS(WTM.FrameTime.current.fps))
         UI.TooltipLine("Frame time", Fmt.Ms(WTM.FrameTime.current.avgMs))
         UI.TooltipLine("Spikes", tostring(WTM.SpikeDetector.total))
+        if WTM.Caps:Has("errorCapture") then
+            local errorTotal = WTM.Errors.stats.total
+            UI.TooltipLine("Lua errors", ("%d (%d distinct)")
+                :format(errorTotal, #WTM.Errors.groups),
+                errorTotal > 0 and "warn" or "muted")
+        else
+            UI.TooltipLine("Lua errors", "not capturable on this client", "muted")
+        end
         UI.TooltipLine("Own overhead", ("%.2f ms/s"):format(WTM.Overhead.current.totalMsPerSec))
         UI.TooltipLine("", "")
         UI.TooltipLine("Left click", "open or close the window", "muted")
@@ -155,6 +170,17 @@ function MinimapButton:Refresh()
     -- says whether anything is happening.
     button.mark:SetColorTexture(Theme:Tone(
         WTM.Scheduler:IsBursting() and "warn" or "accent"))
+
+    -- The badge counts what the sidebar counts, so the two never disagree
+    -- about how many errors there are.
+    local count = WTM.db.profile.errors.minimapBadge and WTM.Errors:CountVisible() or 0
+    if count > 0 then
+        button.errorBadge:SetText(count > 99 and "99+" or tostring(count))
+        button.errorBadge:SetTextColor(Theme:Tone(
+            WTM.Errors.stats.internal > 0 and "crit" or "warn"))
+    else
+        button.errorBadge:SetText("")
+    end
 end
 
 function MinimapButton:SetShown(shown)

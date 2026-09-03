@@ -239,7 +239,16 @@ function Recorder:GetSeries(fieldName, fromTime, toTime, maxPoints, outValues, o
     for i = #outTimes, 1, -1 do outTimes[i] = nil end
 
     local field = self.FIELDS[fieldName]
-    if not field then return outValues, outTimes end
+    if not field then
+        -- A misspelt field name used to return an empty series in silence, and
+        -- an empty graph reads as "nothing happened" rather than as a bug. Two
+        -- pages shipped with the wrong name because of it. Now the request is
+        -- counted and named so the test suite can fail on it.
+        self.unknownFields = self.unknownFields or {}
+        self.unknownFields[tostring(fieldName)] =
+            (self.unknownFields[tostring(fieldName)] or 0) + 1
+        return outValues, outTimes
+    end
 
     local buckets = self:GetRange(fromTime, toTime, self._scratch or {})
     self._scratch = buckets

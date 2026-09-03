@@ -22,9 +22,15 @@ function UI.MetricCard(parent, opts)
     local card = UI.Panel(parent, {})
     card:SetHeight(opts.height or M.cardHeight)
 
+    -- The caption was anchored to the left edge and nothing else, so a long
+    -- one ran straight out of the card. Bounded to the card's right edge and
+    -- fitted; the full text is on the tooltip, which is where a card this
+    -- narrow has to keep an explanation anyway.
     card.label = UI.Text(card, "small", "textMuted")
     card.label:SetPoint("TOPLEFT", 14, -10)
-    card.label:SetText(opts.label or "")
+    card.label:SetPoint("RIGHT", card, "RIGHT", -22, 0)
+    card.label:SetJustifyH("LEFT")
+    card.labelFull = opts.label or ""
 
     card.value = UI.Text(card, opts.valueStyle or "metric", "textPrimary")
     card.value:SetPoint("TOPLEFT", 13, -26)
@@ -63,6 +69,20 @@ function UI.MetricCard(parent, opts)
     card.notice:Hide()
 
     ------------------------------------------------------------------
+
+    --- Refits the caption to whatever width the card currently has. Cards live
+    --- in a responsive grid, so the width is not known at build time.
+    function card:RefitLabel()
+        self.label:SetText(UI.FitText(self.label, self.labelFull or ""))
+    end
+
+    function card:SetLabel(text)
+        self.labelFull = text or ""
+        self:RefitLabel()
+    end
+
+    card:SetScript("OnSizeChanged", function(self) self:RefitLabel() end)
+    card:RefitLabel()
 
     function card:SetValue(value, unit, tone)
         self.value:SetText(value)

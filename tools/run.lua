@@ -387,6 +387,54 @@ do
     print(("   full pass (page change / end of resize): %d"):format(fullPassDraws))
 end
 
+--- What one error costs, split into the two cases that matter.
+---
+--- Wall-clock milliseconds from this harness are not the client's, but the
+--- RATIO between a new error and a repeat is structural: it is the difference
+--- between fingerprinting plus a stack walk plus a context snapshot, and a
+--- counter. That ratio is the whole design of the fast path.
+print("\n-- cost of one Lua error --")
+do
+    local handler = geterrorhandler()
+    NS.Errors:Reset()
+
+    -- The harness's own handler stores every error it is passed, which would
+    -- put 40,000 strings on the heap and make this a measurement of the mock.
+    -- A no-op stands in for it; the chain is still exercised, it just does not
+    -- keep anything.
+    local savedPrevious = NS.Errors.chaining.previous
+    NS.Errors.chaining.previous = function() end
+
+    local NEW, REPEATS = 400, 40000
+
+    local startNew = os.clock()
+    for i = 1, NEW do
+        handler(("Interface/AddOns/Bench%d/File.lua:%d: distinct failure"):format(i, i))
+    end
+    local newMs = (os.clock() - startNew) * 1000
+
+    local kbBefore = collectgarbage("count")
+    local startRepeat = os.clock()
+    for _ = 1, REPEATS do
+        handler("Interface/AddOns/Bench/Loop.lua:1: the same failure, over and over")
+    end
+    local repeatMs = (os.clock() - startRepeat) * 1000
+    local kbAfter = collectgarbage("count")
+
+    print(("   %d distinct errors:  %.2f ms total, %.4f ms each")
+        :format(NEW, newMs, newMs / NEW))
+    print(("   %d repeats:        %.2f ms total, %.5f ms each")
+        :format(REPEATS, repeatMs, repeatMs / REPEATS))
+    print(("   a repeat is %.0fx cheaper than a new error")
+        :format((newMs / NEW) / math.max(repeatMs / REPEATS, 1e-9)))
+    print(("   heap growth over %d repeats: %.0f KB")
+        :format(REPEATS, kbAfter - kbBefore))
+    print(("   groups held: %d   total counted: %d")
+        :format(#NS.Errors.groups, NS.Errors.stats.total))
+    NS.Errors.chaining.previous = savedPrevious
+    NS.Errors:Reset()
+end
+
 print("\n-- measured overhead breakdown --")
 do
     for _, row in ipairs(NS.Overhead:GetBreakdown()) do

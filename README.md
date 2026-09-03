@@ -6,8 +6,8 @@ Think Windows Task Manager plus Resource Monitor plus a profiler's timeline - bu
 for the WoW client, and built only out of things the addon API can actually
 measure.
 
-![status](https://img.shields.io/badge/status-v0.3.0-blue)
-![mock](https://img.shields.io/badge/mock-16%2F16%20scenarios-brightgreen)
+![status](https://img.shields.io/badge/status-v0.7.0-blue)
+![mock](https://img.shields.io/badge/mock-32%2F32%20scenarios-brightgreen)
 ![real client](https://img.shields.io/badge/real%20client-Retail%20verified-brightgreen)
 
 ---
@@ -84,6 +84,8 @@ The same matrix is generated live from API probes and shown under **System**.
 | **Incidents** | Spikes close together are coalesced into one *stutter cluster* with its peak, duration and affected frame count. Each opens a full record: timestamp, severity, frame time, FPS equivalent, baseline, latencies, CPU observation window, event rate, storms, memory, combat, zone, instance. |
 | **Diagnostics** | Automatic session verdict with findings, each carrying its evidence and its correlation strength. |
 | **False positives** | Loading screens, the first seconds after login, `/reload` and zone changes are counted as *suppressed*, not reported as freezes - and the suppressed count stays visible so nothing is quietly swallowed. |
+| **Lua errors** | An integrated error monitor: errors are grouped by fingerprint, counted, attributed to an addon from the file path, and shown with the stack, the context they arrived in and the frame times around them. It installs **in front of** whatever handler was already there and passes every error on unchanged, so BugGrabber, BugSack or any other error addon keeps working. |
+| **Problem reports** | Paste-ready text for a bug tracker: one error, every error, the whole session, or "this moment" with a marker dropped on the timeline at the same time. |
 | **Dev mode** | `/wtm dev` injects spikes, storms and memory growth for testing. Everything injected is flagged `simulated` and rendered as **SIMULATED**. |
 | **Live monitor** | `/wtm mini` — a small movable always-on panel with FPS, frame time, latency, CPU, memory and event rate. Sparklines are opt-in because they are the expensive part. |
 | **Benchmark** | `/wtm benchmark` measures this addon's own cost and reports it. It never generates artificial load. |
@@ -147,7 +149,8 @@ firing something the help text has never heard of, is not possible.
 ```
 /wtm                 open the window
 /wtm <page>          dashboard | processes | performance | timeline | incidents
-                     events | memory | diagnostics | sessions | system | settings
+                     events | memory | errors | reports | diagnostics | sessions
+                     system | settings
 /wtm hide            close the window
 /wtm mini            toggle the compact always-on monitor
 /wtm profiling       toggle the scriptProfile CVar (takes effect after /reload)
@@ -157,6 +160,7 @@ firing something the help text has never heard of, is not possible.
 /wtm help            print the command list
 /wtm dev             developer tools (all injection marked SIMULATED)
 /wtm benchmark [s]   measure this addon's own overhead and report it
+/wtm safemode [off]  show safe mode, or turn it off again
 ```
 
 The live monitor can be **collapsed to a single line** that keeps the frame time
@@ -186,6 +190,8 @@ buttons ask for a second click.
 | | **Diagnostics** | Findings, each with a category and what kind of evidence is under it. |
 | | **Addon impact** | Rankings, and one combined score with its formula on the page. |
 | | **Compare** | Two sessions side by side, with the change spelled out and the caveat next to it. |
+| | **Lua errors** | Every captured error, grouped and counted, with a search box and filters for repeating, in-combat, near-a-stutter, ignored and internal. Clicking one opens Overview / Stack Trace / Context / Timeline / Related Incidents / Related Errors. |
+| | **Reports** | Paste-ready problem reports, and a "report a problem now" button that marks the timeline as it writes one. |
 | History | **Sessions** | Saved sessions and their summaries. |
 | | **Recording** | What is being recorded, how much of it there is, and buttons to mark a moment on the timeline. |
 | System | **System** | Client, hardware and the capability report. |
@@ -227,8 +233,10 @@ and profiling functions, CVars. `tools/test.lua` loads the real addon against it
 and asserts on behaviour; `tools/run.lua` drives a simulated play session and
 prints what the addon concluded.
 
-The suite runs 16 scenarios: four clients, with CPU profiling on and off, and
-with every optional API present or stripped away. The stripped variant is the one
+The suite runs 32 scenarios: four clients, with CPU profiling on and off, with
+every optional API present or stripped away, and with Ace3 present or absent -
+whether Ace3 is loaded is decided by the player's other addons, so both backends
+are part of the matrix rather than an extra. The stripped variant is the one
 that proves the feature-detection promise - `RegisterAllEvents`, `GetNetStats`,
 `EnumerateFrames`, `GetInstanceInfo` and the rest are all removed, and the addon
 has to load, run and report honestly without them.
@@ -241,6 +249,16 @@ Two focused suites sit alongside it:
 * `tools/test-recorder.lua` - flight recorder hardening (spike bursts,
   overlapping captures, ring wrap-around, logout mid-post-roll), incident
   coalescing, suppression, event modes and schema migrations.
+* `tools/test-errors.lua` - the error handler contract, which is the one place
+  where a bug in this addon can break a *different* addon. It arranges the five
+  chaining cases (nothing installed before us, a handler installed before us,
+  capture switched off, a fault inside our own bookkeeping, a handler installed
+  after us), proves the previous handler receives every error exactly once with
+  the message and extra arguments unchanged, that a nested error does not
+  recurse, and that ten thousand duplicates produce one stored group, one saved
+  row, and no heap growth.
+* `tools/test-scale.lua` - 220 addons, 140 incidents, 300 distinct errors and a
+  five-thousand-strong storm of one, rendered through every page.
 
 ## Documentation
 

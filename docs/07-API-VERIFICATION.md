@@ -157,6 +157,27 @@ nicht existiert, **fällt das Addon nicht aus** — das Feature meldet sich als
 | `GetCVar` / `SetCVar` | u. a. `scriptProfile` | `scriptProfile` erfolgreich gesetzt und gelesen | ✅ | ✅ |
 | `GetCVarInfo(name)` | Schreibbarkeit prüfen | existiert; Positionen noch nicht gegen einen geschützten CVar geprüft | ✅ | ◐ |
 
+### Was in 0.7.0 dazukam: der Lua-Error-Monitor
+
+Der Error-Monitor ist der erste Block seit 0.3.0, der **neue WoW-APIs**
+benutzt. Es sind genau drei, alle offiziell und alle mit Feature-Detection:
+
+| API | Verwendet für | Risiko | Mock | Real |
+|---|---|---|:--:|:--:|
+| `seterrorhandler(f)` | Den eigenen Handler VOR den bestehenden setzen | Der einzige offizielle Weg, Lua-Fehler abzufangen. Existiert auf allen vier Clients. Wird per `type(...) == "function"` geprüft; fehlt sie, wird gar nichts installiert und die Errors-Seite sagt warum | ✅ | ⬜ |
+| `geterrorhandler()` | Den vorherigen Handler holen und behalten | Ohne ihn wäre Verketten unmöglich und BugGrabber wäre tot. Wird auch periodisch gelesen, um zu erkennen, ob uns jemand verdrängt hat | ✅ | ⬜ |
+| `debugstack(level, count, count)` | Stack-Trace zum Fehler | Nur beim ERSTEN Auftreten eines Fingerprints, nie bei Wiederholungen. In `pcall`, weil das Verhalten bei ungültigen Leveln nicht dokumentiert ist | ⬜ | ⬜ |
+
+**Was ausdrücklich nicht getan wird**, und warum:
+
+| Nicht getan | Warum |
+|---|---|
+| Den vorherigen Handler ersetzen oder verwerfen | Das würde BugGrabber/BugSack kaputtmachen. Der vorherige Handler wird bei **jedem** Fehler aufgerufen, genau einmal, mit der unveränderten Nachricht und allen weiteren Argumenten |
+| Den Handler zurückerobern, wenn uns jemand verdrängt | Wer nach uns installiert, gewinnt. Das wird erkannt, gemeldet und akzeptiert - ein Wettrennen um `seterrorhandler` schadet beiden Addons |
+| Eigene Fehler ausblenden | Fehler aus `Interface/AddOns/WoWTaskManager/` werden als `WoW Task Manager internal error` markiert und stehen wie jeder andere in der Liste. Kein Filter entfernt sie |
+| Aus dem Text raten, welches Addon schuld ist | Attribution kommt ausschliesslich aus dem Dateipfad. Ohne `Interface/AddOns/<Name>/` im Pfad bleibt das Feld leer |
+| `error()` oder `assert()` im Handler | Ein Fehler im Error-Handler ist der Weg, einen Client aufzuhängen. Die gesamte eigene Arbeit läuft in `pcall`, und der Rekursionsschutz umfasst auch den Aufruf des vorherigen Handlers |
+
 ### Was in 0.6.0 dazukam, und warum nichts davon eine neue API braucht
 
 Der gesamte Ausbau in 0.6.0 - zehn Seiten, eine Widget-Bibliothek, Alerts,
@@ -253,6 +274,11 @@ unter *Options → AddOns* und funktioniert unverändert weiter.
 | Copy-Box | Neu in 0.6.0. WoW hat **keinen** Clipboard-Zugriff für Addons - die Box zeigt Text zum Selbst-Kopieren, mehr ist nicht möglich |
 | Options → AddOns-Eintrag | Neu in 0.4.0; welcher der drei Registrierungswege auf 12.1.0 tatsächlich greift, ist nur im Spiel feststellbar |
 | Onboarding | Neu in 0.4.0, nie im echten Client gelaufen |
+| `seterrorhandler` / `geterrorhandler` | Neu in 0.7.0. Im Harness verkettet, verdrängt und wieder gefunden - aber noch nie neben einem echten BugGrabber gelaufen |
+| `debugstack` | Neu in 0.7.0. Der Mock hat die Funktion **nicht**, also lief der Stack-Pfad bisher ausschliesslich als "nicht verfügbar". Die Trimmung auf `maxStackLength` ist getestet, das Format eines echten WoW-Stacks nicht |
+| Errors-Seite, Error-Detail, Reports-Seite | Neu in 0.7.0, nie im echten Client |
+| Safe Mode | Neu in 0.7.0. Im Harness ausgelöst und wieder abgeschaltet; im Spiel nie erreicht |
+| Persistenz der Fehler über Sessions | Neu in 0.7.0. Geschrieben und gedeckelt im Test, nie über einen echten Logout gegangen |
 
 ## Wie die Spalte auf PASS kommt
 

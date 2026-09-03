@@ -443,6 +443,8 @@ end
 -- Shared empty table so BuildView never allocates one per call.
 local EMPTY_FILTERS = {}
 
+local sortErrorScratch = {}
+
 local SORTERS = {
     name     = byName,
     cpu      = descending(function(r) return r.cpuEma end),
@@ -473,6 +475,18 @@ local SORTERS = {
         return byName(a, b)
     end,
     deps     = descending(function(r) return r.deps and #r.deps or 0 end),
+    -- Error counts live in the error monitor, not on the process record, so
+    -- these ask it. Both are O(groups) per comparison, which is fine at the
+    -- scale errors occur at and is only paid while this column is the sort.
+    errors   = descending(function(r) return WTM.Errors:CountForAddon(r.name) end),
+    lasterror = descending(function(r)
+        local groups = WTM.Errors:ForAddon(r.name, sortErrorScratch)
+        local last = -1
+        for i = 1, #groups do
+            if (groups[i].lastAt or 0) > last then last = groups[i].lastAt end
+        end
+        return last
+    end),
     score    = function(a, b)
         local av, bv = a.score or 100, b.score or 100
         if av ~= bv then return av < bv end

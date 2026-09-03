@@ -216,6 +216,17 @@ if [ -f tools/test-recorder.lua ]; then
     fi
 fi
 
+# The error monitor. Its handler contract is the one place where a bug in this
+# addon can break a DIFFERENT addon, so it gets its own gate.
+if [ -f tools/test-errors.lua ]; then
+    if lua5.1 tools/test-errors.lua >/tmp/wtm-errors.log 2>&1; then
+        pass "error monitor and handler chaining tests pass"
+    else
+        fail "error monitor / handler chaining tests failed"
+        cat /tmp/wtm-errors.log | sed 's/^/          /'
+    fi
+fi
+
 # Scale and emptiness: 220 addons, 140 incidents, a session with nothing in it
 # yet, and a client that can measure almost none of it.
 if lua5.1 tools/test-scale.lua >/tmp/wtm-scale.log 2>&1; then

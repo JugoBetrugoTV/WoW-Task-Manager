@@ -36,17 +36,21 @@ Context.state = {
 Context.markers = {}
 local MAX_MARKERS = 400
 
-local function AddMarker(kind, label)
+--- `ref` is an optional reference to whatever produced the marker - an error
+--- group, for instance - so a click on the timeline can open the thing itself
+--- rather than a lookup by timestamp. It is held by reference and never
+--- written to the database; markers are runtime only.
+local function AddMarker(kind, label, ref)
     local markers = Context.markers
     local n = #markers + 1
     if n > MAX_MARKERS then
         table.remove(markers, 1)
         n = MAX_MARKERS
     end
-    markers[n] = { t = GetTime(), kind = kind, label = label }
+    markers[n] = { t = GetTime(), kind = kind, label = label, ref = ref }
     WTM:SendMessage("WTM_MARKER", kind, label)
 end
-Context.AddMarker = function(_, kind, label) AddMarker(kind, label) end
+Context.AddMarker = function(_, kind, label, ref) AddMarker(kind, label, ref) end
 
 function Context:GetMarkersInRange(fromTime, toTime, out)
     out = out or {}

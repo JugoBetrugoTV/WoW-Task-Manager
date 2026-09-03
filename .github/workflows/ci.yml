@@ -46,6 +46,9 @@ jobs:
       - name: Flight recorder and migration tests
         run: lua5.1 tools/test-recorder.lua
 
+      - name: Error monitor and handler chaining tests
+        run: lua5.1 tools/test-errors.lua
+
       - name: Scale and empty-state tests
         run: lua5.1 tools/test-scale.lua
 

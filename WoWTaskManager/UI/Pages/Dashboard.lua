@@ -119,6 +119,10 @@ local WIDGETS = {
       spans = { small = 2, medium = 3, large = 6 } },
     { key = "overhead",   label = "This addon's own cost", default = MEDIUM,
       spans = { small = 2, medium = 3, large = 6 } },
+    { key = "errors",     label = "Lua errors",         default = MEDIUM,
+      spans = { small = 2, medium = 3, large = 6 } },
+    { key = "recenterrors", label = "Recent Lua errors", default = MEDIUM,
+      spans = { small = 2, medium = 3, large = 6 } },
 }
 
 Page.WIDGETS = WIDGETS
@@ -342,6 +346,29 @@ function Page:Build(frame)
         key = "overhead",
     })
 
+    ------------------------------------------------------------------
+    -- Lua errors
+    ------------------------------------------------------------------
+    self.errorCard = UI.StatCard(canvas, "LUA ERRORS", {
+        "Total", "Distinct", "Last minute", "Worst addon", "Handler",
+    })
+    grid:Add(self.errorCard, { span = 3, height = 5 * 16 + 40, key = "errors" })
+
+    self.errorSpark = UI.Graph(canvas, {
+        title = "ERRORS PER MINUTE",
+        valueFormat = function(v) return ("%.1f"):format(v) end,
+    })
+    grid:Add(self.errorSpark, { span = 3, height = 120, key = "errors" })
+
+    self.recentErrors = UI.TopList(canvas, "RECENT LUA ERRORS", {
+        rows = 5, wideValue = true,
+    })
+    self.recentErrors.onClick = function(entry)
+        if entry and entry.group then UI.ErrorDetail:Open(entry.group) end
+    end
+    grid:Add(self.recentErrors, {
+        span = 3, height = self.recentErrors.naturalHeight, key = "recenterrors" })
+
     self:ApplyLayoutSettings()
 end
 
@@ -403,6 +430,8 @@ end
 --------------------------------------------------------------------------
 
 local clusterScratch, breakdownScratch = {}, {}
+local errorRateValues, errorRateTimes = {}, {}
+local errorEntryScratch = {}
 local topCPUScratch, topMemScratch, topEventScratch = {}, {}, {}
 local entryScratch = {}
 
@@ -785,5 +814,81 @@ function Page:Refresh()
         end
 
         for i = shown + 2, #self.overheadRows do self.overheadRows[i]:Hide() end
+    end
+
+    ------------------------------------------------------------------
+    -- Lua errors
+    ------------------------------------------------------------------
+    if not isHidden(WIDGETS[11]) then
+        local Errors = WTM.Errors
+        local stats  = Errors.stats
+
+        if not WTM.Caps:Has("errorCapture") then
+            self.errorCard:SetUnavailable("Total",
+                "seterrorhandler is missing on this client")
+        else
+            self.errorCard:Set("Total", Fmt.Comma(stats.total),
+                stats.total > 0 and "warn" or "ok")
+        end
+        self.errorCard:Set("Distinct", Fmt.Comma(#Errors.groups))
+        local lastMinute = Errors:CountSince(60)
+        self.errorCard:Set("Last minute", Fmt.Comma(lastMinute),
+            lastMinute > 0 and "warn" or nil)
+
+        local worstName, worstCount = Errors:WorstAddon()
+        self.errorCard:Set("Worst addon", worstName
+            and ("%s (%d)"):format(worstName, worstCount) or "none")
+
+        -- Whether another error addon is also installed is the thing people
+        -- actually want to know here, so it is on the dashboard rather than
+        -- buried on a settings page.
+        local chainState, chainTone = Errors:ShortChainState()
+        self.errorCard:Set("Handler", chainState, chainTone)
+
+        -- Not on the round-robin graph budget, because it does not need to be:
+        -- this series only changes when an error arrives, and errors are rare.
+        -- Redrawing on change costs less than a slot in the rotation and never
+        -- takes one away from a graph whose data moves every tick.
+        if self._errorTotalDrawn ~= stats.total then
+            self._errorTotalDrawn = stats.total
+            local values, times = Errors:RateSeries(errorRateValues, errorRateTimes)
+            self.errorSpark:SetSeries(1, values, times,
+                { label = "Errors/min", colorIndex = 2 })
+            self.errorSpark:SetTimeRange(times[1], times[#times])
+            self.errorSpark.dirty = true
+            self.errorSpark:Draw()
+        end
+    end
+
+    if not isHidden(WIDGETS[12]) then
+        local entries = errorEntryScratch
+        for i = #entries, 1, -1 do entries[i] = nil end
+
+        local groups = WTM.Errors.groups
+        for i = #groups, math.max(1, #groups - 4), -1 do
+            local group = groups[i]
+            if group then
+                entries[#entries + 1] = {
+                    name  = ("%s: %s"):format(group.addon or "Unknown",
+                        Fmt.StripColors(group.message or "")),
+                    value = group.count > 1 and ("x%d"):format(group.count)
+                        or Fmt.Ago(group.lastAt),
+                    tone  = group.internal and "crit"
+                        or (group.count >= C.ERROR_REPEAT_THRESHOLD and "warn" or nil),
+                    group = group,
+                    entry = { group = group },
+                    tooltipTitle = group.addon or "Unknown addon",
+                    tooltipLines = {
+                        { "Occurrences", Fmt.Comma(group.count) },
+                        { "First seen", Fmt.Ago(group.firstAt) },
+                        { "Where", ("%s:%s"):format(group.file or "?",
+                            tostring(group.line or "?")) },
+                    },
+                }
+            end
+        end
+        self.recentErrors:SetEntries(entries, WTM.Caps:Has("errorCapture")
+            and "No Lua error has been captured this session."
+            or "This client does not expose seterrorhandler, so no error can be captured.")
     end
 end

@@ -120,6 +120,34 @@ local defaults = {
             enabled = false,   -- /wtm dev on
         },
 
+        -- Lua error monitoring.
+        errors = {
+            enabled          = true,
+            -- Errors are grouped by fingerprint; turning this off would mean
+            -- one entry per occurrence, which a storm turns into a memory
+            -- problem of its own.
+            groupDuplicates  = true,
+            notifications    = true,
+            notifyCooldown   = 30,
+            timelineMarkers  = true,
+            includeInDiagnostics = true,
+            minimapBadge     = true,
+            -- Ignoring is a display decision. Counting continues, because a
+            -- storm you chose not to look at still costs frame time.
+            countIgnored     = true,
+            stormThreshold   = C.ERROR_STORM_THRESHOLD,
+            repeatThreshold  = C.ERROR_REPEAT_THRESHOLD,
+            maxUnique        = C.ERROR_MAX_UNIQUE,
+            maxStackLength   = C.ERROR_MAX_STACK,
+            -- When the cap is reached: drop the oldest group, or refuse new
+            -- ones. Refusing keeps the first errors of a session, which are
+            -- usually the interesting ones.
+            evictOldest      = false,
+            keepAcrossSessions = true,
+            maxSavedSessions = C.ERROR_MAX_SAVED_SESSIONS,
+            ignored = { fingerprints = {}, addons = {} },
+        },
+
         -- User-defined thresholds. Every rule reads a number the sampler is
         -- already producing; none of them adds a timer or a listener.
         alerts = {
@@ -185,6 +213,9 @@ local defaults = {
         sessions  = {},
         incidents = {},
         clusters  = {},
+        -- Error groups, kept separate from the performance samples so a
+        -- retention change on one cannot truncate the other.
+        errorSessions = {},
         -- Set the first time the addon runs, so the capability report can be
         -- shown once rather than on every login.
         firstRunAt = nil,
@@ -256,6 +287,18 @@ end
 --     shape genuinely cannot represent it, and say so in the comment.
 
 local migrations = {}
+
+--- 2 -> 3: Lua error monitoring arrived, and its records live in their own
+--- top-level list rather than inside the session records.
+---
+--- Errors and performance samples have different lifetimes and different
+--- retention settings; keeping them apart means trimming one can never
+--- silently truncate the other, and an older database is upgraded by adding an
+--- empty list rather than by rewriting anything that already exists.
+migrations[2] = function(global)
+    rawset(global, "schemaVersion", 3)
+    global.errorSessions = global.errorSessions or {}
+end
 
 --- 1 -> 2: the version key was renamed from `dbVersion` to `schemaVersion`,
 --- and the cluster list was introduced alongside individual incidents.
