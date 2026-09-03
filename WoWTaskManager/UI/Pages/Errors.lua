@@ -434,9 +434,12 @@ function Page:Refresh()
         self.chainNotice:SetMessage(text)
     end
 
+    -- The short form here, not the paragraph: this label is a right-aligned
+    -- strip at the end of the toolbar, and the paragraph belongs in the notice
+    -- panel above the table, which is where it already is.
     self.summary:SetText(UI.FitText(self.summary,
-        ("%d shown of %d distinct  -  %s")
-            :format(#viewData, stats.unique, (WTM.Errors:DescribeChain()))))
+        ("%d shown of %d distinct  -  handler %s")
+            :format(#viewData, stats.unique, (WTM.Errors:ShortChainState()))))
 
     self.table:Refresh()
 end
