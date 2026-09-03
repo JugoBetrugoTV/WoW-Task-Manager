@@ -1456,6 +1456,32 @@ do
 
     check("only one page is ever visible at a time", worst <= 1, worstAfter)
 
+    -- A monitor that records nothing must say so. A real client sat on
+    -- "Performance: EXCELLENT, health 100/100" at 0.0 FPS because sampling was
+    -- off and nothing anywhere mentioned it.
+    local samplingWas = NS.db.profile.sampling.enabled
+    NS.db.profile.sampling.enabled = false
+    NS.Scheduler:Stop()
+    check("a paused addon can say why", NS.Scheduler:WhyNotRunning() ~= nil)
+
+    NS.UI.MainWindow:ShowPage("dashboard")
+    NS.UI.MainWindow:RefreshCurrentPage()
+    local verdict = NS.UI.Pages.dashboard.banner.verdict:GetText() or ""
+    check("the dashboard leads with it rather than a health score",
+        verdict:find("Not recording", 1, true) ~= nil, verdict)
+    check("and offers a way back", NS.UI.Pages.dashboard.resumeButton:IsShown())
+
+    NS.UI.Sidebar:Refresh()
+    local footerState = NS.UI.Sidebar.footer.state:GetText() or ""
+    check("the footer names the reason rather than just 'Paused'",
+        footerState:find("OFF", 1, true) ~= nil, footerState)
+
+    NS.db.profile.sampling.enabled = samplingWas
+    if samplingWas then NS.Scheduler:Start() end
+    NS.UI.MainWindow:RefreshCurrentPage()
+    check("and goes back to normal once recording resumes",
+        NS.Scheduler:WhyNotRunning() == nil)
+
     -- Menus, dialogs and overlays hang off UIParent so they can escape the
     -- window's edge, which means nothing hides them implicitly. Left alone
     -- they stayed on screen across a page switch and even after the window

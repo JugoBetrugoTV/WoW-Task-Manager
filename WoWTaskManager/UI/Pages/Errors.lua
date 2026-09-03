@@ -47,6 +47,19 @@ local COLUMNS = {
           return Fmt.Clock(group.lastAt, WTM.state.sessionEpoch, WTM.state.sessionStart)
       end,
       tone = function() return "muted" end },
+    -- Not everything on this page is a Lua error. A blocked action is the
+    -- client refusing a protected call, and mixing the two under one word
+    -- would send people hunting a crash that never happened.
+    { key = "kind", title = "Kind", width = 74, sort = "kind",
+      value = function(group)
+          local def = C.ERROR_KINDS[group.kind or "lua"] or C.ERROR_KINDS.lua
+          return def.short
+      end,
+      tone = function(group)
+          local def = C.ERROR_KINDS[group.kind or "lua"] or C.ERROR_KINDS.lua
+          return def.tone
+      end,
+      tooltip = "Lua error: code threw. Blocked: the client refused a protected call, which is taint rather than a crash. Warning: the client complained about Lua it still ran. Only the first ever reaches an error handler; the other two arrive as events." },
     { key = "addon", title = "Addon", width = 130, sort = "addon",
       value = function(group)
           if group.internal then return C.ADDON_TITLE end
@@ -140,6 +153,8 @@ function Page:Build(frame)
           tip = "Only errors whose window overlaps a recorded stutter incident. Overlap in time - nothing causal is claimed by it." },
         { key = "ignored",   label = "Show ignored",
           tip = "Ignored errors are hidden by default but always counted, because a storm you chose not to look at still costs frame time." },
+        { key = "blocked",   label = "Blocked only",
+          tip = "Only blocked or forbidden actions - the client refusing a protected call. That is taint, not a crash, and it never reaches an error handler." },
         { key = "internal",  label = "This addon",
           tip = "Only errors raised by WoW Task Manager itself. They are never hidden - an addon that swallows its own faults is worse than one that has them." },
     }
@@ -213,7 +228,8 @@ function Page:Build(frame)
     self.sortKey, self.sortAscending = "time", false
     self.table = UI.Table(frame, COLUMNS, {
         defaultSort = "time",
-        emptyMessage = "No Lua errors recorded this session.",
+        -- An empty page is a claim, so it says what it is and is not claiming.
+        emptyMessage = "Nothing captured this session: no Lua error was thrown, no protected call was blocked and no Lua warning was raised. Errors from before this addon loaded are not here, and neither is anything another error handler consumed before it reached us.",
         onSort = function(key, ascending)
             self.sortKey, self.sortAscending = key, ascending
             self:Rebuild()
@@ -314,6 +330,7 @@ local SORTERS = {
     first    = function(a, b) return a.firstAt > b.firstAt end,
     count    = function(a, b) return (a.count or 0) > (b.count or 0) end,
     addon    = function(a, b) return (a.addon or "~") < (b.addon or "~") end,
+    kind     = function(a, b) return (a.kind or "lua") < (b.kind or "lua") end,
     message  = function(a, b) return (a.message or "") < (b.message or "") end,
     severity = function(a, b)
         local rank = { crit = 3, warn = 2, muted = 1 }
@@ -343,6 +360,7 @@ function Page:Rebuild()
             include = group.context and group.context.combat or false
         end
         if include and self.filters.internal then include = group.internal end
+        if include and self.filters.blocked then include = group.kind == "forbidden" end
         if include and self.filters.overlap then
             include = WTM.Errors:OverlapsSpikes(group) > 0
         end
@@ -431,6 +449,14 @@ function Page:Refresh()
     ------------------------------------------------------------------
     -- Handler status, shown only when there is something to say.
     local text, tone = WTM.Errors:DescribeChain()
+    -- Blocked actions and warnings are the classes people notice most, so if
+    -- this client does not fire those events the page has to say so - an empty
+    -- page would otherwise read as "nothing wrong".
+    local eventText, eventTone = WTM.Errors:DescribeEventCapture()
+    if eventTone ~= "ok" then
+        text = text .. "  " .. eventText
+        if tone == "ok" then tone = eventTone end
+    end
     local show = tone ~= "ok"
     if show ~= self.chainNotice:IsShown() then
         self.chainNotice:SetShown(show)

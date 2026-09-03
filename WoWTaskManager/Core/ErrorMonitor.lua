@@ -206,10 +206,10 @@ local function TopFrames(stack, count)
 end
 
 --- The identity of a bug, as opposed to the identity of one occurrence.
-function ErrorMonitor:Fingerprint(message, stack)
+function ErrorMonitor:Fingerprint(message, stack, kind)
     local path, line = ParseLocation(message)
-    return ("%s:%s:%s:%s"):format(
-        path or "?", tostring(line or "?"),
+    return ("%s:%s:%s:%s:%s"):format(
+        kind or "lua", path or "?", tostring(line or "?"),
         NormalizeMessage(message), TopFrames(stack, 3))
 end
 
@@ -314,7 +314,15 @@ function ErrorMonitor:IsKnownMessage(message)
     return self.byRawMessage[message] ~= nil
 end
 
-function ErrorMonitor:Record(message, stack, isInternal)
+--- Records one occurrence.
+---
+--- `options` is optional: { kind = "lua"|"forbidden"|"warning", addon = name }.
+--- An explicit addon comes from the client itself - the blocked-action events
+--- name the addon in their payload - and is therefore better attribution than
+--- reading a file path, so it wins.
+function ErrorMonitor:Record(message, stack, isInternal, options)
+    local kind = options and options.kind or "lua"
+    local explicitAddon = options and options.addon or nil
     local now = GetTime()
 
     -- THE FAST PATH, taken before anything is computed. Exact string identity
@@ -328,7 +336,7 @@ function ErrorMonitor:Record(message, stack, isInternal)
         return CountRepeat(self, known, now)
     end
 
-    local fingerprint = self:Fingerprint(message, stack)
+    local fingerprint = self:Fingerprint(message, stack, kind)
     local group = self.byFingerprint[fingerprint]
 
     self.stats.total = self.stats.total + 1
@@ -354,7 +362,7 @@ function ErrorMonitor:Record(message, stack, isInternal)
     end
 
     local path, line = ParseLocation(message)
-    local addon = ParseAddon(path)
+    local addon = explicitAddon or ParseAddon(path)
 
     -- The stack is the largest thing stored, so it is capped by configuration
     -- rather than kept whole.
@@ -367,9 +375,12 @@ function ErrorMonitor:Record(message, stack, isInternal)
         fingerprint = fingerprint,
         message     = tostring(message),
         stack       = stack,
+        kind        = kind,
         addon       = addon,
-        -- Distinguishes "we read the addon out of the path" from "we guessed".
+        -- Distinguishes an addon the client named, or one read out of a file
+        -- path, from no addon at all. Nothing here is ever guessed.
         addonCertain = addon ~= nil,
+        addonFromClient = explicitAddon ~= nil,
         file        = path,
         line        = line,
         internal    = isInternal or false,
@@ -399,7 +410,8 @@ function ErrorMonitor:Record(message, stack, isInternal)
     -- frame time that surrounded it.
     if settings().timelineMarkers then
         WTM.Context:AddMarker("luaerror",
-            ("%s: %s"):format(addon or "Unknown", Fmt.Truncate(tostring(message), 60)),
+            ("%s %s: %s"):format((C.ERROR_KINDS[kind] or C.ERROR_KINDS.lua).label,
+                addon or "Unknown", Fmt.Truncate(tostring(message), 60)),
             group)
     end
 
@@ -1049,7 +1061,96 @@ function ErrorMonitor:OnDisable()
     pcall(function() ErrorMonitor:Persist() end)
 end
 
+--------------------------------------------------------------------------
+-- Things that are not Lua errors, and never reach an error handler
+--------------------------------------------------------------------------
+--
+-- seterrorhandler sees Lua errors and nothing else. Two other classes of
+-- problem arrive as EVENTS instead, and they are the ones people most often
+-- mean when they say an addon is broken:
+--
+--   ADDON_ACTION_FORBIDDEN  the client refused a protected call
+--   ADDON_ACTION_BLOCKED    the same, for a call blocked rather than refused
+--   LUA_WARNING             the client complaining about Lua it still ran
+--
+-- An error monitor that ignores these shows an empty page while the client is
+-- visibly unhappy, which is exactly what a real client reported. They are
+-- captured, and they are labelled as what they are: a blocked action is the
+-- client refusing a call, not code that failed.
+
+--- Both blocked-action events carry the addon and the function in their
+--- payload, so the attribution comes from the client rather than from parsing
+--- a path. That is the best attribution available anywhere in this file.
+function ErrorMonitor:OnActionBlocked(event, addonName, functionName)
+    if not settings().enabled then return end
+    if not settings().captureBlocked then return end
+
+    local text = ("%s tried to call the protected function '%s'"):format(
+        addonName and ("AddOn '" .. tostring(addonName) .. "'") or "An addon",
+        tostring(functionName or "?"))
+
+    -- No stack: these are raised by the client, not thrown from Lua, so there
+    -- is no Lua call stack that means anything for them.
+    self:Record(text, nil,
+        addonName == C.ADDON_NAME,
+        { kind = "forbidden", addon = addonName })
+end
+
+function ErrorMonitor:OnLuaWarning(event, warnType, message)
+    if not settings().enabled then return end
+    if not settings().captureWarnings then return end
+
+    local text = ("Lua warning (type %s): %s"):format(
+        tostring(warnType or "?"), tostring(message or ""))
+    self:Record(text, nil,
+        text:find("WoWTaskManager", 1, true) ~= nil,
+        { kind = "warning" })
+end
+
+--- Registers the event-borne classes, each one feature-detected: a client that
+--- does not fire an event simply never produces that class, and the capability
+--- report says so rather than the page looking broken.
+function ErrorMonitor:InstallEventCapture()
+    local frame = CreateFrame("Frame", "WTMErrorEvents")
+    self.eventFrame = frame
+
+    local wanted = {
+        ADDON_ACTION_FORBIDDEN = "OnActionBlocked",
+        ADDON_ACTION_BLOCKED   = "OnActionBlocked",
+        LUA_WARNING            = "OnLuaWarning",
+    }
+
+    self.eventsRegistered = {}
+    for event, handler in pairs(wanted) do
+        if WTM.Compat.SafeRegisterEvent(frame, event) then
+            self.eventsRegistered[event] = handler
+        end
+    end
+
+    frame:SetScript("OnEvent", function(_, event, ...)
+        local handler = ErrorMonitor.eventsRegistered[event]
+        if not handler then return end
+        -- pcall, because this runs inside the client's event dispatch: a fault
+        -- here would surface as an error about us during somebody else's
+        -- problem, which helps nobody.
+        pcall(ErrorMonitor[handler], ErrorMonitor, event, ...)
+    end)
+end
+
+--- How many of the event-borne classes this client actually offers.
+function ErrorMonitor:DescribeEventCapture()
+    if not self.eventsRegistered then return "not installed", "crit" end
+    local names = {}
+    for event in pairs(self.eventsRegistered) do names[#names + 1] = event end
+    if #names == 0 then
+        return "This client fires none of the blocked-action or warning events, so only thrown Lua errors can be captured.", "warn"
+    end
+    table.sort(names)
+    return ("Also capturing %s."):format(table.concat(names, ", ")), "ok"
+end
+
 function ErrorMonitor:OnEnable()
+    self:InstallEventCapture()
     local ok, reason = self:Install()
     if not ok then
         WTM.Caps.errorChainReason = reason

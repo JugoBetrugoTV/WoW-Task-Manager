@@ -482,6 +482,72 @@ end
 check("neither does the combined report", offender == nil, tostring(offender))
 
 --------------------------------------------------------------------------
+print("\n== things that are not Lua errors ==")
+--------------------------------------------------------------------------
+-- A real client showed BugSack holding four entries while our page was empty.
+-- All four were ADDON_ACTION_FORBIDDEN, which is an EVENT: it never touches an
+-- error handler, so capturing it needs a listener, not a handler.
+
+reinstall(nil)
+check("the blocked-action events were registered",
+    Errors.eventsRegistered["ADDON_ACTION_FORBIDDEN"] ~= nil
+    and Errors.eventsRegistered["ADDON_ACTION_BLOCKED"] ~= nil)
+
+Errors:OnActionBlocked("ADDON_ACTION_FORBIDDEN", "SUI", "Frame:RegisterEvent()")
+check("a forbidden action is captured", #Errors.groups == 1, #Errors.groups)
+local blocked = Errors.groups[1]
+check("it is NOT filed as a Lua error", blocked.kind == "forbidden", blocked.kind)
+check("the addon comes from the client, not from a path",
+    blocked.addon == "SUI" and blocked.addonFromClient == true, tostring(blocked.addon))
+check("the function that was refused is in the message",
+    blocked.message:find("Frame:RegisterEvent()", 1, true) ~= nil, blocked.message)
+check("no stack is invented for it", blocked.stack == nil)
+
+-- 423 of them in a taint storm is a realistic number, and it must fold.
+for _ = 1, 422 do
+    Errors:OnActionBlocked("ADDON_ACTION_FORBIDDEN", "SUI", "Frame:RegisterEvent()")
+end
+check("a taint storm folds into one entry", #Errors.groups == 1, #Errors.groups)
+check("and counts every occurrence", blocked.count == 423, blocked.count)
+
+-- A different function from the same addon is a different problem.
+Errors:OnActionBlocked("ADDON_ACTION_FORBIDDEN", "SUI", "Frame:SetPoint()")
+check("a different protected call is a different entry", #Errors.groups == 2, #Errors.groups)
+
+-- And a thrown Lua error from the same addon is a different thing again.
+raise("Interface/AddOns/SUI/Core.lua:1: an actual error")
+check("a thrown error is separate from a blocked action",
+    #Errors.groups == 3, #Errors.groups)
+check("only the thrown one is a Lua error",
+    Errors.groups[3].kind == "lua", Errors.groups[3].kind)
+
+Errors:OnLuaWarning("LUA_WARNING", 0, "an unused variable somewhere")
+check("a Lua warning is captured and labelled",
+    #Errors.groups == 4 and Errors.groups[4].kind == "warning",
+    Errors.groups[4] and Errors.groups[4].kind)
+
+-- Switchable, because a taint storm is somebody else's problem to look at.
+NS.db.profile.errors.captureBlocked = false
+Errors:OnActionBlocked("ADDON_ACTION_FORBIDDEN", "Other", "Frame:Show()")
+check("blocked-action capture can be switched off", #Errors.groups == 4, #Errors.groups)
+NS.db.profile.errors.captureBlocked = true
+
+-- The wording rule applies here too. Checking for the word "crash" would be a
+-- substring trap - the note explains that it is NOT one - so this checks the
+-- claim instead: the report has to name the kind and carry the explanation.
+reinstall(nil)
+Errors:OnActionBlocked("ADDON_ACTION_FORBIDDEN", "SUI", "Frame:RegisterEvent()")
+local blockedReport = NS.Reports:Error(Errors.groups[1])
+check("the report names it a blocked action, not an error",
+    blockedReport:find("Blocked action", 1, true) ~= nil)
+check("and explains that nothing threw",
+    blockedReport:find("not a crash", 1, true) ~= nil)
+check("and says the addon named may not be where it began",
+    blockedReport:find("not necessarily where it began", 1, true) ~= nil)
+check("the client-supplied attribution is marked as such",
+    blockedReport:find("named by the client", 1, true) ~= nil)
+
+--------------------------------------------------------------------------
 print("\n== a client that cannot do this at all ==")
 --------------------------------------------------------------------------
 

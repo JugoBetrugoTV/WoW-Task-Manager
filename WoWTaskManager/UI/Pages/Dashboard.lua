@@ -168,6 +168,17 @@ function Page:Build(frame)
     banner.detail:SetPoint("TOPLEFT", banner.verdict, "BOTTOMLEFT", 0, -4)
     banner.detail:SetPoint("RIGHT", banner, "RIGHT", -110, 0)
 
+    -- One click back to recording, on the page where the problem is visible.
+    banner.resume = UI.Button(banner, "Start recording", function()
+        WTM.db.profile.sampling.enabled = true
+        WTM.Scheduler:Start()
+        WTM:Print("Recording again.")
+        Page:Refresh()
+    end, { height = 22, width = 118, primary = true })
+    banner.resume:SetPoint("RIGHT", -12, 0)
+    banner.resume:Hide()
+    self.resumeButton = banner.resume
+
     banner.uptime = UI.Text(banner, "numeric", "textMuted", "RIGHT")
     banner.uptime:SetPoint("TOPRIGHT", -16, -12)
     banner.uptimeLabel = UI.Text(banner, "tiny", "textMuted", "RIGHT")
@@ -536,9 +547,23 @@ function Page:Refresh()
     -- Banner
     ------------------------------------------------------------------
     local health, score, info = WTM.Diagnostics:ComputeHealth()
-    self.banner.accent:SetColorTexture(Theme:Tone(health.tone))
-    self.banner.verdict:SetText(("Performance: %s"):format(health.text))
-    self.banner.verdict:SetTextColor(Theme:Tone(health.tone))
+
+    -- Nothing sampled means every figure below is stale or zero, and a health
+    -- score computed from no data reads as "EXCELLENT". A real client sat on
+    -- "Performance: EXCELLENT, health 100/100" with 0.0 FPS for half a minute
+    -- because nothing said recording was off. The banner leads with that now.
+    local paused = WTM.Scheduler:WhyNotRunning()
+    self.resumeButton:SetShown(paused ~= nil)
+
+    if paused then
+        self.banner.accent:SetColorTexture(Theme:Tone("warn"))
+        self.banner.verdict:SetText("Not recording")
+        self.banner.verdict:SetTextColor(Theme:Tone("warn"))
+    else
+        self.banner.accent:SetColorTexture(Theme:Tone(health.tone))
+        self.banner.verdict:SetText(("Performance: %s"):format(health.text))
+        self.banner.verdict:SetTextColor(Theme:Tone(health.tone))
+    end
 
     local counts = WTM.SpikeDetector.counts
     local detail = ("%d spikes (%d freeze, %d heavy, %d stutter, %d minor)  -  %.1f/min  -  health %d/100")
@@ -546,7 +571,10 @@ function Page:Refresh()
                 counts.stutter, counts.minor, info.spikesPerMinute, score)
     local suppressedNote = WTM.Suppression:Describe()
     if suppressedNote then detail = detail .. "  -  " .. suppressedNote end
-    self.banner.detail:SetText(UI.FitText(self.banner.detail, detail))
+    -- The reason replaces the summary rather than sitting after it: with
+    -- nothing being sampled the summary is a description of no data, and
+    -- "0 spikes, health 100/100" is the most misleading thing on the screen.
+    self.banner.detail:SetText(UI.FitText(self.banner.detail, paused or detail))
     self.banner.uptime:SetText(Fmt.Duration(info.duration))
 
     ------------------------------------------------------------------

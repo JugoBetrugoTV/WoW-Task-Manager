@@ -312,6 +312,23 @@ C.ERROR_STORM_WINDOW_SEC = 10
 -- repeating is a different finding from a scatter of unrelated ones.
 C.ERROR_REPEAT_THRESHOLD = 25
 
+-- What kind of thing was captured. These are NOT all Lua errors, and the
+-- distinction is kept everywhere it is shown: a blocked action is the client
+-- refusing a call, not code that failed, and calling it an error would be
+-- wrong in a way that sends people looking for a bug that is not there.
+C.ERROR_KINDS = {
+    lua       = { label = "Lua error",      short = "LUA",       tone = "crit" },
+    forbidden = { label = "Blocked action", short = "BLOCKED",   tone = "warn" },
+    warning   = { label = "Lua warning",    short = "WARNING",   tone = "warn" },
+}
+C.ERROR_KIND_ORDER = { "lua", "forbidden", "warning" }
+
+C.TXT_FORBIDDEN_NOTE =
+    "The client refused a protected call from this addon. That is taint, not a " ..
+    "crash: nothing threw, the call was simply not allowed. It usually starts " ..
+    "somewhere else - whichever addon touched the protected path first - so the " ..
+    "addon named here is where it surfaced, not necessarily where it began."
+
 -- Buckets the error rate graph divides its window into. Ten over a ten-second
 -- window is one per second, which is as fine as the data goes.
 C.ERROR_RATE_BUCKETS = 10

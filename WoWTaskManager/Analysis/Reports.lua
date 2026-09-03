@@ -95,9 +95,15 @@ function Reports:Error(group)
     local out = {}
     Preamble(out)
 
-    header(out, "Error")
-    line(out, "Addon:          %s", group.addon
-        or "Unknown (no addon path in the message)")
+    local kindDef = C.ERROR_KINDS[group.kind or "lua"] or C.ERROR_KINDS.lua
+    header(out, kindDef.label)
+    line(out, "Kind:           %s", kindDef.label)
+    if group.kind == "forbidden" then
+        line(out, "%s", C.TXT_FORBIDDEN_NOTE)
+    end
+    line(out, "Addon:          %s%s", group.addon
+        or "Unknown (no addon path in the message)",
+        group.addonFromClient and "  (named by the client, not parsed)" or "")
     line(out, "File:           %s", group.file or "unknown")
     line(out, "Line:           %s", tostring(group.line or "unknown"))
     line(out, "Occurrences:    %d", group.count or 1)

@@ -129,6 +129,11 @@ local defaults = {
             groupDuplicates  = true,
             notifications    = true,
             notifyCooldown   = 30,
+            -- Blocked actions and Lua warnings arrive as EVENTS, not through
+            -- the error handler. They are the majority of what a player sees
+            -- in a taint storm, so they are on by default.
+            captureBlocked   = true,
+            captureWarnings  = true,
             timelineMarkers  = true,
             includeInDiagnostics = true,
             minimapBadge     = true,

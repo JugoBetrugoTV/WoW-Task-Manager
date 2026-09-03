@@ -262,6 +262,22 @@ end
 
 function Scheduler:IsRunning() return running end
 
+--- Why nothing is being sampled, in a sentence, or nil when it is.
+---
+--- A monitor showing zeroes is indistinguishable from a monitor showing a very
+--- quiet client, and a real client spent half a minute looking at 0.0 FPS with
+--- nothing anywhere saying that recording was switched off. Every surface that
+--- can show "paused" now shows this next to it.
+function Scheduler:WhyNotRunning()
+    if not WTM.db.profile.sampling.enabled then
+        return "Sampling is switched off. Nothing is being measured. Turn it back on with the button below, on the Recording page, or in Settings."
+    end
+    if not running then
+        return "The sampling driver is not running, although sampling is switched on. This should not happen; /wtm reload restarts it."
+    end
+    return nil
+end
+
 --------------------------------------------------------------------------
 -- Self-throttling
 --------------------------------------------------------------------------

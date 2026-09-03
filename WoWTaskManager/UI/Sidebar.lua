@@ -259,8 +259,11 @@ function Sidebar:Refresh()
     local overheadTone = WTM.Overhead.current.verdict
 
     if not recording then
-        footer.dot:SetColorTexture(Theme:Tone("muted"))
-        footer.state:SetText("Paused")
+        -- Amber, not grey. Grey read as "idle, nothing to see"; this state
+        -- means every number on every page is stale, which is worth noticing.
+        footer.dot:SetColorTexture(Theme:Tone("warn"))
+        footer.state:SetText(WTM.db.profile.sampling.enabled
+            and "Paused (driver stopped)" or "Paused - sampling is OFF")
     elseif WTM.Scheduler:IsBursting() then
         footer.dot:SetColorTexture(Theme:Tone("warn"))
         footer.state:SetText("Recording (burst)")

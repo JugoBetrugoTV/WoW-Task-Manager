@@ -112,6 +112,13 @@ local function Enable()
     -- until every task exists.
     if WTM.db.profile.sampling.enabled then
         WTM.Scheduler:Start()
+    else
+        -- Sampling off is a legitimate setting and it persists across sessions,
+        -- so it is easy to forget it was ever switched off. A monitor that
+        -- silently records nothing is the worst state this addon can be in, so
+        -- it says so once at login rather than showing zeroes and waiting to be
+        -- asked.
+        WTM:Print("|cffD29922Sampling is switched OFF|r - nothing is being measured. |cff4c8dff/wtm recording|r to turn it back on.")
     end
 
     WTM.state.enabled = true
