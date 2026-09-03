@@ -1460,6 +1460,48 @@ do
     end
     NS.Errors:Reset()
 
+    -- page.frame belongs to MainWindow: it is the frame it created for the
+    -- page, and the frame it hides when you switch away. Overview assigned a
+    -- StatCard to it, so every switch hid that CARD and left the whole page
+    -- drawn on top of wherever you went next - on every page, for the life of
+    -- the session. Nothing else in the addon can notice, because the page
+    -- itself looks perfect while it is the one selected.
+    local clobbered = {}
+    for _, key in ipairs(NS.UI.pageOrder) do
+        local page = NS.UI.Pages[key]
+        if page.frame then
+            -- The real page frame is a direct child of the window's content
+            -- area. Anything else in this field is a widget that took its name.
+            if page.frame:GetParent() ~= NS.UI.MainWindow.frame.content then
+                clobbered[#clobbered + 1] = key
+            end
+        end
+    end
+    check("no page overwrites the frame field MainWindow owns",
+        #clobbered == 0, table.concat(clobbered, ", "))
+
+    -- And the consequence, checked directly: every widget a page builds has to
+    -- descend from that page's frame, or hiding the page cannot hide it.
+    local escaped = {}
+    for _, key in ipairs(NS.UI.pageOrder) do
+        local page = NS.UI.Pages[key]
+        if page.frame and type(page.grid) == "table" and page.grid.cells then
+            for _, cell in ipairs(page.grid.cells) do
+                local node, hops, reached = cell.frame, 0, false
+                while node and hops < 16 do
+                    if node == page.frame then reached = true break end
+                    node = node:GetParent()
+                    hops = hops + 1
+                end
+                if not reached then
+                    escaped[#escaped + 1] = ("%s.%s"):format(key, tostring(cell.key))
+                end
+            end
+        end
+    end
+    check("every widget a page builds descends from that page's frame",
+        #escaped == 0, table.concat(escaped, ", "))
+
     check("only one page is ever visible at a time", worst <= 1, worstAfter)
 
     -- Two folders containing this addon load as two separate addons, each with

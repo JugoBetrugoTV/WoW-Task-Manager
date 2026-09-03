@@ -66,10 +66,14 @@ function Page:Build(frame)
     })
     grid:Add(self.fps, { span = 1, height = 106, key = "fps" })
 
-    self.frame = UI.StatCard(canvas, "FRAME TIME", {
+    -- NOT self.frame. That field belongs to MainWindow, which stores the
+    -- page's own frame in it and hides THAT when you switch page. Assigning a
+    -- card to it meant every switch hid this card and left the whole page
+    -- drawn on top of wherever you went next.
+    self.frameTime = UI.StatCard(canvas, "FRAME TIME", {
         "Average", "Median", "p95", "p99", "Worst",
     })
-    grid:Add(self.frame, { span = 1, height = 122, key = "frame" })
+    grid:Add(self.frameTime, { span = 1, height = 122, key = "frame" })
 
     self.cpu = UI.StatCard(canvas, "ADDON CPU", {
         "Total now", "Busiest addon", "Its share", "Addons loaded",
@@ -167,11 +171,11 @@ function Page:Refresh()
     self.fps:Set("1% low", Fmt.FPS(stats.low1 or 0))
     self.fps:Set("0.1% low", Fmt.FPS(stats.low01 or 0))
 
-    self.frame:Set("Average", Fmt.Ms(stats.avgMs or 0))
-    self.frame:Set("Median", Fmt.Ms(stats.medianMs or 0))
-    self.frame:Set("p95", fmtPercentileMs(0.95))
-    self.frame:Set("p99", fmtPercentileMs(0.99))
-    self.frame:Set("Worst", Fmt.Ms(stats.maxMs or 0))
+    self.frameTime:Set("Average", Fmt.Ms(stats.avgMs or 0))
+    self.frameTime:Set("Median", Fmt.Ms(stats.medianMs or 0))
+    self.frameTime:Set("p95", fmtPercentileMs(0.95))
+    self.frameTime:Set("p99", fmtPercentileMs(0.99))
+    self.frameTime:Set("Worst", Fmt.Ms(stats.maxMs or 0))
 
     ------------------------------------------------------------------
     if WTM.CPU.available then
