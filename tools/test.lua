@@ -1386,6 +1386,123 @@ do
     check("every page has a sidebar entry", #unreachable == 0,
         table.concat(unreachable, ", "))
 
+    -- Exactly one page may be visible at a time. A frame in WoW is visible the
+    -- moment it is created, so a page left showing is drawn underneath the one
+    -- you switched to - which is what a real client reported. Checked after
+    -- every navigation path a player has, not just a straight sweep.
+    local function visiblePages()
+        local shown = {}
+        for _, key in ipairs(NS.UI.pageOrder) do
+            local page = NS.UI.Pages[key]
+            if page.frame and page.frame:IsShown() then shown[#shown + 1] = key end
+        end
+        return shown
+    end
+
+    local worst, worstAfter = 0, ""
+    local function recordVisible(label)
+        local shown = visiblePages()
+        if #shown > worst then worst, worstAfter = #shown, label .. ": " .. table.concat(shown, ", ") end
+    end
+
+    -- Clicking the sidebar, which is how a player actually navigates.
+    for _, key in ipairs(NS.UI.pageOrder) do
+        local item = NS.UI.Sidebar.items[key]
+        local handler = item and item:GetScript("OnClick")
+        if handler then
+            handler(item)
+            recordVisible("sidebar click " .. key)
+        end
+    end
+
+    -- Closing and reopening restores the remembered page.
+    NS.UI.MainWindow:Close()
+    NS.UI.MainWindow:Open()
+    recordVisible("close and reopen")
+
+    -- Selecting the page you are already on, then moving on.
+    NS.UI.MainWindow:ShowPage("memory")
+    NS.UI.MainWindow:ShowPage("memory")
+    NS.UI.MainWindow:ShowPage("events")
+    recordVisible("re-selecting the current page")
+
+    -- A page built while another is on screen. This is the case the old code
+    -- got wrong: CreateFrame returns a VISIBLE frame, so a lazily built page
+    -- appeared over the current one for the length of its build.
+    local rebuilt = NS.UI.Pages.system
+    rebuilt.frame = nil
+    NS.UI.MainWindow:ShowPage("system")
+    recordVisible("building a page lazily")
+
+    -- And the deliberately broken one: a page whose Build throws still has a
+    -- frame, and that frame must not be left drawn over its successor.
+    local brokenPage, originalBuild = NS.UI.Pages.alerts, NS.UI.Pages.alerts.Build
+    brokenPage.frame, brokenPage.Build = nil, function() error("simulated build failure") end
+    NS.UI.MainWindow:ShowPage("alerts")
+    NS.UI.MainWindow:ShowPage("dashboard")
+    recordVisible("switching away from a page that failed to build")
+    brokenPage.Build, brokenPage.frame, brokenPage.buildFailed = originalBuild, nil, nil
+    NS.UI.MainWindow:ShowPage("alerts")
+
+    -- That failure was raised on purpose, and it really did travel through the
+    -- error handler and get recorded - which is the wiring working. Take it
+    -- back out so the suite's own "no unexpected errors" count stays honest.
+    for i = #mock.errors, 1, -1 do
+        if tostring(mock.errors[i]):find("simulated build failure", 1, true) then
+            table.remove(mock.errors, i)
+        end
+    end
+    NS.Errors:Reset()
+
+    check("only one page is ever visible at a time", worst <= 1, worstAfter)
+
+    -- Menus, dialogs and overlays hang off UIParent so they can escape the
+    -- window's edge, which means nothing hides them implicitly. Left alone
+    -- they stayed on screen across a page switch and even after the window
+    -- was closed, drawn over the game world. Reported from a real client.
+    local function leftovers()
+        local open = {}
+        if NS.UI.IsContextMenuShown() then open[#open + 1] = "context menu" end
+        if _G.WTMCopyBox and _G.WTMCopyBox:IsShown() then open[#open + 1] = "copy box" end
+        if NS.UI.AddonDetail.scrim and NS.UI.AddonDetail.scrim:IsShown() then
+            open[#open + 1] = "addon detail"
+        end
+        if NS.UI.ErrorDetail.scrim and NS.UI.ErrorDetail.scrim:IsShown() then
+            open[#open + 1] = "error detail"
+        end
+        return table.concat(open, ", ")
+    end
+
+    NS.UI.MainWindow:ShowPage("processes")
+    NS.UI.ShowContextMenu(NS.UI.MainWindow.frame,
+        { { label = "an entry", onClick = function() end },
+          -- A disabled entry takes the other colour branch, which is where a
+          -- truncated multi-return used to throw the moment a menu opened.
+          { label = "a disabled entry", disabled = true, reason = "why not" } },
+        "a menu")
+    check("a context menu opens without erroring", NS.UI.IsContextMenuShown())
+    NS.UI.MainWindow:ShowPage("memory")
+    check("a context menu does not survive a page change", leftovers() == "", leftovers())
+
+    NS.UI.ShowCopyBox("some text", "a title")
+    NS.UI.MainWindow:ShowPage("events")
+    check("a copy box does not survive a page change", leftovers() == "", leftovers())
+
+    local detailRecord = NS.Processes:Get("WeakAuras")
+    if detailRecord then
+        NS.UI.AddonDetail:Open(detailRecord)
+        NS.UI.MainWindow:ShowPage("timeline")
+        check("a detail overlay does not survive a page change",
+            leftovers() == "", leftovers())
+    end
+
+    NS.UI.ShowContextMenu(NS.UI.MainWindow.frame,
+        { { label = "an entry", onClick = function() end } }, "a menu")
+    NS.UI.MainWindow:Close()
+    check("nothing is left on screen after the window closes",
+        leftovers() == "", leftovers())
+    NS.UI.MainWindow:Open()
+
     local before = #mock.errors
     for _, key in ipairs(NS.UI.pageOrder) do
         NS.UI.MainWindow:ShowPage(key)

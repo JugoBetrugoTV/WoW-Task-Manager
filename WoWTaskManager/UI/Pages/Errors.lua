@@ -390,9 +390,15 @@ function Page:Refresh()
 
     local last = stats.lastGroup
     if last then
-        cards.last:SetValue(Fmt.Clock(stats.lastAt,
-            WTM.state.sessionEpoch, WTM.state.sessionStart), "")
-        cards.last:SetSub(last.addon or "Unknown")
+        -- Relative, not a wall clock. A card is about 150 px wide and the value
+        -- is drawn in the 22 px metric font; "18:08:57.000" does not fit in
+        -- that and runs straight out of the card. "4m" does, and how long ago
+        -- is the question being asked here anyway - the exact time is one line
+        -- below, where it is set in a font that fits.
+        cards.last:SetValue(Fmt.Ago(stats.lastAt):gsub(" ago$", ""), "")
+        cards.last:SetSub(("%s  -  %s"):format(
+            Fmt.Clock(stats.lastAt, WTM.state.sessionEpoch, WTM.state.sessionStart),
+            last.addon or "Unknown"))
     else
         cards.last:SetValue("none", "")
         cards.last:SetSub("no error yet this session")

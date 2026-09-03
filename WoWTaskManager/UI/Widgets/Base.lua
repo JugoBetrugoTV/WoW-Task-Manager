@@ -626,8 +626,17 @@ function UI.ShowContextMenu(owner, entries, title)
         item.disabled = entry.disabled and true or false
         item.tooltip = entry.disabled and (entry.reason or entry.tooltip) or entry.tooltip
         item.text:SetText(UI.FitText(item.text, entry.label or ""))
-        item.text:SetTextColor(entry.disabled and Theme.Get("textMuted")
-            or Theme.Get("textSecondary"))
+        -- Written out rather than as `disabled and Theme.Get(a) or Theme.Get(b)`.
+        -- In Lua 5.1 an and/or expression yields exactly ONE value, so that
+        -- form hands SetTextColor a red channel and two nils, and the client
+        -- throws the moment the menu opens. Third time this class has bitten
+        -- this file; it is only ever safe when the and/or picks the NAME
+        -- inside the call, never when it picks between two calls.
+        if entry.disabled then
+            item.text:SetTextColor(Theme.Get("textMuted"))
+        else
+            item.text:SetTextColor(Theme.Get("textSecondary"))
+        end
         item:Show()
         y = y + menu.ROW_HEIGHT
     end
@@ -698,7 +707,10 @@ function UI.ShowCopyBox(text, title)
         frame.hint = UI.Text(frame, "tiny", "textMuted", "LEFT")
         frame.hint:SetPoint("BOTTOMLEFT", M.padding, 10)
         frame.hint:SetPoint("RIGHT", frame, "RIGHT", -M.padding, 0)
-        frame.hint:SetHeight(14)
+        -- Two lines, wrapped. It was one unwrapped line 520 px wide in a
+        -- 488 px box, so the last few words ran off the edge.
+        frame.hint:SetHeight(26)
+        UI.Wrap(frame.hint, 2)
         frame.hint:SetText("Select the text and press Ctrl-C. No addon can write to your clipboard, so this is as far as WoW allows.")
 
         local scroll = CreateFrame("ScrollFrame", "WTMCopyBoxScroll", frame)
@@ -734,6 +746,27 @@ end
 --------------------------------------------------------------------------
 
 --- Makes a frame draggable by `handle`, clamped to the screen.
+--- Dismisses every transient piece of UI: menus, dialogs, tooltips, overlays.
+---
+--- These are deliberately NOT children of the main window. A context menu has
+--- to be able to extend past the window's edge and a copy box has to survive
+--- the window being dragged, so both hang off UIParent - which also means
+--- hiding the window does not hide them, and switching page does not either.
+--- They stayed on screen, over the game world, until something happened to
+--- close them by hand.
+---
+--- Anything that changes what the user is looking at calls this.
+function UI.DismissTransient()
+    UI.HideContextMenu()
+    UI.HideCopyBox()
+    -- Tooltip.lua loads after this file, so this is resolved at call time.
+    if UI.HideTooltip then UI.HideTooltip() end
+    -- The detail overlays belong to the row that opened them, and that row is
+    -- on the page being left.
+    if UI.AddonDetail and UI.AddonDetail.Close then UI.AddonDetail:Close() end
+    if UI.ErrorDetail and UI.ErrorDetail.Close then UI.ErrorDetail:Close() end
+end
+
 function UI.MakeMovable(frame, handle, onStop)
     frame:SetMovable(true)
     frame:SetClampedToScreen(true)

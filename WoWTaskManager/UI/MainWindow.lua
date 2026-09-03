@@ -286,22 +286,42 @@ function MainWindow:LayoutPage(key)
     end
 end
 
+--- Shows one page and hides every other one.
+---
+--- This used to hide only the page it BELIEVED was current, which made "at
+--- most one page is visible" a property of one bookkeeping variable rather
+--- than of the frames themselves. That is a bad bet in this API: a frame in
+--- WoW is visible the moment it is created, so any path that builds a page
+--- outside this function - or that leaves currentPage stale - leaves the old
+--- page drawn underneath the new one.
+---
+--- Hiding all of them costs a loop over about twenty frames that are already
+--- hidden, which is nothing, and it makes the invariant true by construction.
 function MainWindow:ShowPage(key)
     if not UI.Pages[key] then key = "dashboard" end
 
-    if self.currentPage and self.currentPage ~= key then
-        local previous = UI.Pages[self.currentPage]
-        if previous and previous.frame then
-            previous.frame:Hide()
-            if previous.OnHide then pcall(previous.OnHide, previous) end
+    -- A menu, a copy box or a detail overlay belongs to the page it was opened
+    -- from. They hang off UIParent so that they can escape the window's edge,
+    -- which also means nothing here hides them implicitly.
+    UI.DismissTransient()
+
+    for otherKey, other in pairs(UI.Pages) do
+        if otherKey ~= key and other.frame and other.frame:IsShown() then
+            other.frame:Hide()
+            if other.OnHide then pcall(other.OnHide, other) end
         end
     end
 
     local page = UI.Pages[key]
     if not page.frame then
         -- Lazily built: a page nobody opens never costs anything.
+        --
+        -- Built HIDDEN. CreateFrame returns a visible frame, so building a page
+        -- while another one is on screen used to put half-constructed widgets
+        -- over it for the length of the build.
         page.frame = CreateFrame("Frame", nil, self.frame.content)
         page.frame:SetAllPoints(self.frame.content)
+        page.frame:Hide()
         local ok, err = pcall(page.Build, page, page.frame)
         if not ok then
             geterrorhandler()(("WTM: page '%s' failed to build: %s"):format(key, tostring(err)))
@@ -511,6 +531,9 @@ function MainWindow:Open(page)
 end
 
 function MainWindow:Close()
+    -- Same reason as in ShowPage, and worse here: a context menu left over
+    -- after the window closes is drawn over the game itself.
+    UI.DismissTransient()
     if self.frame then self.frame:Hide() end
 end
 
