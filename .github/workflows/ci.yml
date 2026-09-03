@@ -1,10 +1,21 @@
 name: CI
 
+# A branch with an open pull request was matching BOTH triggers, so every push
+# ran the whole seven-minute matrix twice, on two runners, against the same
+# commit. Pushes are gated to the default branch; a branch under review is
+# covered by the pull_request trigger, and a branch without one is covered as
+# soon as a pull request opens.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
+
+# A new push supersedes the run before it. Without this the older run keeps a
+# runner busy producing a verdict about a commit nobody is looking at any more.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
