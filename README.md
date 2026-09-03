@@ -168,6 +168,30 @@ switch, because they write simulated samples into the real history. Everything
 they produce is marked `SIMULATED` wherever it appears, and the destructive
 buttons ask for a second click.
 
+## The pages
+
+| Group | Page | What it answers |
+|---|---|---|
+| Overview | **Dashboard** | What is happening right now. Twelve live metrics, six graphs, health, top consumers, recent incidents, and this addon's own cost. Blocks can be hidden or resized from Settings. |
+| | **Session overview** | What happened. Settled totals and observations in sentences, each carrying the numbers it rests on. |
+| Live | **Processes** | The addon list, with CPU, memory, events, spike association, dependencies and load state. Sortable, filterable, right-clickable. |
+| | **Live resources** | Every live signal at once - current, average, peak, sparkline and status per module. |
+| | **Performance** | Frame time and FPS over the session, with the histogram. |
+| | **Frame analysis** | The distribution: percentiles, pacing bands, and the stutter clusters a player experiences as one hitch. |
+| | **Network** | Latency and bandwidth, with a latency-and-frame-time overlay and an explicit list of what no WoW client exposes. |
+| | **Events** | Event rate, top events, storms, and which addons appear to listen (heuristic). |
+| | **Memory** | Lua heap, per-addon memory, growth ranking, observed heap decreases. |
+| Analysis | **Incidents** | Recorded stutters with the seconds before and after them. |
+| | **Timeline** | Ten tracks on one shared axis, markers, and a range inspector: drag to select a span and get its summary. |
+| | **Diagnostics** | Findings, each with a category and what kind of evidence is under it. |
+| | **Addon impact** | Rankings, and one combined score with its formula on the page. |
+| | **Compare** | Two sessions side by side, with the change spelled out and the caveat next to it. |
+| History | **Sessions** | Saved sessions and their summaries. |
+| | **Recording** | What is being recorded, how much of it there is, and buttons to mark a moment on the timeline. |
+| System | **System** | Client, hardware and the capability report. |
+| | **Alerts** | Thresholds you set, and what has tripped them. |
+| | **Settings** | Everything configurable, plus a button for every chat command. |
+
 ## Text has to stay inside its box
 
 The headless harness resolves real widths from anchors, so two questions that
@@ -190,6 +214,7 @@ strings, since a layout that just fits in English does not fit in German.
 ```
 apt-get install lua5.1      # the addon targets Lua 5.1, same as WoW
 ./tools/run-tests.sh        # 32 scenarios
+./tools/test-scale.lua      # 220 addons, 140 incidents, and an empty session
 ./tools/release-check.sh    # TOCs, includes, versions, wording rules, tests
 ```
 

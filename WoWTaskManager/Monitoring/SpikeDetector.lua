@@ -45,6 +45,10 @@ SpikeDetector.clusters = {}   -- coalesced stutter clusters, bounded
 SpikeDetector.counts   = { minor = 0, stutter = 0, heavy = 0, freeze = 0 }
 SpikeDetector.total    = 0
 SpikeDetector.suppressed = 0
+-- When the most recent spike was recorded, for "time since last spike".
+-- Public because several summary panels want it; the internal `lastSpikeAt`
+-- upvalue drives debouncing and is deliberately separate.
+SpikeDetector.lastSpikeAt = nil
 
 local MAX_SPIKES = 300
 local lastSpikeAt = 0
@@ -123,6 +127,7 @@ function SpikeDetector:Check()
         return
     end
     lastSpikeAt = now
+    SpikeDetector.lastSpikeAt = now
     lastSpikeSeverity = severity
 
     self:Record(kind, frameMs, at or now, baseline)
@@ -366,6 +371,34 @@ end
 
 --- Human-readable description of one spike. Wording is deliberately cautious:
 --- the CPU section always names its observation window.
+--- How many spikes were recorded in the last `seconds`, optionally only those
+--- at or above `minSeverity`. Walks the bounded spike list backwards and stops
+--- as soon as it leaves the window, so it stays cheap enough to call on every
+--- dashboard refresh.
+function SpikeDetector:CountSince(seconds, minSeverity)
+    local cutoff = GetTime() - (seconds or 60)
+    local count = 0
+    for i = #self.spikes, 1, -1 do
+        local spike = self.spikes[i]
+        if spike.t < cutoff then break end
+        -- Severity is stored as the kind; C.SPIKE_ORDER maps it to a rank.
+        if not minSeverity or (C.SPIKE_ORDER[spike.kind] or 0) >= minSeverity then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+--- The worst spike recorded this session, or nil if there has not been one.
+function SpikeDetector:WorstSpike()
+    local worst
+    for i = 1, #self.spikes do
+        local spike = self.spikes[i]
+        if not worst or (spike.frameMs or 0) > (worst.frameMs or 0) then worst = spike end
+    end
+    return worst
+end
+
 function SpikeDetector:Describe(spike)
     local Fmt = WTM.Format
     local lines = {}

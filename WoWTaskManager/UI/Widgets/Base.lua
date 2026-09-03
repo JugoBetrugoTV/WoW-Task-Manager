@@ -528,6 +528,208 @@ function UI.EmptyState(parent, message)
 end
 
 --------------------------------------------------------------------------
+-- Context menu
+--------------------------------------------------------------------------
+
+--- A small right-click menu.
+---
+--- Deliberately built from ordinary frames rather than from the client's
+--- UIDropDownMenu: that API differs across the four supported clients, carries
+--- a well-known taint history, and would have to be feature-detected anyway.
+--- A list of buttons in a panel has none of those problems.
+---
+--- One menu exists for the whole addon and is reused. It is never shown while
+--- another is open.
+local contextMenu
+
+local function BuildContextMenu()
+    if contextMenu then return contextMenu end
+
+    local menu = CreateFrame("Frame", "WTMContextMenu", UIParent)
+    menu:SetFrameStrata("FULLSCREEN_DIALOG")
+    menu:SetClampedToScreen(true)
+    menu:EnableMouse(true)
+    menu:Hide()
+    UI.Fill(menu, "elevated", 0.98)
+    UI.Border(menu, "TLBR", "borderStrong")
+
+    menu.items = {}
+    menu.ROW_HEIGHT = 22
+    menu.WIDTH = 190
+
+    -- Clicking anywhere else closes it. A frame behind the menu, not a global
+    -- mouse hook: no other addon's clicks are intercepted.
+    menu.blocker = CreateFrame("Button", nil, UIParent)
+    menu.blocker:SetAllPoints(UIParent)
+    menu.blocker:SetFrameStrata("FULLSCREEN")
+    menu.blocker:RegisterForClicks("AnyUp")
+    menu.blocker:SetScript("OnClick", function() UI.HideContextMenu() end)
+    menu.blocker:Hide()
+
+    contextMenu = menu
+    return menu
+end
+
+--- `entries` is a list of { label, onClick, disabled, reason, tooltip } or
+--- { separator = true }. Anchors below `owner`, or at the cursor when there is
+--- no sensible frame to hang it from.
+function UI.ShowContextMenu(owner, entries, title)
+    local menu = BuildContextMenu()
+    UI.HideContextMenu()
+
+    local y = 6
+    if title then
+        menu.title = menu.title or UI.Text(menu, "tiny", "textMuted", "LEFT")
+        menu.title:SetPoint("TOPLEFT", 10, -6)
+        menu.title:SetPoint("TOPRIGHT", -10, -6)
+        menu.title:SetText(UI.FitText(menu.title, title))
+        menu.title:Show()
+        y = y + 16
+    elseif menu.title then
+        menu.title:Hide()
+    end
+
+    for index, entry in ipairs(entries) do
+        local item = menu.items[index]
+        if not item then
+            item = CreateFrame("Button", nil, menu)
+            item:SetHeight(menu.ROW_HEIGHT)
+            item.text = UI.Text(item, "small", "textSecondary", "LEFT")
+            item.text:SetPoint("LEFT", 10, 0)
+            item.text:SetPoint("RIGHT", -10, 0)
+            item.highlight = item:CreateTexture(nil, "BACKGROUND")
+            item.highlight:SetAllPoints()
+            item.highlight:SetColorTexture(Theme.Get("hover", 0.8))
+            item.highlight:Hide()
+            item:SetScript("OnEnter", function(self)
+                if not self.disabled then self.highlight:Show() end
+                if self.tooltip then
+                    UI.ShowTooltip(self, self.text:GetText(), self.tooltip)
+                end
+            end)
+            item:SetScript("OnLeave", function(self)
+                self.highlight:Hide()
+                UI.HideTooltip()
+            end)
+            item:SetScript("OnClick", function(self)
+                if self.disabled then return end
+                UI.HideContextMenu()
+                if self.onClick then self.onClick() end
+            end)
+            menu.items[index] = item
+        end
+
+        item:ClearAllPoints()
+        item:SetPoint("TOPLEFT", 0, -y)
+        item:SetPoint("TOPRIGHT", 0, -y)
+        item.onClick = entry.onClick
+        item.disabled = entry.disabled and true or false
+        item.tooltip = entry.disabled and (entry.reason or entry.tooltip) or entry.tooltip
+        item.text:SetText(UI.FitText(item.text, entry.label or ""))
+        item.text:SetTextColor(entry.disabled and Theme.Get("textMuted")
+            or Theme.Get("textSecondary"))
+        item:Show()
+        y = y + menu.ROW_HEIGHT
+    end
+
+    for i = #entries + 1, #menu.items do menu.items[i]:Hide() end
+
+    menu:SetSize(menu.WIDTH, y + 6)
+    menu:ClearAllPoints()
+    if owner then
+        menu:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, -2)
+    else
+        menu:SetPoint("CENTER")
+    end
+    menu.blocker:Show()
+    menu:Show()
+    -- Above the blocker, which is what makes the menu itself clickable.
+    menu:SetFrameStrata("FULLSCREEN_DIALOG")
+    return menu
+end
+
+function UI.HideContextMenu()
+    if not contextMenu then return end
+    contextMenu:Hide()
+    contextMenu.blocker:Hide()
+end
+
+function UI.IsContextMenuShown()
+    return contextMenu and contextMenu:IsShown() or false
+end
+
+--------------------------------------------------------------------------
+-- Copy box
+--------------------------------------------------------------------------
+
+--- Shows text in a selectable edit box.
+---
+--- WoW gives addons no clipboard access at all - there is no SetClipboard and
+--- no way to read one. The only thing an addon can do is put text somewhere the
+--- player can select it and press Ctrl-C themselves, which is what this is. It
+--- is labelled as such rather than pretending to have copied anything.
+local copyBox
+
+function UI.ShowCopyBox(text, title)
+    if not copyBox then
+        local frame = CreateFrame("Frame", "WTMCopyBox", UIParent)
+        frame:SetSize(520, 300)
+        frame:SetPoint("CENTER")
+        frame:SetFrameStrata("DIALOG")
+        frame:EnableMouse(true)
+        UI.Fill(frame, "windowBg", 0.98)
+        UI.Border(frame, "TLBR", "accentDim")
+
+        local header = CreateFrame("Frame", nil, frame)
+        header:SetHeight(32)
+        header:SetPoint("TOPLEFT")
+        header:SetPoint("TOPRIGHT")
+        UI.Fill(header, "topbarBg")
+        UI.MakeMovable(frame, header)
+
+        frame.title = UI.Text(header, "title", "textPrimary", "LEFT")
+        frame.title:SetPoint("LEFT", M.padding, 0)
+        frame.title:SetPoint("RIGHT", header, "RIGHT", -70, 0)
+
+        frame.close = UI.Button(header, "close", function() copyBox:Hide() end,
+            { height = 20, style = "tiny", minWidth = 52 })
+        frame.close:SetPoint("RIGHT", -8, 0)
+
+        frame.hint = UI.Text(frame, "tiny", "textMuted", "LEFT")
+        frame.hint:SetPoint("BOTTOMLEFT", M.padding, 10)
+        frame.hint:SetPoint("RIGHT", frame, "RIGHT", -M.padding, 0)
+        frame.hint:SetHeight(14)
+        frame.hint:SetText("Select the text and press Ctrl-C. No addon can write to your clipboard, so this is as far as WoW allows.")
+
+        local scroll = CreateFrame("ScrollFrame", "WTMCopyBoxScroll", frame)
+        scroll:SetPoint("TOPLEFT", M.padding, -(32 + M.paddingSmall))
+        scroll:SetPoint("BOTTOMRIGHT", -M.padding, 30)
+
+        local edit = CreateFrame("EditBox", nil, scroll)
+        edit:SetMultiLine(true)
+        edit:SetAutoFocus(false)
+        edit:SetWidth(480)
+        edit:SetFontObject("ChatFontNormal")
+        edit:SetScript("OnEscapePressed", function() copyBox:Hide() end)
+        scroll:SetScrollChild(edit)
+        frame.edit = edit
+
+        copyBox = frame
+    end
+
+    copyBox.title:SetText(UI.FitText(copyBox.title, title or "Copy"))
+    copyBox.edit:SetText(text or "")
+    copyBox.edit:HighlightText()
+    copyBox:Show()
+    copyBox.edit:SetFocus()
+    return copyBox
+end
+
+function UI.HideCopyBox()
+    if copyBox then copyBox:Hide() end
+end
+
+--------------------------------------------------------------------------
 -- Misc helpers
 --------------------------------------------------------------------------
 

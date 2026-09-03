@@ -171,34 +171,47 @@ function UI.StatRow(parent, label)
     row.label:SetPoint("LEFT")
     row.label:SetPoint("RIGHT", row.value, "LEFT", -6, 0)
 
-    --- Refits the label if the row has been resized since it was last fitted.
-    --- A label is normally set once, at build time, when the row has no width
-    --- yet and fitting is a no-op; without this it would stay unfitted forever.
+    --- Splits the row between label and value, then fits both to their share.
+    ---
+    --- The split is computed from the ROW's width, not from the halves' own.
+    --- A half anchored between two frames has a width only once that chain has
+    --- been resolved, and layout code has to answer "how much room is there"
+    --- before that. Giving each half an explicit width makes the answer
+    --- available immediately, and keeps the anchors as the backstop.
+    ---
+    --- Recomputed only when the row's width actually changes; the fit itself
+    --- is cheap and runs on every Set, because the value changes constantly.
     function row:RefitLabel()
-        local width = self.label:GetWidth() or 0
-        if width > 0 and width ~= self._fittedAt then
+        local width = self:GetWidth() or 0
+        if width <= 40 then return end
+        if width ~= self._fittedAt then
             self._fittedAt = width
-            self.label:SetText(UI.FitText(self.label, self.labelFull or ""))
+            self.value:SetWidth(math.max(36, width * 0.45))
+            self.label:SetWidth(math.max(24, width * 0.55 - 6))
         end
+        self.label:SetText(UI.FitText(self.label, self.labelFull or ""))
     end
 
     function row:Set(value, tone)
         value = value or "-"
         self.valueFull = value
+        self:RefitLabel()
         self.value:SetText(UI.FitText(self.value, value))
         self.value:SetTextColor(Theme:Tone(tone or nil))
         if not tone then self.value:SetTextColor(T("textPrimary")) end
-        self:RefitLabel()
-    end
-    function row:SetLabel(text)
-        text = text or ""
-        self.labelFull = text
-        self._fittedAt = self.label:GetWidth() or 0
-        self.label:SetText(UI.FitText(self.label, text))
     end
 
-    -- Resizing the row changes how much room the label has, and the label is
-    -- normally set exactly once, before the row has any size at all.
+    function row:SetLabel(text)
+        self.labelFull = text or ""
+        self:RefitLabel()
+        -- RefitLabel is a no-op before the row has a width; set the text
+        -- anyway so the row is never blank, and let the next Set fit it.
+        if (self:GetWidth() or 0) <= 40 then self.label:SetText(self.labelFull) end
+    end
+
+    -- The real client fires this when anchors change the row's size; the
+    -- harness only fires it on an explicit SetWidth. Either way the refit is
+    -- driven from Set as well, so a row is never left unfitted.
     row:SetScript("OnSizeChanged", function(self) self:RefitLabel() end)
 
     row:SetLabel(label or "")

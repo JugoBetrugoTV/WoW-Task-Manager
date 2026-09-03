@@ -231,6 +231,12 @@ end
 
 function Page:OnShow() self:Refresh() end
 
+--- The name other pages use when they hand an incident over. Kept distinct
+--- from Select so a rename here cannot silently break a cross-page jump.
+function Page:SelectCluster(cluster)
+    self:Select(cluster)
+end
+
 function Page:Select(cluster)
     self.selected = cluster
     self:RefreshDetail()

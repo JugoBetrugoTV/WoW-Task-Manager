@@ -62,16 +62,36 @@ function Diagnostics:ComputeHealth()
 
     score = math.max(0, math.min(100, score))
 
-    local health
-    if score >= 75 then health = C.HEALTH.GOOD
-    elseif score >= 45 then health = C.HEALTH.WARNING
-    else health = C.HEALTH.CRITICAL end
+    local health = C.HEALTH.CRITICAL
+    for _, band in ipairs(C.HEALTH_BANDS) do
+        if score >= band.min then health = band break end
+    end
+
+    -- The single thing most worth looking at, so a summary panel can lead with
+    -- it instead of making the reader work the numbers out.
+    local headline
+    if counts.freeze > 0 then
+        headline = ("%d freeze%s recorded"):format(counts.freeze,
+            counts.freeze == 1 and "" or "s")
+    elseif counts.heavy > 0 then
+        headline = ("%d heavy stutter"):format(counts.heavy)
+    elseif stats.avgFPS > 0 and stats.low1 > 0 and (stats.low1 / stats.avgFPS) < 0.6 then
+        headline = "the worst 1% of frames are far below average"
+    elseif WTM.Network.session.spikes > 0 then
+        headline = ("%d latency spike%s"):format(WTM.Network.session.spikes,
+            WTM.Network.session.spikes == 1 and "" or "s")
+    elseif WTM.SpikeDetector.total > 0 then
+        headline = "minor spikes only"
+    else
+        headline = "nothing above the thresholds"
+    end
 
     return health, score, {
         spikesPerMinute = perMinute,
         avgFPS = stats.avgFPS,
         low1   = stats.low1,
         duration = duration,
+        headline = headline,
     }
 end
 
@@ -79,8 +99,40 @@ end
 -- Findings
 --------------------------------------------------------------------------
 
-local function AddFinding(out, tone, title, detail, evidence)
-    out[#out + 1] = { tone = tone, title = title, detail = detail, evidence = evidence }
+--- The categories a finding can belong to. Grouping them lets the page show
+--- "what is the state of each area" as well as a flat list, which is the
+--- difference between a log and a diagnosis.
+Diagnostics.CATEGORIES = {
+    { key = "pacing",   label = "Frame pacing" },
+    { key = "cpu",      label = "Addon CPU" },
+    { key = "memory",   label = "Memory" },
+    { key = "events",   label = "Events" },
+    { key = "latency",  label = "Latency" },
+    { key = "overhead", label = "This addon" },
+    { key = "other",    label = "Other" },
+}
+
+--- How much weight a finding carries.
+---
+---   measured   a direct reading; the number is what it says it is
+---   derived    computed from several readings, still arithmetic
+---   heuristic  rests on the frame-name attribution guess, or on an
+---              association across samples rather than a measurement
+---
+--- This is NOT a probability, and it is not a claim about whether the finding
+--- matters. It says what kind of evidence is underneath it.
+Diagnostics.CONFIDENCE = {
+    measured  = { label = "measured",  order = 3 },
+    derived   = { label = "derived",   order = 2 },
+    heuristic = { label = "heuristic", order = 1 },
+}
+
+local function AddFinding(out, tone, title, detail, evidence, category, confidence)
+    out[#out + 1] = {
+        tone = tone, title = title, detail = detail, evidence = evidence,
+        category = category or "other",
+        confidence = confidence or "derived",
+    }
 end
 
 function Diagnostics:Build(out)
@@ -123,7 +175,7 @@ function Diagnostics:Compute(out)
     if total == 0 then
         AddFinding(out, "ok", "No frame time spikes detected",
             ("Frame times stayed within the configured thresholds for %s.")
-                :format(Fmt.Duration(GetTime() - (WTM.state.sessionStart or GetTime()))))
+                :format(Fmt.Duration(GetTime() - (WTM.state.sessionStart or GetTime()))), nil, "pacing", "measured")
     else
         local parts = {}
         for _, kind in ipairs({ "freeze", "heavy", "stutter", "minor" }) do
@@ -133,20 +185,20 @@ function Diagnostics:Compute(out)
         end
         AddFinding(out, counts.freeze > 0 and "crit" or "warn",
             ("%d frame time spikes detected"):format(total),
-            table.concat(parts, ", "))
+            table.concat(parts, ", "), nil, "pacing", "measured")
     end
 
     local suppressed = WTM.Suppression:Describe()
     if suppressed then
         AddFinding(out, "muted", "Some frame spikes were not reported", suppressed ..
-            "\nThese happen during loading screens, the first seconds after login, a UI reload or a zone change - the client doing what it is supposed to do. They are counted but not treated as stutter.")
+            "\nThese happen during loading screens, the first seconds after login, a UI reload or a zone change - the client doing what it is supposed to do. They are counted but not treated as stutter.", nil, "pacing", "measured")
     end
 
     local stats = WTM.FrameTime:GetSessionStats()
     if stats.avgFPS > 0 and stats.low1 > 0 and (stats.low1 / stats.avgFPS) < 0.6 then
         AddFinding(out, "warn", "Frame pacing is uneven",
             ("Average %s FPS but the worst 1%% of frames ran at %s FPS. The gap between those two numbers is what a stutter feels like.")
-                :format(Fmt.FPS(stats.avgFPS), Fmt.FPS(stats.low1)))
+                :format(Fmt.FPS(stats.avgFPS), Fmt.FPS(stats.low1)), nil, "pacing", "derived")
     end
 
     ------------------------------------------------------------------
@@ -155,7 +207,7 @@ function Diagnostics:Compute(out)
     if not WTM.CPU.available then
         AddFinding(out, "muted", "Addon CPU was not measured",
             "The client's scriptProfile CVar is off, so per-addon CPU time is unavailable for this session. Nothing here can attribute a spike to an addon's CPU use.",
-            { action = "enableProfiling" })
+            { action = "enableProfiling" }, "cpu", "measured")
     else
         local correlations, spikeSamples = WTM.Correlation:Analyze()
         if spikeSamples >= C.CORRELATION_MIN_SAMPLES and #correlations > 0 then
@@ -178,13 +230,13 @@ function Diagnostics:Compute(out)
                         ("%s: %s"):format(entry.title, entry.label),
                         ("Above its own average CPU in %d of %d spike windows (phi %.2f, peak %+.1f%%). %s")
                             :format(entry.hits, entry.spikes, entry.phi, entry.peakExcess, C.TXT_PHI_NOTE),
-                        { addon = entry.name })
+                        { addon = entry.name }, "cpu", "heuristic")
                 end
             end
         elseif total > 0 then
             AddFinding(out, "muted", "Not enough spikes to correlate",
                 ("%d spike%s recorded; at least %d are needed before an association is worth reporting.")
-                    :format(spikeSamples, spikeSamples == 1 and "" or "s", C.CORRELATION_MIN_SAMPLES))
+                    :format(spikeSamples, spikeSamples == 1 and "" or "s", C.CORRELATION_MIN_SAMPLES), nil, "cpu", "derived")
         end
     end
 
@@ -199,7 +251,7 @@ function Diagnostics:Compute(out)
                 ("%s was busy during %d%% of spikes"):format(entry.event, entry.percent),
                 ("Averaging %s during those windows. Frequent events cost CPU across every addon that listens for them.")
                     :format(Fmt.Rate(entry.avgRate)),
-                { event = entry.event })
+                { event = entry.event }, "events", "heuristic")
         end
     end
 
@@ -209,7 +261,7 @@ function Diagnostics:Compute(out)
             ("Most recent: %s peaked at %s against a normal rate of %s.")
                 :format(storms[#storms].event,
                         Fmt.Rate(storms[#storms].peakRate),
-                        Fmt.Rate(storms[#storms].baseline)))
+                        Fmt.Rate(storms[#storms].baseline)), nil, "events", "measured")
     end
 
     ------------------------------------------------------------------
@@ -229,7 +281,7 @@ function Diagnostics:Compute(out)
         end
         AddFinding(out, "warn", "Potential sustained memory growth",
             table.concat(lines, "\n") ..
-            "\nGrowth is not proof of a leak. Addons legitimately grow while caching data; what matters is whether it ever stops.")
+            "\nGrowth is not proof of a leak. Addons legitimately grow while caching data; what matters is whether it ever stops.", nil, "memory", "derived")
     end
 
     local sessionGrowth = WTM.Memory.current.luaKB - WTM.Memory.current.luaStartKB
@@ -238,7 +290,7 @@ function Diagnostics:Compute(out)
             ("%s since login, now at %s. %s")
                 :format(Fmt.MemoryDelta(sessionGrowth),
                         Fmt.Memory(WTM.Memory.current.luaKB),
-                        WTM.Memory:GetHeapDropSummary()))
+                        WTM.Memory:GetHeapDropSummary()), nil, "memory", "measured")
     end
 
     ------------------------------------------------------------------
@@ -249,7 +301,7 @@ function Diagnostics:Compute(out)
             ("%d world latency spike%s"):format(WTM.Network.session.spikes,
                 WTM.Network.session.spikes == 1 and "" or "s"),
             ("Peak world latency %d ms, average %d ms. Latency spikes are server or connection side; no addon can cause or fix them.")
-                :format(WTM.Network.session.peakWorld, select(2, WTM.Network:GetAverages())))
+                :format(WTM.Network.session.peakWorld, select(2, WTM.Network:GetAverages())), nil, "latency", "measured")
     end
 
     ------------------------------------------------------------------
@@ -257,7 +309,7 @@ function Diagnostics:Compute(out)
     ------------------------------------------------------------------
     local warning, tone = WTM.Overhead:GetWarning()
     if warning then
-        AddFinding(out, tone, "This addon's own overhead is elevated", warning)
+        AddFinding(out, tone, "This addon's own overhead is elevated", warning, nil, "overhead", "measured")
     end
 
     ------------------------------------------------------------------
@@ -280,7 +332,7 @@ function Diagnostics:Compute(out)
             AddFinding(out, "muted",
                 ("%d spike%s with no addon above its own average"):format(
                     unattributed, unattributed == 1 and "" or "s"),
-                "These are consistent with work outside addon Lua: shader compilation, asset streaming, the game engine itself, or the server. An addon cannot see any of those directly.")
+                "These are consistent with work outside addon Lua: shader compilation, asset streaming, the game engine itself, or the server. An addon cannot see any of those directly.", nil, "cpu", "measured")
         end
     end
 

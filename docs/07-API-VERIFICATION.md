@@ -157,6 +157,25 @@ nicht existiert, **fällt das Addon nicht aus** — das Feature meldet sich als
 | `GetCVar` / `SetCVar` | u. a. `scriptProfile` | `scriptProfile` erfolgreich gesetzt und gelesen | ✅ | ✅ |
 | `GetCVarInfo(name)` | Schreibbarkeit prüfen | existiert; Positionen noch nicht gegen einen geschützten CVar geprüft | ✅ | ◐ |
 
+### Was in 0.6.0 dazukam, und warum nichts davon eine neue API braucht
+
+Der gesamte Ausbau in 0.6.0 - zehn Seiten, eine Widget-Bibliothek, Alerts,
+Session-Vergleich, Impact-Ranking - liest **ausschliesslich Zahlen, die die
+bestehenden Sampler schon erzeugen**. Es wurde keine einzige neue WoW-API
+aufgerufen. Zwei Ergänzungen im Recorder (`addonKB`, `wtmMs`) speichern Werte,
+die vorher nur live vorlagen; beide werden ans Ende des Bucket-Arrays gehängt,
+sodass ältere gespeicherte Buckets kürzer sind und beim Lesen als 0 gelten
+statt eine Migration zu erzwingen.
+
+Zwei Dinge sind ausdrücklich **nicht möglich** und werden deshalb auch nicht
+angedeutet:
+
+| Gewünscht | Warum es nicht geht |
+|---|---|
+| Zwischenablage beschreiben | WoW stellt Addons keinerlei Clipboard-API zur Verfügung. Die Copy-Box zeigt Text in einer EditBox zum Selbst-Markieren - das ist die Grenze. |
+| Paketverlust, Jitter, Route, Server-Tick | Kein WoW-Client legt diese Werte offen. Die Network-Seite listet sie als Zeile mit „No WoW client exposes this to addons" statt sie wegzulassen. |
+| Ein Addon zur Laufzeit entladen | Es gibt keine API dafür. Enable/Disable wirken erst nach einem Reload, und die Buttons sagen das. |
+
 ### Oberfläche: Minimap-Button und Options-Eintrag
 
 Keine dieser APIs existiert auf allen vier Clients, und keine davon wird über
@@ -227,6 +246,11 @@ unter *Options → AddOns* und funktioniert unverändert weiter.
 | Encounter-, Ladebildschirm- und Challenge-Mode-Events | Registrierung akzeptiert, nie ausgelöst |
 | Gruppen-/Raid-Pfad | Charakter war im Test allein |
 | Minimap-Button | Neu in 0.4.0, im echten Client noch nicht gesehen |
+| Zehn neue Seiten (0.6.0) | Overview, Live Resources, Frame Analysis, Network, Addon Impact, Compare, Alerts, Recording - keine davon lief je im echten Client |
+| Alert-Regeln | Neu in 0.6.0; ausgelöst wurde bisher nur im Harness |
+| Range-Inspector der Timeline | Neu in 0.6.0, Drag-Auswahl nie mit einer echten Maus getestet |
+| Kontextmenü (Rechtsklick) | Neu in 0.6.0; eigene Frames statt UIDropDownMenu, im Spiel ungetestet |
+| Copy-Box | Neu in 0.6.0. WoW hat **keinen** Clipboard-Zugriff für Addons - die Box zeigt Text zum Selbst-Kopieren, mehr ist nicht möglich |
 | Options → AddOns-Eintrag | Neu in 0.4.0; welcher der drei Registrierungswege auf 12.1.0 tatsächlich greift, ist nur im Spiel feststellbar |
 | Onboarding | Neu in 0.4.0, nie im echten Client gelaufen |
 

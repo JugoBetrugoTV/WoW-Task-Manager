@@ -31,6 +31,10 @@ Network.current = {
 Network.session = {
     peakHome  = 0,
     peakWorld = 0,
+    -- Nil until the first reading: a minimum initialised to zero would report
+    -- "0 ms" for a session that has not measured anything yet.
+    minHome   = nil,
+    minWorld  = nil,
     sumHome   = 0,
     sumWorld  = 0,
     samples   = 0,
@@ -67,6 +71,8 @@ function Network:Sample()
         s.sumWorld = s.sumWorld + cur.latencyWorld
         if cur.latencyHome > s.peakHome then s.peakHome = cur.latencyHome end
         if cur.latencyWorld > s.peakWorld then s.peakWorld = cur.latencyWorld end
+        if not s.minHome or cur.latencyHome < s.minHome then s.minHome = cur.latencyHome end
+        if not s.minWorld or cur.latencyWorld < s.minWorld then s.minWorld = cur.latencyWorld end
 
         baselineWorld = Math.EMA(baselineWorld, cur.latencyWorld, 0.2)
         if cur.latencyWorld >= SPIKE_MIN_MS

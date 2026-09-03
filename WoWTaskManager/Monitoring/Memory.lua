@@ -37,6 +37,10 @@ Memory.current = {
     luaStartKB   = 0,
     luaPeakKB    = 0,
     addonSumKB   = 0,
+    -- The first and largest attributed totals seen this session, so a summary
+    -- can say how far it has moved without keeping a second ring for it.
+    addonStartKB = nil,
+    addonPeakKB  = 0,
     growthKBPerMin = 0,
     lastAddonScanAt = 0,
     addonScanCostMs = 0,
@@ -163,6 +167,8 @@ function Memory:SampleAddons()
 
     local cur = self.current
     cur.addonSumKB      = sum
+    if cur.addonStartKB == nil then cur.addonStartKB = sum end
+    if sum > (cur.addonPeakKB or 0) then cur.addonPeakKB = sum end
     cur.lastAddonScanAt = now
     cur.addonScanCostMs = Compat.Now() - t0
 

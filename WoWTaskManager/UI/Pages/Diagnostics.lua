@@ -93,16 +93,38 @@ function Page:Build(frame)
             -- Findings are sentences, not labels: they wrap, bounded to the
             -- two lines the row is tall.
             UI.Wrap(row.detail, 2)
+
+            -- What kind of evidence sits under the finding. Not a probability
+            -- and not a severity: it says whether the number was measured
+            -- directly, computed from several readings, or rests on the frame
+            -- attribution heuristic.
+            row.badge = UI.Text(row, "tiny", "textMuted", "RIGHT")
+            row.badge:SetPoint("TOPRIGHT", -8, -6)
+            row.badge:SetWidth(72)
+            row.title:SetPoint("RIGHT", row.badge, "LEFT", -6, 0)
             return row
         end,
         function(row, finding)
             row.accent:SetColorTexture(Theme:Tone(finding.tone))
-            row.title:SetText(finding.title)
+            row.title:SetText(UI.FitText(row.title, finding.title or ""))
             row.title:SetTextColor(Theme:Tone(finding.tone == "muted" and "muted" or "textPrimary"))
             if finding.tone == "muted" then
                 row.title:SetTextColor(T("textSecondary"))
             end
             row.detail:SetText(finding.detail or "")
+
+            local confidence = WTM.Diagnostics.CONFIDENCE[finding.confidence]
+            local categoryLabel
+            for _, category in ipairs(WTM.Diagnostics.CATEGORIES) do
+                if category.key == finding.category then categoryLabel = category.label end
+            end
+            -- The badge carries the confidence only; the category is on the
+            -- detail line, where there is room for the word to stay whole.
+            row.badge:SetText(UI.FitText(row.badge,
+                confidence and confidence.label or ""))
+            if categoryLabel and (finding.detail or "") ~= "" then
+                row.detail:SetText(("%s  -  %s"):format(categoryLabel, finding.detail))
+            end
         end,
         function(finding)
             if finding.evidence and finding.evidence.addon then

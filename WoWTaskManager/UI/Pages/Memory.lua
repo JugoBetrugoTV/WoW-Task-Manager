@@ -62,6 +62,10 @@ function Page:Build(frame)
         { key = "addons",  label = "ATTRIBUTED TO ADDONS" },
         { key = "growth",  label = "SESSION GROWTH" },
         { key = "rate",    label = "GROWTH RATE" },
+        { key = "peak",    label = "PEAK HEAP" },
+        { key = "low",     label = "LOWEST HEAP" },
+        { key = "largest", label = "LARGEST ADDON" },
+        { key = "fastest", label = "FASTEST GROWING" },
         { key = "gc",      label = "HEAP DECREASES OBSERVED" },
     }
     for i, spec in ipairs(specs) do
@@ -180,6 +184,57 @@ function Page:Refresh()
             Fmt.Ago(GetTime() - WTM.Memory.heapDrops.lastAt),
             Fmt.Memory(WTM.Memory.heapDrops.lastFreedKB))
         or "none observed yet")
+
+    self.cards.peak:SetValue(Fmt.Memory(mem.luaPeakKB or 0), "")
+    self.cards.peak:SetSub("highest the heap has been this session")
+
+    -- The lowest point the heap reached, which is the closest thing to a
+    -- "floor" this addon can observe. It is not a measurement of live data:
+    -- WoW reports no collection statistics, so all this says is that the heap
+    -- was once this small.
+    local ring = WTM.Memory.history.lua
+    local low
+    if ring and ring.count > 0 then
+        low = ring:Get(1)
+        for i = 2, ring.count do
+            local v = ring:Get(i)
+            if v < low then low = v end
+        end
+    end
+    if low then
+        self.cards.low:SetValue(Fmt.Memory(low), "")
+        self.cards.low:SetSub("lowest point in the retained curve")
+    else
+        self.cards.low:SetUnavailable("No heap history retained yet.")
+    end
+
+    if WTM.Caps:Has("addonMemory") then
+        self.cards.largest:SetAvailable()
+        self.cards.fastest:SetAvailable()
+
+        local top = WTM.Memory:GetTopConsumers(self._topScratch or {}, 1)
+        self._topScratch = top
+        if top[1] then
+            self.cards.largest:SetValue(Fmt.Truncate(top[1].title or top[1].name, 14), "")
+            self.cards.largest:SetSub(Fmt.Memory(top[1].memKB or 0))
+        else
+            self.cards.largest:SetValue("-", "")
+            self.cards.largest:SetSub("no per-addon scan yet")
+        end
+
+        local growth = WTM.Memory:GetGrowthRanking(self._growthScratch or {}, 1)
+        self._growthScratch = growth
+        if growth[1] and (growth[1].perMinute or 0) > 0 then
+            self.cards.fastest:SetValue(Fmt.Truncate(growth[1].title or growth[1].name, 14), "")
+            self.cards.fastest:SetSub(("%s per minute"):format(Fmt.Memory(growth[1].perMinute)))
+        else
+            self.cards.fastest:SetValue("none", "")
+            self.cards.fastest:SetSub("no addon is growing measurably")
+        end
+    else
+        self.cards.largest:SetUnavailable(C.TXT_UNAVAILABLE_CLIENT)
+        self.cards.fastest:SetUnavailable(C.TXT_UNAVAILABLE_CLIENT)
+    end
 
     for _, card in pairs(self.cards) do card:Refresh() end
 

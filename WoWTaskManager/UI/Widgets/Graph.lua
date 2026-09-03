@@ -664,14 +664,13 @@ function UI.Graph(parent, opts)
         UI.TooltipShow(nil)
     end
 
-    graph:SetScript("OnSizeChanged", function(self)
-        self.dirty = true
-        self:Draw()
-    end)
-    graph:SetScript("OnShow", function(self)
-        self.dirty = true
-        self:Draw()
-    end)
+    -- Mark dirty, do NOT draw. Drawing here bypasses the round-robin budget
+    -- entirely: any layout pass that resizes several graphs would redraw all of
+    -- them in one frame, which is precisely the 15 ms spike the budget exists
+    -- to prevent. The next budgeted pass picks them up, at most one refresh
+    -- interval later, and a real resize forces a full pass anyway.
+    graph:SetScript("OnSizeChanged", function(self) self.dirty = true end)
+    graph:SetScript("OnShow", function(self) self.dirty = true end)
 
     return graph
 end

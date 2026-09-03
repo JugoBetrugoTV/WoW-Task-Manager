@@ -32,6 +32,21 @@ CPU.current = {
     sampleWindowSec = 0,
 }
 
+-- Session aggregates, accumulated one add at a time on the existing sample
+-- tick. Cheaper than deriving them from history, and they survive the history
+-- ring wrapping around.
+CPU.session = {
+    sumPct   = 0,
+    samples  = 0,
+    peakPct  = 0,
+    avgPct   = 0,
+}
+
+-- A small ring for the sparkline on the resources page. The dashboard graph
+-- reads the recorder instead; this exists because a Sparkline binds to a ring
+-- and copying a series out of the recorder on every refresh would allocate.
+CPU.history = nil
+
 CPU.available = false
 
 local EMA_ALPHA = 0.25
@@ -108,6 +123,15 @@ function CPU:Sample()
     cur.totalPct = totalDeltaMs / windowMs * 100
     cur.lastSampleAt = now
     cur.sampleWindowSec = windowSec
+
+    -- Session aggregate and history ring. Four arithmetic operations and one
+    -- ring push, on a tick that already walked every addon.
+    local session = self.session
+    session.sumPct  = session.sumPct + cur.totalPct
+    session.samples = session.samples + 1
+    session.avgPct  = session.sumPct / session.samples
+    if cur.totalPct > session.peakPct then session.peakPct = cur.totalPct end
+    if self.history then self.history:Push(cur.totalPct) end
 
     if api.GetScriptCPUUsage then
         local okScript, totalMs = pcall(api.GetScriptCPUUsage)
@@ -245,6 +269,9 @@ end
 --------------------------------------------------------------------------
 
 function CPU:OnInitialize()
+    -- 300 samples at the default 2 s interval is ten minutes of sparkline,
+    -- which is as far back as a glance is worth.
+    self.history = WTM.RingBuffer.New(300)
     self.available = WTM.Caps:Get("addonCPU") == "yes"
     self.reason = nil
     if not self.available then
@@ -283,4 +310,7 @@ function CPU:Reset()
     lastSampleTime = GetTime()
     local cur = self.current
     cur.totalPct, cur.scriptDeltaMs = 0, 0
+    local session = self.session
+    session.sumPct, session.samples, session.peakPct, session.avgPct = 0, 0, 0, 0
+    if self.history then self.history:Reset() end
 end

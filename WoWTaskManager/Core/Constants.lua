@@ -12,7 +12,7 @@ WTM.C = C
 C.ADDON_NAME    = ADDON_NAME
 C.ADDON_TITLE   = "WoW Task Manager"
 C.ADDON_SHORT   = "WTM"
-C.VERSION       = "0.5.0"
+C.VERSION       = "0.6.0"
 
 -- SavedVariables schema version.  Bump this whenever the stored shape changes
 -- and add a migration step in Core/Database.lua; never reinterpret old data in
@@ -183,6 +183,20 @@ C.CORRELATION_LEVELS = {
 }
 C.CORRELATION_MIN_SAMPLES = 3
 
+-- Frame pacing bands, in milliseconds. A frame at or under STABLE is one
+-- nobody notices; the bands above it are where "it felt bad" starts. These are
+-- descriptive thresholds for grouping frames, not a claim about perception.
+C.FRAME_STABLE_MS = 20
+C.FRAME_PACING_BANDS = {
+    { label = "< 8.3 ms",     max = 8.34,   tone = "ok",   note = "120 FPS and above" },
+    { label = "8.3 - 16.7",   max = 16.67,  tone = "ok",   note = "60 to 120 FPS" },
+    { label = "16.7 - 33.3",  max = 33.34,  tone = "info", note = "30 to 60 FPS" },
+    { label = "33.3 - 50",    max = 50,     tone = "warn", note = "20 to 30 FPS" },
+    { label = "50 - 100",     max = 100,    tone = "warn", note = "10 to 20 FPS" },
+    { label = "100 - 250",    max = 250,    tone = "crit", note = "visible hitch" },
+    { label = "250 ms +",     max = math.huge, tone = "crit", note = "a freeze" },
+}
+
 --------------------------------------------------------------------------
 -- Process status flags
 --------------------------------------------------------------------------
@@ -229,11 +243,25 @@ C.TIME_RANGES = {
 -- Health scoring
 --------------------------------------------------------------------------
 
+-- Five bands rather than three. The middle of a three-band scale has to cover
+-- everything from "a couple of hitches" to "nearly unplayable", which makes it
+-- useless as a signal; splitting it gives the score somewhere to move.
 C.HEALTH = {
-    GOOD     = { key = "GOOD",     text = "GOOD",     tone = "ok"   },
-    WARNING  = { key = "WARNING",  text = "WARNING",  tone = "warn" },
-    CRITICAL = { key = "CRITICAL", text = "CRITICAL", tone = "crit" },
+    EXCELLENT = { key = "EXCELLENT", text = "EXCELLENT", tone = "ok",   min = 90 },
+    GOOD      = { key = "GOOD",      text = "GOOD",      tone = "ok",   min = 75 },
+    DEGRADED  = { key = "DEGRADED",  text = "DEGRADED",  tone = "warn", min = 55 },
+    POOR      = { key = "POOR",      text = "POOR",      tone = "warn", min = 35 },
+    CRITICAL  = { key = "CRITICAL",  text = "CRITICAL",  tone = "crit", min = 0  },
 }
+
+-- Ordered worst-first lookup, so a score maps to a band without a chain of ifs.
+C.HEALTH_BANDS = {
+    C.HEALTH.EXCELLENT, C.HEALTH.GOOD, C.HEALTH.DEGRADED,
+    C.HEALTH.POOR, C.HEALTH.CRITICAL,
+}
+
+-- Kept so anything still asking for WARNING gets the band that replaced it.
+C.HEALTH.WARNING = C.HEALTH.DEGRADED
 
 --------------------------------------------------------------------------
 -- Marker types for the timeline
@@ -250,6 +278,11 @@ C.MARKERS = {
     zone      = { glyph = ">",  label = "Zone change",  tone = "muted"  },
     loading   = { glyph = "~",  label = "Loading screen",tone = "muted" },
     gc        = { glyph = ".",  label = "GC",           tone = "muted"  },
+    -- Raised by a user-defined alert, and by the user pressing "Add marker" on
+    -- the Recording page. Both belong on the shared time axis: an alert nobody
+    -- can find again afterwards is a line of chat, not a diagnostic.
+    alert     = { glyph = "!",  label = "Alert",        tone = "warn"   },
+    custom    = { glyph = "#",  label = "Marker",       tone = "info"   },
 }
 
 --------------------------------------------------------------------------

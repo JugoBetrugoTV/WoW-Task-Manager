@@ -193,6 +193,18 @@ end
 -- Reading past sessions
 --------------------------------------------------------------------------
 
+--- The live session in the same shape as a stored one, so anything that reads
+--- stored sessions (the compare page, the sessions list) can take the current
+--- one without a second code path. Summary fields are brought up to date
+--- first; this is the same work the periodic update does, so calling it costs
+--- one pass over already-sampled numbers.
+function Sessions:LiveSnapshot()
+    if not self.current then return nil end
+    self:UpdateSummary()
+    self.current.isLive = true
+    return self.current
+end
+
 function Sessions:GetStored()
     return WTM.db.global.sessions
 end

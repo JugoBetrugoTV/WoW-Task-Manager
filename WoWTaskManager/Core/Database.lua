@@ -120,6 +120,28 @@ local defaults = {
             enabled = false,   -- /wtm dev on
         },
 
+        -- User-defined thresholds. Every rule reads a number the sampler is
+        -- already producing; none of them adds a timer or a listener.
+        alerts = {
+            enabled  = false,
+            chat     = true,
+            marker   = true,
+            sound    = false,
+            -- Seconds before the same rule may fire again. An alert that
+            -- repeats every sample is noise, not information.
+            cooldown = 30,
+            rules    = {},   -- key -> { enabled, threshold }
+        },
+
+        -- Which dashboard widgets are shown, and how much room each gets.
+        -- Absent keys mean "shown at its default size", so a widget added in a
+        -- later version appears without needing a migration.
+        dashboard = {
+            hidden = {},          -- key -> true
+            sizes  = {},          -- key -> "small" | "medium" | "large"
+            order  = {},          -- key -> number, lower is earlier
+        },
+
         -- The compact always-on readout (/wtm mini).
         liveMonitor = {
             shown      = false,

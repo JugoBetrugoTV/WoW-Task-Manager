@@ -724,6 +724,86 @@ function Page:Build(frame)
     end
 
     ------------------------------------------------------------------
+    -- Dashboard layout
+    --
+    -- Deliberately not drag and drop. Dragging a widget grid is a large amount
+    -- of frame work for a choice most people make once, and it would have to
+    -- be re-implemented for every layout in the addon. A row per widget with
+    -- a visibility toggle and a size is the same decision, made faster.
+    ------------------------------------------------------------------
+    AddSection("DASHBOARD LAYOUT")
+
+    local layoutNote = UI.Text(canvas, "small", "textMuted", "LEFT")
+    layoutNote:SetWidth(COLUMN)
+    layoutNote:SetHeight(30)
+    UI.Wrap(layoutNote, 2)
+    layoutNote:SetText("Which blocks the dashboard shows, and how much room each gets. A hidden block is not refreshed at all, so hiding what you do not read makes the page cheaper as well as shorter.")
+    Add(layoutNote, 34)
+
+    local SIZES = { "small", "medium", "large" }
+    for _, widget in ipairs(WTM.UI.Pages.dashboard.WIDGETS) do
+        local row = CreateFrame("Frame", nil, canvas)
+        row:SetHeight(26)
+        Add(row, 30)
+
+        local dashboard = WTM.db.profile.dashboard
+
+        local visible = UI.Button(row, "", function(button)
+            dashboard.hidden[widget.key] = not dashboard.hidden[widget.key] or nil
+            button.Update()
+            WTM.UI.Pages.dashboard:ApplyLayoutSettings()
+        end, { height = 22, width = 74, style = "small" })
+        visible:SetPoint("LEFT")
+        visible.Update = function()
+            local hidden = dashboard.hidden[widget.key]
+            visible:SetText(hidden and "hidden" or "shown")
+            visible:SetSelected(not hidden)
+        end
+        visible.Update()
+        visible.tooltip = "Hides this block. A hidden block is skipped by the refresh loop entirely."
+        self.controls[#self.controls + 1] = visible
+
+        local label = UI.Text(row, "small", "textSecondary", "LEFT")
+        label:SetPoint("LEFT", visible, "RIGHT", 10, 0)
+        label:SetPoint("RIGHT", row, "RIGHT", -230, 0)
+        label:SetText(widget.label)
+
+        local previousSize
+        for _, size in ipairs(SIZES) do
+            local button = UI.Button(row, size, function(button)
+                dashboard.sizes[widget.key] = size
+                for _, other in ipairs(row.sizeButtons) do other.Update() end
+                WTM.UI.Pages.dashboard:ApplyLayoutSettings()
+            end, { height = 22, width = 66, style = "small" })
+            if previousSize then
+                button:SetPoint("LEFT", previousSize, "RIGHT", 4, 0)
+            else
+                button:SetPoint("RIGHT", row, "RIGHT", -(66 * 2 + 8), 0)
+            end
+            button.Update = function()
+                button:SetSelected((dashboard.sizes[widget.key] or widget.default) == size)
+            end
+            button.Update()
+            button.tooltip = ("How many columns this block takes on a wide window: %d of 6.")
+                :format(widget.spans[size] or 3)
+            row.sizeButtons = row.sizeButtons or {}
+            row.sizeButtons[#row.sizeButtons + 1] = button
+            self.controls[#self.controls + 1] = button
+            previousSize = button
+        end
+    end
+
+    local layoutReset = UI.Button(canvas, "Reset the dashboard layout", function()
+        local dashboard = WTM.db.profile.dashboard
+        for key in pairs(dashboard.hidden) do dashboard.hidden[key] = nil end
+        for key in pairs(dashboard.sizes) do dashboard.sizes[key] = nil end
+        WTM.UI.Pages.dashboard:ApplyLayoutSettings()
+        Page:Refresh()
+    end, { height = 24 })
+    layoutReset.tooltip = "Shows every block again at its default size."
+    Add(layoutReset, 28)
+
+    ------------------------------------------------------------------
     -- Developer tools, behind their own heading.
     --
     -- These inject data. Everything they inject is recorded with simulated =

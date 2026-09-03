@@ -161,7 +161,12 @@ check("sparkline honours worstIsLow",
 --------------------------------------------------------------------------
 -- Series whose BAD value is the low one. Everything else spikes upward, so
 -- its column must keep the maximum. Anything FPS-shaped belongs here.
-local FPS_SHAPED = { fps = true, low1 = true, low01 = true }
+-- The series whose WORST value is the low one. Everything else is a cost or a
+-- rate, where the worst value is the peak. Getting this wrong on any one of
+-- them deletes exactly the spikes the series exists to show.
+local FPS_SHAPED = {
+    fps = true, low1 = true, low01 = true, fpsAvg = true,
+}
 
 local function ExpectedWorstIsLow(fieldOrKey)
     return FPS_SHAPED[fieldOrKey] == true

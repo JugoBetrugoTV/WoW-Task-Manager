@@ -121,11 +121,40 @@ function Page:Build(frame)
     self.summary:SetPoint("LEFT", self.modeAnchor, "RIGHT", 12, 0)
 
     ------------------------------------------------------------------
+    -- Rate summary and the events-per-second graph
+    ------------------------------------------------------------------
+    local rateRow = CreateFrame("Frame", nil, frame)
+    rateRow:SetHeight(120)
+    rateRow:SetPoint("TOPLEFT", toolbar, "BOTTOMLEFT", 0, -10)
+    rateRow:SetPoint("TOPRIGHT", toolbar, "BOTTOMRIGHT", 0, -10)
+    self.rateRow = rateRow
+
+    self.rateCard = UI.StatCard(rateRow, "EVENT RATE", {
+        "Now", "Average", "Peak", "Total", "Distinct",
+    })
+    self.rateCard:SetPoint("TOPLEFT")
+    self.rateCard:SetPoint("BOTTOMLEFT")
+    self.rateCard:SetWidth(230)
+
+    self.stormCard = UI.TopList(rateRow, "EVENT STORMS", { rows = 4, wideValue = true })
+    self.stormCard:SetPoint("TOPRIGHT")
+    self.stormCard:SetPoint("BOTTOMRIGHT")
+    self.stormCard:SetWidth(280)
+
+    self.rateGraph = UI.Graph(frame, {
+        title = "EVENTS / SEC",
+        valueFormat = function(v) return Fmt.Rate(v) end,
+    })
+    self.rateGraph:SetPoint("TOPLEFT", self.rateCard, "TOPRIGHT", M.cardGap, 0)
+    self.rateGraph:SetPoint("BOTTOMRIGHT", self.stormCard, "BOTTOMLEFT", -M.cardGap, 0)
+    self.rateSeries = { values = {}, times = {} }
+
+    ------------------------------------------------------------------
     -- Storm banner
     ------------------------------------------------------------------
     self.storm = UI.NoticePanel(frame, "Event storm", "", nil, nil, "crit")
-    self.storm:SetPoint("TOPLEFT", toolbar, "BOTTOMLEFT", 0, -10)
-    self.storm:SetPoint("TOPRIGHT", toolbar, "BOTTOMRIGHT", 0, -10)
+    self.storm:SetPoint("TOPLEFT", rateRow, "BOTTOMLEFT", 0, -10)
+    self.storm:SetPoint("TOPRIGHT", rateRow, "BOTTOMRIGHT", 0, -10)
     self.storm:Hide()
 
     ------------------------------------------------------------------
@@ -170,9 +199,61 @@ function Page:UpdateModeButtons()
     end
 end
 
+--- The rate summary, the storm list and the events-per-second graph.
+--- All three read numbers the event monitor already produces.
+function Page:RefreshRates()
+    if not self.rateCard then return end
+    local cur = WTM.Events.current
+
+    self.rateCard:Set("Now", Fmt.Rate(cur.perSecond or 0))
+    self.rateCard:Set("Average", Fmt.Rate(cur.avgPerSecond or 0))
+    self.rateCard:Set("Peak", Fmt.Rate(cur.peakPerSecond or 0))
+    self.rateCard:Set("Total", Fmt.Comma(cur.total or 0))
+    self.rateCard:Set("Distinct", tostring(WTM.Events:GetDistinctCount()))
+
+    local entries = self._stormEntries or {}
+    self._stormEntries = entries
+    for i = #entries, 1, -1 do entries[i] = nil end
+    local storms = WTM.Events.storms
+    for i = #storms, math.max(1, #storms - 3), -1 do
+        local storm = storms[i]
+        if storm then
+            entries[#entries + 1] = {
+                name = ("%s  %s"):format(
+                    Fmt.Clock(storm.startedAt, WTM.state.sessionEpoch, WTM.state.sessionStart),
+                    storm.event),
+                value = Fmt.Rate(storm.peakRate or 0),
+                tone = "warn",
+                tooltipTitle = storm.event,
+                tooltipLines = {
+                    { "Peak rate", Fmt.Rate(storm.peakRate or 0) },
+                    { "Normal rate", Fmt.Rate(storm.baseline or 0) },
+                    { "Started", Fmt.Clock(storm.startedAt,
+                        WTM.state.sessionEpoch, WTM.state.sessionStart) },
+                },
+            }
+        end
+    end
+    self.stormCard:SetEntries(entries, "No event storm recorded this session.")
+
+    if UI.MainWindow:ShouldRedrawGraphs() and UI.MainWindow:TakeGraphSlot(1, 1) then
+        local now = GetTime()
+        local from = now - math.max(120, math.min(1800,
+            now - (WTM.state.sessionStart or now)))
+        WTM.Recorder:GetSeries("events", from, now, 300,
+            self.rateSeries.values, self.rateSeries.times)
+        self.rateGraph:SetSeries(1, self.rateSeries.values, self.rateSeries.times,
+            { label = "Events / sec", colorIndex = 6 })
+        self.rateGraph:SetTimeRange(from, now)
+        self.rateGraph.dirty = true
+        self.rateGraph:Draw()
+    end
+end
+
 function Page:LayoutTable()
     local pad = M.padding
-    local anchor = (#WTM.Events.storms > 0 and self.storm:IsShown()) and self.storm or self.toolbar
+    local anchor = (#WTM.Events.storms > 0 and self.storm:IsShown())
+        and self.storm or self.rateRow
 
     self.listeners:ClearAllPoints()
     self.listeners:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -10)
@@ -265,6 +346,10 @@ function Page:Refresh()
         -- too only meant it ran off the end of the toolbar.
         self.summary:SetText("monitoring off")
         self:RefreshListeners()
+        -- Still refreshed: the rate panel has to show zeroes and the storm
+        -- list has to keep showing what was recorded before it was switched
+        -- off, rather than freezing on the last live values.
+        self:RefreshRates()
         return
     end
 
@@ -302,6 +387,7 @@ function Page:Refresh()
     end
 
     self:RefreshListeners()
+    self:RefreshRates()
 
     local totalCPU, totalCalls = WTM.CPU:GetTotalEventCPU()
     self.summary:SetText(UI.FitText(self.summary, ("%s events/s  -  %d distinct  -  %s total%s")

@@ -29,9 +29,17 @@ local Recorder = WTM:NewModule("Recorder")
 WTM.Recorder = Recorder
 
 -- Field positions inside a bucket array.
+--
+-- New fields are appended, never inserted: a stored bucket from an earlier
+-- version is a shorter array, and reading position 10 of it yields nil rather
+-- than the wrong number. GetSeries treats a nil as zero, so old history keeps
+-- working and simply has no line for the fields it never recorded.
 local F_T, F_FPS, F_AVG, F_MAX, F_LATH, F_LATW, F_LUA, F_EV, F_CPU = 1, 2, 3, 4, 5, 6, 7, 8, 9
+local F_ADDONKB, F_WTM = 10, 11
 Recorder.FIELDS = { t = F_T, fps = F_FPS, frameAvgMs = F_AVG, frameMaxMs = F_MAX,
-                    latH = F_LATH, latW = F_LATW, luaKB = F_LUA, events = F_EV, cpuMs = F_CPU }
+                    latH = F_LATH, latW = F_LATW, luaKB = F_LUA, events = F_EV, cpuMs = F_CPU,
+                    addonKB = F_ADDONKB, wtmMs = F_WTM }
+Recorder.BUCKET_FIELDS = F_WTM
 
 Recorder.tiers = {}
 
@@ -67,12 +75,13 @@ end
 --------------------------------------------------------------------------
 
 local function NewBucket(t)
-    return { t, 0, 0, 0, 0, 0, 0, 0, 0 }
+    return { t, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
 end
 
 --- Merges `sample` into `bucket`, keeping worst-case values where that is the
 --- meaningful summary.
-local function Merge(bucket, fps, avgMs, maxMs, latH, latW, luaKB, events, cpuMs, weight)
+local function Merge(bucket, fps, avgMs, maxMs, latH, latW, luaKB, events, cpuMs,
+                     addonKB, wtmMs, weight)
     -- Running mean for the "typical" fields...
     local n = (bucket.n or 0) + weight
     bucket.n = n
@@ -85,6 +94,10 @@ local function Merge(bucket, fps, avgMs, maxMs, latH, latW, luaKB, events, cpuMs
     if latH > bucket[F_LATH] then bucket[F_LATH] = latH end
     if latW > bucket[F_LATW] then bucket[F_LATW] = latW end
     bucket[F_LUA] = luaKB   -- a level, not a rate: last value wins
+    bucket[F_ADDONKB] = addonKB   -- also a level
+    -- This addon's own cost is kept at its worst in the bucket, for the same
+    -- reason frame time is: an average hides the pass that cost the most.
+    if wtmMs > (bucket[F_WTM] or 0) then bucket[F_WTM] = wtmMs end
 end
 
 function Recorder:Sample()
@@ -110,7 +123,10 @@ function Recorder:Sample()
         ft.fps, ft.avgMs, ft.maxMs,
         net.latencyHome, net.latencyWorld,
         WTM.Memory.current.luaKB, WTM.Events.current.perSecond,
-        cpuMs, 1)
+        cpuMs,
+        WTM.Memory.current.addonSumKB or 0,
+        WTM.Overhead.current.totalMsPerSec or 0,
+        1)
 end
 
 function Recorder:CloseBucket(tierIndex, bucket)
@@ -151,6 +167,10 @@ function Recorder:Compact(tierIndex)
             Merge(nextTier.pending,
                 oldest[F_FPS], oldest[F_AVG], oldest[F_MAX],
                 oldest[F_LATH], oldest[F_LATW], oldest[F_LUA], oldest[F_EV], oldest[F_CPU],
+                -- A bucket recorded before these fields existed is a shorter
+                -- array; treat the missing positions as zero rather than
+                -- letting nil reach the arithmetic.
+                oldest[F_ADDONKB] or 0, oldest[F_WTM] or 0,
                 oldest.n or 1)
             self:Compact(tierIndex + 1)
         end
@@ -226,9 +246,13 @@ function Recorder:GetSeries(fieldName, fromTime, toTime, maxPoints, outValues, o
     local n = #buckets
     if n == 0 then return outValues, outTimes end
 
+    -- A bucket stored before a field existed is a shorter array, so reading a
+    -- newer field out of it yields nil. Zero is the honest substitute: it says
+    -- "nothing was recorded here", and it keeps old history readable instead
+    -- of forcing a migration that would have to invent values anyway.
     if not maxPoints or n <= maxPoints then
         for i = 1, n do
-            outValues[i] = buckets[i][field]
+            outValues[i] = buckets[i][field] or 0
             outTimes[i]  = buckets[i][F_T]
         end
         return outValues, outTimes
@@ -247,9 +271,9 @@ function Recorder:GetSeries(fieldName, fromTime, toTime, maxPoints, outValues, o
         local first = math.floor((p - 1) * step) + 1
         local last  = math.min(n, math.floor(p * step))
         if last >= first then
-            local best, bestT = buckets[first][field], buckets[first][F_T]
+            local best, bestT = buckets[first][field] or 0, buckets[first][F_T]
             for i = first + 1, last do
-                local v = buckets[i][field]
+                local v = buckets[i][field] or 0
                 if (keepMin and v < best) or (not keepMin and v > best) then
                     best, bestT = v, buckets[i][F_T]
                 end

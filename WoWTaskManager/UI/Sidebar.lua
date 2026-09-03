@@ -21,18 +21,37 @@ local Fmt   = WTM.Format
 local Sidebar = {}
 UI.Sidebar = Sidebar
 
+-- Grouped, because a flat list of sixteen entries is a list nobody reads.
+-- The headings are not clickable; they exist so a reader can find the page
+-- they want by the kind of question they are asking rather than by name.
 local NAV = {
+    { heading = "Overview" },
     { key = "dashboard",   label = "Dashboard" },
+    { key = "overview",    label = "Session overview" },
+
+    { heading = "Live" },
     { key = "processes",   label = "Processes" },
+    { key = "resources",   label = "Live resources" },
     { key = "performance", label = "Performance" },
-    { key = "incidents",   label = "Incidents" },
-    { key = "timeline",    label = "Timeline" },
+    { key = "frames",      label = "Frame analysis" },
+    { key = "network",     label = "Network" },
     { key = "events",      label = "Events" },
     { key = "memory",      label = "Memory" },
+
+    { heading = "Analysis" },
+    { key = "incidents",   label = "Incidents" },
+    { key = "timeline",    label = "Timeline" },
     { key = "diagnostics", label = "Diagnostics" },
+    { key = "impact",      label = "Addon impact" },
+    { key = "compare",     label = "Compare" },
+
+    { heading = "History" },
     { key = "sessions",    label = "Sessions" },
-    { separator = true },
+    { key = "recording",   label = "Recording" },
+
+    { heading = "System" },
     { key = "system",      label = "System" },
+    { key = "alerts",      label = "Alerts" },
     { key = "settings",    label = "Settings" },
 }
 
@@ -47,15 +66,41 @@ function Sidebar:Build(parent)
     UI.Border(frame, "R", "borderSubtle")
     self.frame = frame
 
+    ------------------------------------------------------------------
+    -- Footer first, so the nav list knows where it has to stop.
+    ------------------------------------------------------------------
+    local footer = CreateFrame("Frame", nil, frame)
+    footer:SetHeight(94)
+    footer:SetPoint("BOTTOMLEFT", 0, 0)
+    footer:SetPoint("BOTTOMRIGHT", 0, 0)
+    UI.Border(footer, "T", "borderSubtle")
+    self.footer = footer
+
+    -- Twenty-odd entries do not fit above the footer at the minimum window
+    -- height, so the nav scrolls. Without this the last group simply fell off
+    -- the bottom of the window and became unreachable.
+    local navScroll, navCanvas = UI.ScrollCanvas(frame, { step = 60 })
+    navScroll:ClearAllPoints()
+    navScroll:SetPoint("TOPLEFT", 0, 0)
+    navScroll:SetPoint("TOPRIGHT", 0, 0)
+    navScroll:SetPoint("BOTTOM", footer, "TOP", 0, 0)
+    self.navScroll, self.navCanvas = navScroll, navCanvas
+
     local y = -M.paddingSmall
     for _, entry in ipairs(NAV) do
-        if entry.separator then
-            local divider = UI.Divider(frame)
+        if entry.heading then
+            local heading = UI.Text(navCanvas, "tiny", "textMuted", "LEFT")
+            heading:SetPoint("TOPLEFT", 18, y - 8)
+            heading:SetPoint("TOPRIGHT", -14, y - 8)
+            heading:SetText(entry.heading:upper())
+            y = y - 20
+        elseif entry.separator then
+            local divider = UI.Divider(navCanvas)
             divider:SetPoint("TOPLEFT", 16, y - 6)
             divider:SetPoint("TOPRIGHT", -16, y - 6)
             y = y - 14
         else
-            local item = CreateFrame("Button", nil, frame)
+            local item = CreateFrame("Button", nil, navCanvas)
             item:SetHeight(M.navItemHeight)
             item:SetPoint("TOPLEFT", 0, y)
             item:SetPoint("TOPRIGHT", 0, y)
@@ -101,12 +146,7 @@ function Sidebar:Build(parent)
     ------------------------------------------------------------------
     -- Footer status
     ------------------------------------------------------------------
-    local footer = CreateFrame("Frame", nil, frame)
-    footer:SetHeight(94)
-    footer:SetPoint("BOTTOMLEFT", 0, 0)
-    footer:SetPoint("BOTTOMRIGHT", 0, 0)
-    UI.Border(footer, "T", "borderSubtle")
-    self.footer = footer
+    navCanvas:SetHeight(-y + M.paddingSmall)
 
     footer.dot = footer:CreateTexture(nil, "ARTWORK")
     footer.dot:SetSize(6, 6)

@@ -116,7 +116,7 @@ Theme.metrics = {
     headerHeight   = 28,
     cardHeight     = 92,
     cardGap        = 12,
-    navItemHeight  = 34,
+    navItemHeight  = 28,
     borderSize     = 1,
     scrollbarWidth = 6,
 }

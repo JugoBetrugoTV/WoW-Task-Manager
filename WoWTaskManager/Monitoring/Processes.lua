@@ -440,6 +440,9 @@ end
 -- Sorting uses the SMOOTHED cpu value, not the raw last-sample value: an addon
 -- that happens to be idle in one 2-second window should not fall twenty rows
 -- and climb back on the next sample.
+-- Shared empty table so BuildView never allocates one per call.
+local EMPTY_FILTERS = {}
+
 local SORTERS = {
     name     = byName,
     cpu      = descending(function(r) return r.cpuEma end),
@@ -452,6 +455,24 @@ local SORTERS = {
     end),
     events   = descending(function(r) return r.registeredEvents end),
     spikes   = descending(function(r) return r.spikes end),
+    cpusession = descending(function(r) return r.cpuTotalMs end),
+    mempct   = descending(function(r) return r.memKB end),
+    frames   = descending(function(r) return r.frameCount end),
+    -- Sorted by the association strength the correlation module computed for
+    -- this session; addons with no association sort last rather than as zero.
+    phi      = descending(function(r) return r.sessionPhi or -1 end),
+    lod      = function(a, b)
+        local function rank(r)
+            if r.loaded then return 1 end
+            if r.lod then return 2 end
+            if r.enableState == 0 then return 4 end
+            return 3
+        end
+        local ar, br = rank(a), rank(b)
+        if ar ~= br then return ar < br end
+        return byName(a, b)
+    end,
+    deps     = descending(function(r) return r.deps and #r.deps or 0 end),
     score    = function(a, b)
         local av, bv = a.score or 100, b.score or 100
         if av ~= bv then return av < bv end
@@ -470,11 +491,20 @@ Processes.SORT_KEYS = { "name", "status", "cpu", "cpuavg", "cpupeak",
 --- Fills `out` with records matching `filter`, sorted.  The caller owns `out`
 --- and reuses it between refreshes, so the process page allocates nothing per
 --- redraw.
-function Processes:BuildView(out, sortKey, ascending, filter, includeUnloaded)
+--- Builds the visible list.
+---
+--- `filters` is optional and additive: every field present has to pass. It
+--- exists so the page can offer "only what is worth looking at" without the
+--- page needing to know how a record is shaped.
+---     minCPU     percent
+---     minMemory  kilobytes
+---     enabledOnly / loadedOnly / suspectedOnly / watchedOnly
+function Processes:BuildView(out, sortKey, ascending, filter, includeUnloaded, filters)
     out = out or {}
     for i = #out, 1, -1 do out[i] = nil end
 
     local needle = filter and filter ~= "" and filter:lower() or nil
+    filters = filters or EMPTY_FILTERS
 
     for i = 1, #self.list do
         local record = self.list[i]
@@ -482,6 +512,25 @@ function Processes:BuildView(out, sortKey, ascending, filter, includeUnloaded)
         if include and needle then
             include = record.key:find(needle, 1, true) ~= nil
                 or record.titleClean:lower():find(needle, 1, true) ~= nil
+        end
+        if include and filters.loadedOnly then include = record.loaded end
+        if include and filters.enabledOnly then include = record.enableState ~= 0 end
+        if include and filters.watchedOnly then
+            include = WTM.Database:IsWatched(record.name)
+        end
+        if include and filters.suspectedOnly then
+            -- "Suspected" is deliberately a union of measured signals, not a
+            -- judgement: elevated CPU, sustained growth, or an association
+            -- with recorded spikes. Any one of them is a reason to look.
+            include = (record.cpuEma or 0) >= C.ELEVATED_CPU_PCT
+                or (record.memGrowthKBPerMin or 0) >= C.MEM_GROWTH_KB_PER_MIN
+                or (record.spikes or 0) >= 3
+        end
+        if include and filters.minCPU then
+            include = (record.cpuEma or 0) >= filters.minCPU
+        end
+        if include and filters.minMemory then
+            include = (record.memKB or 0) >= filters.minMemory
         end
         if include then out[#out + 1] = record end
     end

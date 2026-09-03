@@ -28,8 +28,16 @@ local TRACKS = {
       format = function(v) return ("%.0f"):format(v) end },
     { key = "memory", field = "luaKB",      label = "LUA MB",     colorIndex = 4,
       format = function(v) return ("%.0f"):format(v / 1024) end },
-    { key = "latency", field = "latW",      label = "LATENCY",    colorIndex = 3,
+    { key = "latency", field = "latW",      label = "WORLD MS",   colorIndex = 3,
       format = function(v) return ("%.0f"):format(v) end },
+    { key = "home",    field = "latH",      label = "HOME MS",    colorIndex = 7,
+      format = function(v) return ("%.0f"):format(v) end },
+    { key = "addonmem", field = "addonKB",  label = "ADDON MB",   colorIndex = 8,
+      format = function(v) return ("%.0f"):format(v / 1024) end },
+    -- This addon's own cost, on the same axis as everything it measures. If it
+    -- ever becomes the tallest track, that is the finding.
+    { key = "overhead", field = "wtmMs",    label = "WTM MS/S",   colorIndex = 7,
+      format = function(v) return ("%.2f"):format(v) end },
 }
 
 local TRACK_HEIGHT = 54
@@ -199,8 +207,133 @@ function Page:Build(frame)
     -- sentence that says what the number means.
     UI.Wrap(detail.body, 0)
 
+    ------------------------------------------------------------------
+    -- Range inspector
+    ------------------------------------------------------------------
+    -- Drag across any track to mark a span; the panel then summarises just
+    -- that span. This is what turns the timeline from a picture into
+    -- something you can ask a question of.
+    self.inspector = UI.StatCard(detail, "SELECTED RANGE", {
+        "Span", "Average FPS", "Worst frame", "Average world latency",
+        "Peak addon CPU", "Events at peak", "Lua memory change",
+    })
+    self.inspector:SetPoint("TOPRIGHT", detail, "TOPRIGHT", -M.padding, -12)
+    self.inspector:SetWidth(280)
+    self.inspector:SetPoint("BOTTOM", detail, "BOTTOM", 0, M.padding)
+    self.inspector:Hide()
+
+    self.inspectorClear = UI.Button(self.inspector, "clear", function()
+        Page:ClearSelection()
+    end, { height = 18, style = "tiny", minWidth = 46 })
+    self.inspectorClear:SetPoint("TOPRIGHT", -6, -4)
+
+    -- Selection is captured on the first track, which shares its time axis
+    -- with every other one. One handler, not one per track.
+    local firstTrack = self.tracks[1]
+    if firstTrack then
+        firstTrack:EnableMouse(true)
+        firstTrack:RegisterForDrag("LeftButton")
+        firstTrack:SetScript("OnDragStart", function(track)
+            Page.dragStartX = Page:CursorFraction(track)
+        end)
+        firstTrack:SetScript("OnDragStop", function(track)
+            local a, b = Page.dragStartX, Page:CursorFraction(track)
+            Page.dragStartX = nil
+            if not (a and b) then return end
+            if math.abs(a - b) < 0.01 then return end
+            Page:SetSelection(math.min(a, b), math.max(a, b))
+        end)
+    end
+
     self.range = "5m"
     self.rangeButtons["5m"]:SetSelected(true)
+end
+
+--- Where the cursor sits across `frame`, as 0..1. Returns nil when the frame
+--- has no resolvable geometry, rather than a fabricated 0.
+function Page:CursorFraction(frame)
+    local left = frame:GetLeft()
+    local width = frame:GetWidth()
+    if not left or not width or width <= 0 then return nil end
+    local x = GetCursorPosition() / (frame:GetEffectiveScale() or 1)
+    return math.max(0, math.min(1, (x - left) / width))
+end
+
+--- Marks a span of the visible window, as two fractions of it.
+function Page:SetSelection(fromFraction, toFraction)
+    self.selection = { from = fromFraction, to = toFraction }
+    self:Refresh()
+end
+
+function Page:ClearSelection()
+    self.selection = nil
+    if self.inspector then self.inspector:Hide() end
+    self:Refresh()
+end
+
+--- Summarises the selected span from the recorded series. Reads the same
+--- buckets the tracks draw, so the numbers cannot disagree with the picture.
+function Page:RefreshInspector(fromTime, toTime)
+    if not self.selection or not self.inspector then
+        if self.inspector then self.inspector:Hide() end
+        return
+    end
+
+    local span = toTime - fromTime
+    local a = fromTime + span * self.selection.from
+    local b = fromTime + span * self.selection.to
+    self.inspector:Show()
+
+    local values, times = self._inspectValues or {}, self._inspectTimes or {}
+    self._inspectValues, self._inspectTimes = values, times
+
+    --- The extreme of one field over the selection, or nil when the selection
+    --- contains no recorded bucket at all.
+    local function extreme(field, wantMin)
+        WTM.Recorder:GetSeries(field, a, b, 0, values, times)
+        if #values == 0 then return nil end
+        local best = values[1]
+        for i = 2, #values do
+            if (wantMin and values[i] < best) or (not wantMin and values[i] > best) then
+                best = values[i]
+            end
+        end
+        return best
+    end
+
+    local function mean(field)
+        WTM.Recorder:GetSeries(field, a, b, 0, values, times)
+        if #values == 0 then return nil end
+        local sum = 0
+        for i = 1, #values do sum = sum + values[i] end
+        return sum / #values
+    end
+
+    local function set(label, value, formatter)
+        if value == nil then
+            self.inspector:Set(label, "no data", "muted")
+        else
+            self.inspector:Set(label, formatter(value))
+        end
+    end
+
+    self.inspector:Set("Span", Fmt.Duration(b - a))
+    set("Average FPS", mean("fps"), function(v) return Fmt.FPS(v) end)
+    set("Worst frame", extreme("frameMaxMs", false), function(v) return Fmt.Ms(v) end)
+    set("Average world latency", mean("latW"), function(v) return ("%d ms"):format(v) end)
+    set("Peak addon CPU", WTM.CPU.available and extreme("cpuMs", false) or nil,
+        function(v) return ("%.2f %%"):format(v) end)
+    set("Events at peak", extreme("events", false), function(v) return Fmt.Rate(v) end)
+
+    -- Memory is a level, so the interesting figure is the change across the
+    -- span rather than its extreme.
+    WTM.Recorder:GetSeries("luaKB", a, b, 0, values, times)
+    if #values >= 2 then
+        self.inspector:Set("Lua memory change",
+            Fmt.MemoryDelta(values[#values] - values[1]))
+    else
+        self.inspector:Set("Lua memory change", "no data", "muted")
+    end
 end
 
 --- Which addons get their own track: the ones you flagged, or the top CPU
@@ -231,13 +364,31 @@ function Page:RefreshLegend()
     self.legend:SetText(UI.FitText(self.legend, table.concat(parts, "   ")))
 end
 
+--- Brings one addon's CPU up as its own track. Called when another page hands
+--- an addon over ("show on timeline").
+function Page:FocusAddon(name)
+    self.focusAddon = name
+    self.showAddonTracks = true
+    if self.addonTracksButton then self.addonTracksButton:SetSelected(true) end
+    self:RebuildAddonTracks()
+    self:Refresh()
+end
+
 function Page:PickTrackedAddons(out)
     out = out or {}
     for i = #out, 1, -1 do out[i] = nil end
     if not WTM.CPU.available then return out end
 
+    -- An addon handed over from another page leads, whether or not it is
+    -- flagged: "show me this one" should put it first, not somewhere in a list.
+    if self.focusAddon then
+        local record = WTM.Processes:Get(self.focusAddon)
+        if record and record.loaded then out[#out + 1] = record end
+    end
+
     for _, record in WTM.Processes:Iterate() do
-        if record.loaded and WTM.Database:IsWatched(record.name) and #out < ADDON_TRACK_LIMIT then
+        if record.loaded and WTM.Database:IsWatched(record.name)
+            and record.name ~= self.focusAddon and #out < ADDON_TRACK_LIMIT then
             out[#out + 1] = record
         end
     end
@@ -431,6 +582,10 @@ function Page:Refresh()
     ------------------------------------------------------------------
     -- Markers
     ------------------------------------------------------------------
+    -- The inspector reads the same window the tracks just drew, so its numbers
+    -- and the picture cannot disagree.
+    self:RefreshInspector(fromTime, now)
+
     WTM.Context:GetMarkersInRange(fromTime, now, markerScratch)
 
     local spikes = WTM.SpikeDetector:GetInRange(fromTime, now, self._spikes or {})

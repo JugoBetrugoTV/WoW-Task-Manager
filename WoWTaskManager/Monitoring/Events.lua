@@ -63,6 +63,11 @@ local distinctCount = 0
 Events.current = {
     perSecond    = 0,
     peakPerSecond = 0,
+    -- Running mean, accumulated the same way the CPU one is: two adds on a
+    -- tick that already exists, rather than a second pass over history.
+    avgPerSecond = 0,
+    sumPerSecond = 0,
+    rateSamples  = 0,
     distinct     = 0,
     total        = 0,
 }
@@ -122,6 +127,9 @@ function Events:Sample(delta)
     cur.total     = sessionTotal
     cur.distinct  = distinctCount
     if perSecond > cur.peakPerSecond then cur.peakPerSecond = perSecond end
+    cur.sumPerSecond = cur.sumPerSecond + perSecond
+    cur.rateSamples  = cur.rateSamples + 1
+    cur.avgPerSecond = cur.sumPerSecond / cur.rateSamples
 
     self.history:Push(perSecond)
 
@@ -306,15 +314,54 @@ end
 
 --- The busiest events by total count, used by the frame attribution scan and
 --- by spike snapshots.
+-- Reused across calls. GetTopEventNames runs on every dashboard refresh, and
+-- allocating a fresh table there put garbage on the one hot path this addon is
+-- least entitled to add garbage to.
+local nameScratch = {}
+local topScratch  = {}
+
 function Events:GetTopEventNames(limit, out)
     out = out or {}
     for i = #out, 1, -1 do out[i] = nil end
-    local scratch = {}
+    for i = #nameScratch, 1, -1 do nameScratch[i] = nil end
     for i = 1, distinctCount do
-        scratch[i] = tracked[i]
+        nameScratch[i] = tracked[i]
     end
-    table.sort(scratch, function(a, b) return (totals[a] or 0) > (totals[b] or 0) end)
-    for i = 1, math.min(limit or 20, #scratch) do out[i] = scratch[i] end
+    table.sort(nameScratch, function(a, b) return (totals[a] or 0) > (totals[b] or 0) end)
+    for i = 1, math.min(limit or 20, #nameScratch) do out[i] = nameScratch[i] end
+    return out
+end
+
+--- The busiest events right now, with the numbers a summary panel wants.
+--- Sorted by current rate rather than session total: "what is loud at this
+--- moment" is the question a live panel is answering.
+function Events:GetTopEvents(out, limit)
+    out = out or {}
+    for i = #out, 1, -1 do out[i] = nil end
+    -- Trim to the current count without discarding the entries we keep.
+    for i = #topScratch, distinctCount + 1, -1 do topScratch[i] = nil end
+
+    -- The entry tables are reused, not rebuilt: this runs on every dashboard
+    -- refresh, and one table per tracked event per refresh is exactly the kind
+    -- of garbage this addon exists to notice in other people's code.
+    for i = 1, distinctCount do
+        local event = tracked[i]
+        local entry = topScratch[i]
+        if not entry then
+            entry = {}
+            topScratch[i] = entry
+        end
+        entry.event    = event
+        entry.rate     = rates[event] or 0
+        entry.peak     = peaks[event] or 0
+        entry.total    = totals[event] or 0
+        entry.storming = activeStorms[event] ~= nil
+    end
+    table.sort(topScratch, function(a, b)
+        if a.rate == b.rate then return a.total > b.total end
+        return a.rate > b.rate
+    end)
+    for i = 1, math.min(limit or 5, #topScratch) do out[i] = topScratch[i] end
     return out
 end
 
@@ -480,6 +527,7 @@ function Events:Reset()
     windowTotal, sessionTotal = 0, 0
     local cur = self.current
     cur.perSecond, cur.peakPerSecond, cur.total = 0, 0, 0
+    cur.sumPerSecond, cur.rateSamples, cur.avgPerSecond = 0, 0, 0
     for i = #self.storms, 1, -1 do self.storms[i] = nil end
     for k in pairs(activeStorms) do activeStorms[k] = nil end
     for k in pairs(detail) do detail[k] = nil end

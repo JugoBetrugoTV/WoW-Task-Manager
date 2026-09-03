@@ -216,6 +216,15 @@ if [ -f tools/test-recorder.lua ]; then
     fi
 fi
 
+# Scale and emptiness: 220 addons, 140 incidents, a session with nothing in it
+# yet, and a client that can measure almost none of it.
+if lua5.1 tools/test-scale.lua >/tmp/wtm-scale.log 2>&1; then
+    pass "scale and empty-state tests pass"
+else
+    fail "scale / empty-state tests failed"
+    tail -20 /tmp/wtm-scale.log | sed 's/^/          /'
+fi
+
 # The end-to-end simulated session. It is not an assertion suite, but it is the
 # only thing that drives a full login-to-logout run - and it had rotted against
 # a renamed field without anything noticing, because nothing ran it.

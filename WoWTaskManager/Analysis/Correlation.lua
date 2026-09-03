@@ -112,6 +112,17 @@ function Correlation:Analyze(out)
     cache.samples = samples
     cache.unavailable = unavailable
 
+    -- Stamp the association back onto the process records, so a sortable
+    -- column and the impact ranking can read one number instead of each
+    -- rebuilding a lookup from this list. Cleared first: an addon that no
+    -- longer has an association must not keep yesterday's.
+    for _, record in WTM.Processes:Iterate() do record.sessionPhi = nil end
+    for i = 1, #computed do
+        local entry = computed[i]
+        local record = WTM.Processes:Get(entry.name)
+        if record then record.sessionPhi = entry.phi end
+    end
+
     if out and out ~= computed then
         for i = #out, 1, -1 do out[i] = nil end
         for i = 1, #computed do out[i] = computed[i] end

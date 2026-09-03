@@ -1355,6 +1355,274 @@ do
 end
 
 --------------------------------------------------------------------------
+-- Every page opens, refreshes and survives being empty
+--------------------------------------------------------------------------
+-- Ten pages were added in 0.6.0. The failure mode that matters for all of them
+-- is the same: a widget that reads a number which does not exist yet, on a
+-- client that cannot measure it, and throws instead of saying so.
+
+do
+    NS.UI.MainWindow:Open()
+
+    local expected = {
+        "dashboard", "overview", "processes", "resources", "performance",
+        "frames", "network", "events", "memory", "incidents", "timeline",
+        "diagnostics", "impact", "compare", "sessions", "recording",
+        "system", "alerts", "settings",
+    }
+    local missing = {}
+    for _, key in ipairs(expected) do
+        if not NS.UI.Pages[key] then missing[#missing + 1] = key end
+    end
+    check("every page in the navigation exists", #missing == 0,
+        table.concat(missing, ", "))
+
+    -- Every page is reachable from the sidebar; a page nobody can click is a
+    -- page nobody has.
+    local unreachable = {}
+    for _, key in ipairs(NS.UI.pageOrder) do
+        if not NS.UI.Sidebar.items[key] then unreachable[#unreachable + 1] = key end
+    end
+    check("every page has a sidebar entry", #unreachable == 0,
+        table.concat(unreachable, ", "))
+
+    local before = #mock.errors
+    for _, key in ipairs(NS.UI.pageOrder) do
+        NS.UI.MainWindow:ShowPage(key)
+        NS.UI.MainWindow:LayoutPage(key)
+        NS.UI.MainWindow:RefreshCurrentPage()
+        NS.UI.MainWindow:RefreshCurrentPage()
+        local page = NS.UI.Pages[key]
+        check(("page builds: %s"):format(key), page.frame ~= nil and not page.buildFailed)
+        check(("page refreshes cleanly: %s"):format(key),
+            (page.refreshErrors or 0) == 0, page.refreshErrors)
+    end
+    check("no page threw while being visited", #mock.errors == before,
+        (#mock.errors - before) .. " new errors")
+end
+
+--------------------------------------------------------------------------
+-- The new analysis modules
+--------------------------------------------------------------------------
+
+do
+    -- Impact: a score with its inputs visible, and never a probability.
+    local list, availability = NS.Impact:Compute({})
+    check("the impact ranking is built", type(list) == "table")
+    check("it reports which components contributed", type(availability) == "table")
+    check("this addon is not in its own ranking", (function()
+        for _, entry in ipairs(list) do
+            if entry.name == "WoWTaskManager" then return false end
+        end
+        return true
+    end)())
+    for _, entry in ipairs(list) do
+        check(("%s has a score in range"):format(entry.name),
+            entry.score >= 0 and entry.score <= 100, entry.score)
+        check(("%s shows its components"):format(entry.name),
+            type(entry.components) == "table"
+                and entry.components.cpu ~= nil and entry.components.spikes ~= nil)
+    end
+    check("the formula is stated, not hidden",
+        NS.Impact.EXPLANATION:find("weighted", 1, true) ~= nil)
+    check("and it says what the score is not",
+        NS.Impact.EXPLANATION:lower():find("not a percentage", 1, true) ~= nil)
+
+    -- Every ranking key sorts without erroring.
+    for _, ranking in ipairs(NS.Impact.RANKINGS) do
+        local ok = pcall(NS.Impact.Sort, NS.Impact, list, ranking.key)
+        check(("ranking '%s' sorts"):format(ranking.key), ok)
+    end
+
+    -- Observations: sentences with numbers, in the past tense, no causation.
+    local observations = NS.Observations:Build({})
+    check("observations are produced", #observations > 0, #observations)
+    local BANNED = { "caused", "because of", "is to blame", "responsible for" }
+    local offenders = {}
+    for _, entry in ipairs(observations) do
+        check("each observation has a title", (entry.title or "") ~= "")
+        local text = ((entry.title or "") .. " " .. (entry.detail or "")):lower()
+        for _, phrase in ipairs(BANNED) do
+            if text:find(phrase, 1, true) then
+                offenders[#offenders + 1] = phrase .. " in: " .. (entry.title or "")
+            end
+        end
+    end
+    check("no observation asserts a cause", #offenders == 0,
+        table.concat(offenders, "; "))
+
+    -- Comparison: a delta only where both sides have a value.
+    local live = NS.Sessions:LiveSnapshot()
+    check("the live session can be compared", live ~= nil)
+    local rows = NS.Observations:Compare(live, live, {})
+    check("comparing a session with itself produces rows", #rows > 0, #rows)
+    local nonZero = 0
+    for _, row in ipairs(rows) do
+        if row.deltaValue and math.abs(row.deltaValue) > 0.0001 then
+            nonZero = nonZero + 1
+        end
+    end
+    check("and every delta is zero", nonZero == 0, nonZero)
+
+    local partial = { avgFPS = 60 }
+    rows = NS.Observations:Compare(partial, live, {})
+    local blanks = 0
+    for _, row in ipairs(rows) do
+        if row.delta == nil then blanks = blanks + 1 end
+    end
+    check("a missing value leaves the change cell blank rather than inventing zero",
+        blanks > 0, blanks)
+end
+
+--------------------------------------------------------------------------
+-- Alerts
+--------------------------------------------------------------------------
+-- The rules must not spam, must not fire when they cannot be measured, and
+-- must not need a timer of their own.
+
+do
+    local Alerts = NS.Alerts
+    check("alerts have rules", #Alerts.RULES >= 5, #Alerts.RULES)
+    check("they run on the shared scheduler, not a timer of their own",
+        NS.Scheduler:GetTask("alerts") ~= nil)
+
+    local ruleTasks = 0
+    for _, task in NS.Scheduler:IterateTasks() do
+        if task.name:find("alert", 1, true) then ruleTasks = ruleTasks + 1 end
+    end
+    check("one task for all of them, not one per rule", ruleTasks == 1, ruleTasks)
+
+    -- Off by default, and nothing fires while off.
+    NS.db.profile.alerts.enabled = false
+    Alerts:ClearLog()
+    for _ = 1, 5 do Alerts:Evaluate() end
+    check("nothing fires while alerts are off", #Alerts.log == 0, #Alerts.log)
+
+    -- A rule that trips fires once, not once per evaluation.
+    NS.db.profile.alerts.enabled = true
+    NS.db.profile.alerts.chat = false
+    local config = Alerts:Config("frameTime")
+    config.enabled = true
+    config.threshold = 0.001   -- guaranteed to be exceeded
+    Alerts:ClearLog()
+    for _ = 1, 10 do Alerts:Evaluate() end
+    check("a tripped rule fires", #Alerts.log >= 1, #Alerts.log)
+    check("but only once while it stays tripped", #Alerts.log == 1, #Alerts.log)
+
+    -- A rule that cannot be measured here is not silently never fired: it
+    -- reports why.
+    for _, rule in ipairs(Alerts.RULES) do
+        local reason = Alerts:UnavailableReason(rule)
+        if reason then
+            check(("%s explains why it cannot run"):format(rule.key),
+                type(reason) == "string" and #reason > 10, reason)
+        end
+    end
+
+    if not PROFILE_ON then
+        local cpuRule
+        for _, rule in ipairs(Alerts.RULES) do
+            if rule.key == "addonCPU" then cpuRule = rule end
+        end
+        check("the CPU rule is unavailable without profiling",
+            Alerts:UnavailableReason(cpuRule) ~= nil)
+    end
+
+    -- A fired alert lands on the shared timeline, so it can be found again.
+    NS.db.profile.alerts.marker = true
+    Alerts:ClearLog()
+    Alerts.state.frameTime.firing = false
+    Alerts.state.frameTime.lastFiredAt = nil
+    local markersBefore = #NS.Context.markers
+    Alerts:Evaluate()
+    check("firing places a timeline marker", #NS.Context.markers > markersBefore)
+
+    NS.db.profile.alerts.enabled = false
+    config.enabled = false
+    NS.db.profile.alerts.chat = true
+end
+
+--------------------------------------------------------------------------
+-- Dashboard layout settings
+--------------------------------------------------------------------------
+
+do
+    NS.UI.MainWindow:ShowPage("dashboard")
+    local dashboard = NS.UI.Pages.dashboard
+    check("the dashboard declares its widgets", #dashboard.WIDGETS >= 8, #dashboard.WIDGETS)
+
+    -- Every widget key has at least one grid cell, or the layout editor would
+    -- offer a control that does nothing.
+    local orphans = {}
+    for _, widget in ipairs(dashboard.WIDGETS) do
+        local found = false
+        for _, cell in ipairs(dashboard.grid.cells) do
+            if cell.key == widget.key then found = true end
+        end
+        if not found then orphans[#orphans + 1] = widget.key end
+    end
+    check("every declared widget has a cell", #orphans == 0, table.concat(orphans, ", "))
+
+    -- Hiding one actually hides it, and refreshing afterwards is still safe.
+    local first = dashboard.WIDGETS[2]
+    NS.db.profile.dashboard.hidden[first.key] = true
+    dashboard:ApplyLayoutSettings()
+    local hiddenCell
+    for _, cell in ipairs(dashboard.grid.cells) do
+        if cell.key == first.key then hiddenCell = cell end
+    end
+    check("hiding a widget hides its cell", hiddenCell and not hiddenCell.frame:IsShown())
+    local before = #mock.errors
+    dashboard:Refresh()
+    check("refreshing with a widget hidden does not throw", #mock.errors == before)
+
+    NS.db.profile.dashboard.hidden[first.key] = nil
+    dashboard:ApplyLayoutSettings()
+
+    -- Sizes change the span, which is what "large" has to mean.
+    NS.db.profile.dashboard.sizes[first.key] = "large"
+    dashboard:ApplyLayoutSettings()
+    local cell
+    for _, c in ipairs(dashboard.grid.cells) do
+        if c.key == first.key then cell = c end
+    end
+    check("choosing a size changes the span",
+        cell and cell.span == first.spans.large, cell and cell.span)
+    NS.db.profile.dashboard.sizes[first.key] = nil
+    dashboard:ApplyLayoutSettings()
+end
+
+--------------------------------------------------------------------------
+-- The responsive grid
+--------------------------------------------------------------------------
+
+do
+    local host = CreateFrame("Frame", nil, UIParent)
+    host:SetSize(1000, 600)
+    local grid = NS.UI.Grid(host, { minColumnWidth = 200, maxColumns = 6, gap = 10 })
+    check("a wide host gets more columns", grid:ColumnsFor(1400) > grid:ColumnsFor(500))
+    check("a narrow host never drops below one column", grid:ColumnsFor(50) == 1)
+    check("it never exceeds its maximum", grid:ColumnsFor(100000) == 6)
+
+    for i = 1, 6 do
+        local cell = CreateFrame("Frame", nil, host)
+        grid:Add(cell, { span = 1, height = 50, key = "c" .. i })
+    end
+    local tall = grid:Layout(true)
+    check("laying out returns a height", tall > 0, tall)
+
+    host:SetSize(400, 600)
+    local taller = grid:Layout(true)
+    check("a narrower host needs more height for the same cells", taller > tall,
+        ("%d then %d"):format(tall, taller))
+
+    -- Relayout is skipped when nothing changed: it resizes every cell, and a
+    -- resize marks graphs dirty.
+    local again = grid:Layout()
+    check("an unchanged width does not relayout", again == taller)
+end
+
+--------------------------------------------------------------------------
 -- Text must stay inside its boundaries
 --------------------------------------------------------------------------
 -- The headless harness can answer this now: SetPoint is recorded, anchors are
@@ -1470,8 +1738,11 @@ do
     -- as long, and a row that only just fits in English does not fit then.
     -- Rather than wait for a translation, the widgets are stressed directly.
     do
-        local LONG_LABEL = "Durchschnittliche Bildrate im Beobachtungsfenster"
-        local LONG_VALUE = "1.234,567 Millisekunden pro Sekunde"
+        -- Long enough to exceed any row width the layout can produce, so the
+        -- check is of the mechanism rather than of one particular window size.
+        local LONG_LABEL = "Durchschnittliche Bildrate im Beobachtungsfenster " ..
+            "einschliesslich aller geladenen Erweiterungen und ihrer Ereignisse"
+        local LONG_VALUE = "1.234,567 Millisekunden pro Sekunde ueber das gesamte Fenster"
 
         NS.UI.MainWindow:ShowPage("dashboard")
         NS.UI.MainWindow:LayoutPage("dashboard")

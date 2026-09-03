@@ -47,6 +47,7 @@
     <Script file="History\FlightRecorder.lua"/>
     <Script file="Monitoring\SpikeDetector.lua"/>
     <Script file="Monitoring\Overhead.lua"/>
+    <Script file="Monitoring\Alerts.lua"/>
 
     <!-- History -->
     <Script file="History\Recorder.lua"/>
@@ -55,18 +56,30 @@
     <!-- Analysis -->
     <Script file="Analysis\Correlation.lua"/>
     <Script file="Analysis\Diagnostics.lua"/>
+    <Script file="Analysis\Impact.lua"/>
+    <Script file="Analysis\Observations.lua"/>
 
     <!-- UI -->
     <Script file="UI\Theme.lua"/>
     <Script file="UI\Widgets\Base.lua"/>
+    <Script file="UI\Widgets\Layout.lua"/>
     <Script file="UI\Widgets\ScrollList.lua"/>
     <Script file="UI\Widgets\Tooltip.lua"/>
     <Script file="UI\Widgets\MetricCard.lua"/>
     <Script file="UI\Widgets\Graph.lua"/>
+    <Script file="UI\Widgets\Cards.lua"/>
     <Script file="UI\Widgets\Table.lua"/>
     <Script file="UI\MainWindow.lua"/>
     <Script file="UI\Sidebar.lua"/>
     <Script file="UI\Pages\Dashboard.lua"/>
+    <Script file="UI\Pages\Overview.lua"/>
+    <Script file="UI\Pages\Resources.lua"/>
+    <Script file="UI\Pages\FrameAnalysis.lua"/>
+    <Script file="UI\Pages\Network.lua"/>
+    <Script file="UI\Pages\Impact.lua"/>
+    <Script file="UI\Pages\Compare.lua"/>
+    <Script file="UI\Pages\Alerts.lua"/>
+    <Script file="UI\Pages\Recording.lua"/>
     <Script file="UI\Pages\Processes.lua"/>
     <Script file="UI\Pages\Performance.lua"/>
     <Script file="UI\Pages\Incidents.lua"/>
