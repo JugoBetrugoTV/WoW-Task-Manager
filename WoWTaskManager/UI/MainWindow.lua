@@ -224,7 +224,10 @@ function MainWindow:Build()
     UI.MakeResizable(window, 940, 600, function()
         WTM.db.profile.general.windowWidth  = window:GetWidth()
         WTM.db.profile.general.windowHeight = window:GetHeight()
-        if self.currentPage then self:LayoutPage(self.currentPage) end
+        -- On release, relayout EVERY built page, not just the visible one.
+        -- The others keep the geometry they were built with until something
+        -- lays them out again, and "something" used to be nothing at all.
+        self:LayoutAllPages()
         self:InvalidateGraphs()
     end, function()
         -- Live, while dragging. Layout has to follow the drag or panels sit at
@@ -247,6 +250,15 @@ function MainWindow:Build()
     local content = CreateFrame("Frame", nil, window)
     content:SetPoint("TOPLEFT", window.sidebar, "TOPRIGHT", 0, 0)
     content:SetPoint("BOTTOMRIGHT", -1, 1)
+    -- A parent in WoW does NOT clip its children unless it is told to. Without
+    -- this, a page still holding the layout it was given at 1900 px paints
+    -- across a 1150 px window and out over the game - which is exactly what a
+    -- real client showed: one page's observations drawn on top of another
+    -- page's table, and the filter buttons running off the window's edge.
+    --
+    -- Correct layout is handled below; this is the guarantee that a layout
+    -- which is momentarily wrong stays inside the window while it is wrong.
+    content:SetClipsChildren(true)
     window.content = content
 
     window:SetScript("OnKeyDown", function(_, key)
@@ -278,6 +290,19 @@ end
 --------------------------------------------------------------------------
 -- Page switching
 --------------------------------------------------------------------------
+
+--- Relayouts every page that has been built.
+---
+--- Only the visible one is laid out while a drag is in progress - doing all of
+--- them on every frame of a resize is how resizing became this addon's own
+--- worst stutter - so the rest are brought up to date once, on release.
+function MainWindow:LayoutAllPages()
+    for key, page in pairs(UI.Pages) do
+        if page.frame and page.OnLayout then
+            pcall(page.OnLayout, page, true)
+        end
+    end
+end
 
 function MainWindow:LayoutPage(key)
     local page = UI.Pages[key]

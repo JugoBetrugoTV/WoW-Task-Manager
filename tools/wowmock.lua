@@ -105,7 +105,7 @@ local methods = {
     "SetToplevel","SetClampedToScreen",
     "SetMovable","SetResizable","SetResizeBounds","SetMinResize","StartMoving",
     "StopMovingOrSizing","StartSizing","RegisterForDrag","RegisterForClicks",
-    "EnableMouse","EnableMouseWheel","EnableKeyboard","SetClipsChildren",
+    "EnableMouse","EnableMouseWheel","EnableKeyboard",
     "SetScrollChild","SetVerticalScroll","SetHorizontalScroll","SetScale",
     "SetThickness","SetStartPoint","SetEndPoint","SetGradient","SetGradientAlpha",
     "SetBackdrop","Raise","Lower","SetHitRectInsets","SetAutoFocus","ClearFocus",
@@ -120,6 +120,12 @@ end
 
 --- Frame level is a real API on every supported client and addons anchor
 --- layering to it, so it returns a number rather than being a no-op.
+--- Recorded rather than ignored: whether a frame clips its children is the
+--- difference between a wrong layout looking wrong and a wrong layout painting
+--- over the game, and a real client hit the second one.
+function Region:SetClipsChildren(v) self._clipsChildren = v and true or false end
+function Region:DoesClipChildren() return self._clipsChildren or false end
+
 function Region:SetFrameLevel(level) self._frameLevel = level end
 function Region:GetFrameLevel() return self._frameLevel or 1 end
 function Region:SetFrameStrata(strata) self._strata = strata end

@@ -605,13 +605,29 @@ end
 --- correct behaviour for it, and something the user should be told rather than
 --- something to fight over.
 function ErrorMonitor:CheckChain()
-    if not self.chaining.installed then return end
     if type(_G.geterrorhandler) ~= "function" then return end
+
+    -- Not installed and not yet bridged: an error addon may have loaded after
+    -- us, or on demand, since the last check. Its integration point is worth
+    -- another look rather than leaving the page empty for the session.
+    if not self.chaining.installed then
+        if not (self.bridge and self.bridge.subscribed) then
+            if self:InstallBugGrabberBridge() then self:BackfillFromBugGrabber() end
+        end
+        return
+    end
 
     local current = _G.geterrorhandler()
     if current ~= chaining.ours and not self.chaining.displaced then
         self.chaining.displaced = true
         self.chaining.displacedAt = GetTime()
+        -- Displaced AFTER installing, which is the other order the same
+        -- situation arrives in: we were first, something permanent arrived
+        -- second. Errors stop reaching us from here on, so read from whoever
+        -- took over if it offers a way to.
+        if not (self.bridge and self.bridge.subscribed) then
+            self:InstallBugGrabberBridge()
+        end
         WTM:SendMessage("WTM_ERROR_CHAIN_DISPLACED")
     elseif current == chaining.ours and self.chaining.displaced then
         -- It can come back, if whatever displaced us chained to us in turn.
@@ -632,6 +648,9 @@ function ErrorMonitor:DescribeChain()
         return self.chaining.reason or "Not installed.", "crit"
     end
     if self.chaining.displaced then
+        if self.bridge and self.bridge.subscribed then
+            return "Another addon installed its error handler after this one, so errors no longer arrive here directly. They are being read from BugGrabber's published feed instead, so this page keeps filling up.", "ok"
+        end
         return "Another addon installed its error handler after this one, so errors are no longer reaching here. Nothing is broken - that addon is now handling them - but this page will stop filling up.", "warn"
     end
     if self.chaining.hadPrevious then

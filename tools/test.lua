@@ -1456,6 +1456,57 @@ do
 
     check("only one page is ever visible at a time", worst <= 1, worstAfter)
 
+    -- Stale layout. A page keeps the geometry it was built with until
+    -- something lays it out again; only the visible page used to be relaid out
+    -- on a resize. A real client showed one page's content drawn over another
+    -- page's table, with filter buttons running past the window's edge,
+    -- because the window had been made smaller and nothing clipped it.
+    check("the content area clips its children",
+        NS.UI.MainWindow.frame.content._clipsChildren == true,
+        tostring(NS.UI.MainWindow.frame.content._clipsChildren))
+
+    NS.UI.MainWindow.frame:SetSize(1600, 900)
+    for _, key in ipairs(NS.UI.pageOrder) do
+        NS.UI.MainWindow:ShowPage(key)
+        NS.UI.MainWindow:RefreshCurrentPage()
+    end
+    -- Now shrink it the way a player does. During the drag only the visible
+    -- page is laid out, on purpose: doing all of them on every frame of a
+    -- resize is how resizing became this addon's own worst stutter. So the
+    -- others ARE stale in between, and the clipping above is what keeps that
+    -- from reaching the screen.
+    NS.UI.MainWindow.frame:SetSize(940, 600)
+    local resize = NS.UI.MainWindow.frame:GetScript("OnSizeChanged")
+    if resize then resize(NS.UI.MainWindow.frame) end
+
+    local contentWidth = NS.UI.MainWindow.frame.content:GetWidth() or 0
+    local function stalePages()
+        local stale = {}
+        for _, key in ipairs(NS.UI.pageOrder) do
+            local page = NS.UI.Pages[key]
+            -- A scrolling page's canvas width is the honest record of the
+            -- width it last laid itself out for.
+            if page.scroll and page.canvas and key ~= NS.UI.MainWindow.currentPage then
+                if (page.canvas:GetWidth() or 0) > contentWidth + 2 then
+                    stale[#stale + 1] = key
+                end
+            end
+        end
+        return stale
+    end
+
+    -- This is the state the bug lived in, and it has to be real or the check
+    -- below proves nothing.
+    local staleDuringDrag = stalePages()
+    check("pages other than the visible one are stale mid-resize",
+        #staleDuringDrag > 0, "none were, so the next check proves nothing")
+
+    -- And on release, every one of them is brought up to date.
+    NS.UI.MainWindow:LayoutAllPages()
+    local staleAfter = stalePages()
+    check("releasing the resize brings every built page up to date",
+        #staleAfter == 0, table.concat(staleAfter, ", "))
+
     -- A monitor that records nothing must say so. A real client sat on
     -- "Performance: EXCELLENT, health 100/100" at 0.0 FPS because sampling was
     -- off and nothing anywhere mentioned it.

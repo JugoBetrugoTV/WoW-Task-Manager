@@ -579,6 +579,33 @@ do
     check("the short form says so too", (Errors:ShortChainState()) == "via BugGrabber",
         (Errors:ShortChainState()))
 
+    ------------------------------------------------------------------
+    -- The other order: we install first, something permanent arrives second.
+    Errors:Reset()
+    Errors.bridge, Errors.backfilled = nil, nil
+    Errors.chaining.installed = false
+    Errors.chaining.displaced = false
+    Errors.chaining.previous = nil
+    _G.seterrorhandler = realSet
+    realSet(function() end)
+    check("we can install when nothing owns the handler yet", Errors:Install() == true)
+
+    -- Now something takes it over the way BugGrabber does.
+    realSet(grabberHandler)
+    _G.seterrorhandler = function() end
+    listeners["BugGrabber.BugGrabbed"] = nil
+    Errors:CheckChain()
+    check("being displaced afterwards is detected", Errors.chaining.displaced == true)
+    check("and the bridge is picked up rather than giving up",
+        Errors.bridge ~= nil and Errors.bridge.subscribed == true)
+    local displacedText, displacedTone = Errors:DescribeChain()
+    check("which the page reports as still working", displacedTone == "ok", displacedTone)
+    check("and names the source", displacedText:find("BugGrabber", 1, true) ~= nil)
+
+    store[5] = { message = "Interface/AddOns/SUI/Late.lua:9: after displacement", session = 7 }
+    _G.EventRegistry:TriggerEvent("BugGrabber.BugGrabbed", tostring(store[5]))
+    check("errors still arrive after being displaced", #Errors.groups >= 1, #Errors.groups)
+
     _G.BugGrabber, _G.EventRegistry = nil, nil
     _G.seterrorhandler = realSet
     Errors.bridge, Errors.backfilled = nil, nil
