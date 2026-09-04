@@ -91,14 +91,12 @@ local defaults = {
         events = {
             -- OFF | NORMAL | DETAILED, see C.EVENT_MODES
             mode             = "NORMAL",
-            attributeAddons  = false,   -- opt-in: costs a full frame walk
             stormMultiplier  = C.EVENT_STORM_MULTIPLIER,
             stormMinRate     = C.EVENT_STORM_MIN_RATE,
         },
 
         memory = {
             enabled          = true,
-            estimateSavedVars = false,  -- opt-in: walks addon global tables
             growthThresholdKBPerMin = C.MEM_GROWTH_KB_PER_MIN,
         },
 
@@ -411,7 +409,19 @@ function Database:Prune()
         while #clusters > maxClusters do table.remove(clusters, 1) end
     end
 
+    -- Databases written before simulated incidents were kept out of them may
+    -- still hold some. Dropped on load rather than left to age out.
     local incidents = g.incidents
+    if incidents then
+        local dropped = 0
+        for i = #incidents, 1, -1 do
+            if incidents[i] and incidents[i].simulated then
+                table.remove(incidents, i)
+                dropped = dropped + 1
+            end
+        end
+        self.simulatedIncidentsDropped = dropped
+    end
     if incidents then
         local maxIncidents = retention.maxIncidents or C.MAX_SAVED_INCIDENTS
         for i = #incidents, maxIncidents + 1, -1 do

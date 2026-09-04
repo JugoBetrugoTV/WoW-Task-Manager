@@ -498,13 +498,18 @@ local function AcquireMarkerButton(page, index)
         UI.TooltipClear(def and def.label or self.marker.kind)
         UI.TooltipLine(self.marker.label or "")
         UI.TooltipLine("Time", Fmt.Ago(GetTime() - self.marker.t))
-        if self.marker.kind == "luaerror" and self.marker.ref then
-            local group = self.marker.ref
-            UI.TooltipLine("Occurrences", tostring(group.count or 1))
-            UI.TooltipLine("Where", ("%s:%s")
-                :format(group.file or "?", tostring(group.line or "?")))
-            UI.TooltipLine("", "")
-            UI.TooltipLine("Click to open the error.", nil, "muted")
+        if self.marker.kind == "luaerror" then
+            local group = WTM.Errors:GroupForMarker(self.marker)
+            if group then
+                UI.TooltipLine("Occurrences", tostring(group.count or 1))
+                UI.TooltipLine("Where", ("%s:%s")
+                    :format(group.file or "?", tostring(group.line or "?")))
+                UI.TooltipLine("", "")
+                UI.TooltipLine("Click to open the error.", nil, "muted")
+            else
+                UI.TooltipLine("", "")
+                UI.TooltipLine("This error is no longer held - the list has since filled up and dropped it. The marker stays because it happened.", nil, "muted")
+            end
         end
         if self.spike then
             UI.TooltipLine("", "")
@@ -519,8 +524,9 @@ local function AcquireMarkerButton(page, index)
         -- An error marker points at the error itself, not at a spike near it.
         -- Opening the incident instead would be the tool quietly asserting the
         -- two are the same event.
-        if self.marker and self.marker.ref and self.marker.kind == "luaerror" then
-            UI.ErrorDetail:Open(self.marker.ref)
+        local errorGroup = WTM.Errors:GroupForMarker(self.marker)
+        if errorGroup then
+            UI.ErrorDetail:Open(errorGroup)
             return
         end
         if not self.spike then return end

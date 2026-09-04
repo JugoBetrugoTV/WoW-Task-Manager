@@ -141,7 +141,7 @@ local function Initialize()
     if WTM.duplicateOf then
         if not WTM.duplicateReported then
             WTM.duplicateReported = true
-            print(("|cff4c8dffWoW Task Manager|r: |cffF0533FA second copy is installed|r. This one (|cffffffff%s|r) has switched itself off; |cffffffff%s|r is running. Delete one of the two folders from Interface/AddOns and reload."):format(
+            WTM:Print(("|cffF0533FA second copy is installed|r. This one (|cffffffff%s|r) has switched itself off; |cffffffff%s|r is running. Delete one of the two folders from Interface/AddOns and reload."):format(
                 ADDON_NAME, WTM.duplicateOf))
         end
         return

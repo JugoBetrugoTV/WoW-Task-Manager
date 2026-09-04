@@ -246,6 +246,12 @@ end
 -- peaks are the whole point.
 
 function FlightRecorder:Persist(incident)
+    -- Injected data stays in memory for the session that injected it, where it
+    -- is labelled SIMULATED, and never reaches the database. A developer spike
+    -- from a debugging session last week has no business turning up in a
+    -- Compare against a real raid night.
+    if incident.simulated then return end
+
     local step = 1 / C.FR_PERSIST_HZ
     local packed = {}
     local bucketStart, acc, count = nil, nil, 0

@@ -60,6 +60,12 @@ jobs:
       - name: Error monitor and handler chaining tests
         run: lua5.1 tools/test-errors.lua
 
+      - name: UI stress test
+        run: lua5.1 tools/test-ui.lua
+
+      - name: Six-hour long-run memory test
+        run: lua5.1 tools/test-longrun.lua
+
       - name: Scale and empty-state tests
         run: lua5.1 tools/test-scale.lua
 

@@ -2,7 +2,7 @@
 ## Title: WoW |cff4c8dffTask Manager|r
 ## Notes: Performance, diagnostics and addon profiling.|nBuilt for Mists of Pandaria Classic 5.5.4.
 ## Author: JugoBetrugoTV
-## Version: 0.7.0
+## Version: 0.7.1
 ## SavedVariables: WoWTaskManagerDB
 ## X-Category: Development Tools
 ## X-Target-Client: Mists of Pandaria Classic 5.5.4

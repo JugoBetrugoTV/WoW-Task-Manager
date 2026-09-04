@@ -154,6 +154,59 @@ done
 [ $version_mismatch -eq 0 ] && pass "every TOC matches C.VERSION ($code_version)"
 
 #---------------------------------------------------------------------------
+section "Release safety"
+#---------------------------------------------------------------------------
+
+# A bare print() reaches the player's chat with no addon prefix and no way to
+# turn it off. Everything the addon says goes through WTM:Print, and the dev
+# module writes to DEFAULT_CHAT_FRAME under a switch.
+prints=$(grep -rn "^[[:space:]]*print(" "$ADDON_DIR" --include=*.lua || true)
+if [ -n "$prints" ]; then
+    fail "bare print() in addon source:"
+    echo "$prints" | sed 's/^/          /'
+else
+    pass "no bare print() in addon source"
+fi
+
+# Developer tools write simulated samples into the real history. Shipping with
+# them on would mean a player's first session was full of invented data.
+if grep -qE "dev *= *\{[^}]*enabled *= *true" "$ADDON_DIR/Core/Database.lua"; then
+    fail "developer mode defaults to ON"
+else
+    pass "developer mode defaults to off"
+fi
+
+# Simulated incidents are labelled everywhere they appear, but they must not
+# reach the database at all: an injected spike has no business in next month's
+# session comparison.
+if grep -q "if incident.simulated then return end" "$ADDON_DIR/History/FlightRecorder.lua"; then
+    pass "simulated incidents are never persisted"
+else
+    fail "simulated incidents can reach SavedVariables"
+fi
+
+# Absolute local paths. Deliberately narrow: a drive-letter pattern also
+# matches escape sequences in ordinary prose ("generated:\n\n" looks like
+# "d:\"), so this looks for real home directories and real install roots.
+paths=$(grep -rn -e "/home/" -e "/Users/" -e "World of Warcraft" \
+        "$ADDON_DIR" --include=*.lua || true)
+if [ -n "$paths" ]; then
+    fail "absolute local paths in addon source:"
+    echo "$paths" | sed 's/^/          /'
+else
+    pass "no absolute local paths"
+fi
+
+junk=$(find . \( -name ".DS_Store" -o -name "*.orig" -o -name "*.rej" \
+        -o -name "*~" -o -name "*.bak" -o -name "*.swp" \) -not -path "./.git/*" || true)
+if [ -n "$junk" ]; then
+    fail "temporary or editor files in the tree:"
+    echo "$junk" | sed 's/^/          /'
+else
+    pass "no temporary or editor files in the tree"
+fi
+
+#---------------------------------------------------------------------------
 section "Wording rules"
 #---------------------------------------------------------------------------
 
@@ -224,6 +277,28 @@ if [ -f tools/test-errors.lua ]; then
     else
         fail "error monitor / handler chaining tests failed"
         cat /tmp/wtm-errors.log | sed 's/^/          /'
+    fi
+fi
+
+# Every page, at three window sizes, put through what a player does to it.
+if [ -f tools/test-ui.lua ]; then
+    if lua5.1 tools/test-ui.lua >/tmp/wtm-ui.log 2>&1; then
+        pass "UI stress test passes"
+    else
+        fail "UI stress test failed"
+        tail -25 /tmp/wtm-ui.log | sed 's/^/          /'
+    fi
+fi
+
+# Six simulated hours. Everything here is supposed to be bounded; this is where
+# that stops being a claim.
+if [ -f tools/test-longrun.lua ]; then
+    if lua5.1 tools/test-longrun.lua >/tmp/wtm-longrun.log 2>&1; then
+        pass "six-hour long-run test passes"
+        grep -E "heap after GC|estimated DB size" /tmp/wtm-longrun.log | sed 's/^/          /'
+    else
+        fail "six-hour long-run test failed"
+        tail -25 /tmp/wtm-longrun.log | sed 's/^/          /'
     fi
 fi
 

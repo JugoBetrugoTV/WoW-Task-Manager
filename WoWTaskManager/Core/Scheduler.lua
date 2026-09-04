@@ -36,6 +36,9 @@ local burstUntil  = 0
 -- event monitoring or drawing the UI - each of which the user can turn down
 -- independently.
 Scheduler.cost = {
+    -- Most tasks that came due on one tick, and the latest any task ran.
+    maxBacklog = 0,
+    maxLateSec = 0,
     windowStart  = 0,
     totalMs      = 0,
     lastTotalMs  = 0,
@@ -172,9 +175,17 @@ local function OnUpdate(_, elapsed)
     local bursting = now < burstUntil
     local profileStart = Now()
 
+    -- How many tasks came due on the same tick, and how late the latest one
+    -- was. Both are measurements of whether the stagger in Start() is still
+    -- doing its job; a backlog means several samplers landing in one frame.
+    local dueThisTick, worstLate = 0, 0
+
     for i = 1, #tasks do
         local task = tasks[i]
         if task.enabled and now >= task.nextRun then
+            dueThisTick = dueThisTick + 1
+            local late = now - task.nextRun
+            if late > worstLate then worstLate = late end
             local interval = bursting and task.burst or task.normal
             local delta = now - task.lastRun
             task.lastRun = now
@@ -210,6 +221,13 @@ local function OnUpdate(_, elapsed)
                 end
             end
         end
+    end
+
+    if dueThisTick > Scheduler.cost.maxBacklog then
+        Scheduler.cost.maxBacklog = dueThisTick
+    end
+    if worstLate > Scheduler.cost.maxLateSec then
+        Scheduler.cost.maxLateSec = worstLate
     end
 
     -- 3. Self-cost bookkeeping, once per second.
@@ -324,6 +342,7 @@ end
 function Scheduler:ResetCost()
     local cost = Scheduler.cost
     cost.totalMs, cost.lastTotalMs, cost.msPerSec = 0, 0, 0
+    cost.maxBacklog, cost.maxLateSec = 0, 0
     for _, stats in pairs(cost.perTask) do
         stats.totalMs, stats.calls, stats.lastMs, stats.avgMs, stats.maxMs = 0, 0, 0, 0, 0
     end

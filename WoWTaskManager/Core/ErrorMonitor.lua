@@ -195,7 +195,12 @@ end
 --- The first few stack frames, which is what distinguishes two errors that
 --- share a message but arrive by different routes.
 local function TopFrames(stack, count)
-    if not stack or stack == "" then return "" end
+    -- Coerced, not assumed. This is reached with whatever another addon put in
+    -- its database: the BugGrabber bridge passes that straight through, and a
+    -- future shape change there must not turn into an error raised from inside
+    -- our own error handling. A number here used to throw.
+    if type(stack) ~= "string" then return "" end
+    if stack == "" then return "" end
     local frames, n = {}, 0
     for line in stack:gmatch("[^\n]+") do
         n = n + 1
@@ -321,6 +326,12 @@ end
 --- name the addon in their payload - and is therefore better attribution than
 --- reading a file path, so it wins.
 function ErrorMonitor:Record(message, stack, isInternal, options)
+    -- Normalised once, here, because everything below assumes strings and this
+    -- is a public entry point reached from three directions: our own handler,
+    -- the blocked-action events, and another addon's stored error objects.
+    if type(message) ~= "string" then message = tostring(message) end
+    if type(stack) ~= "string" then stack = nil end
+
     local kind = options and options.kind or "lua"
     local explicitAddon = options and options.addon or nil
     local source = options and options.source or "handler"
@@ -414,10 +425,15 @@ function ErrorMonitor:Record(message, stack, isInternal, options)
     -- A marker on the shared axis, so an error can be found again next to the
     -- frame time that surrounded it.
     if settings().timelineMarkers then
+        -- The FINGERPRINT, not the group. A marker outlives the group it
+        -- refers to: markers are capped at 400 and errors at 400, and the two
+        -- caps evict on different schedules. Holding the object meant an
+        -- evicted group stayed alive through the marker - with its stack -
+        -- and clicking the marker opened an error the monitor no longer had.
         WTM.Context:AddMarker("luaerror",
             ("%s %s: %s"):format((C.ERROR_KINDS[kind] or C.ERROR_KINDS.lua).label,
                 addon or "Unknown", Fmt.Truncate(tostring(message), 60)),
-            group)
+            group.fingerprint)
     end
 
     self:Notify(group)
@@ -691,6 +707,17 @@ end
 --- which is the only case where the timeline is a sample rather than the whole.
 function ErrorMonitor:OccurrencesTruncated(group)
     return group ~= nil and (group.count or 0) > C.ERROR_TIME_RING
+end
+
+--- The group a timeline marker refers to, or nil once it has been evicted.
+---
+--- Markers hold a fingerprint rather than the group itself, so this is where
+--- "does that error still exist" gets answered instead of trusting a reference
+--- that the cap may have made stale.
+function ErrorMonitor:GroupForMarker(marker)
+    if not marker or marker.kind ~= "luaerror" then return nil end
+    if type(marker.ref) ~= "string" then return nil end
+    return self.byFingerprint[marker.ref]
 end
 
 --- Occurrences the user has not asked to be left alone about.

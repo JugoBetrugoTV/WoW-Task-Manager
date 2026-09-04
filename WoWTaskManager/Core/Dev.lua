@@ -248,6 +248,7 @@ function Dev:Benchmark(seconds)
         :format(seconds))
 
     WTM.Scheduler:ResetCost()
+    WTM.UI.MainWindow:ResetRedrawStats()
     self.benchmarkStart = GetTime()
     self.benchmarkFrames = WTM.FrameTime:GetSessionStats().frames
 
@@ -274,8 +275,46 @@ function Dev:FinishBenchmark()
     end
 
     local sum, total, delta = WTM.Overhead:ReconcileBreakdown()
-    out(("  %-18s %6.3f ms/s   |cff5d6675categories sum to %.3f, difference %.3f|r")
-        :format("TOTAL MEASURED", total, sum, delta))
+    out(("  %-18s %6.3f ms/s   |cff5d6675categories sum to %.3f|r")
+        :format("TOTAL MEASURED", total, sum))
+    out(("  %-18s %6.3f ms/s   |cff5d6675measured total minus the categories - work inside the timed window that no category claims|r")
+        :format("unattributed", delta))
+
+    ------------------------------------------------------------------
+    -- Per sampler: what it costs on an average call and on its worst one.
+    ------------------------------------------------------------------
+    header("per sampling task")
+    local anyTask = false
+    for name, stats in pairs(WTM.Scheduler.cost.perTask) do
+        if stats.calls > 0 then
+            anyTask = true
+            out(("  %-16s %5d calls   avg %6.3f ms   peak %6.3f ms   total %7.2f ms")
+                :format(name, stats.calls, stats.avgMs, stats.maxMs, stats.totalMs))
+        end
+    end
+    if not anyTask then out("  nothing ran inside the window") end
+
+    out(("  %-16s %d task%s came due on one tick, worst lateness %.0f ms")
+        :format("scheduling", WTM.Scheduler.cost.maxBacklog,
+                WTM.Scheduler.cost.maxBacklog == 1 and "" or "s",
+                WTM.Scheduler.cost.maxLateSec * 1000))
+
+    ------------------------------------------------------------------
+    -- Graph redraws, which is the single most expensive thing here.
+    ------------------------------------------------------------------
+    header("graph redraws")
+    local r = WTM.UI.MainWindow.redrawStats
+    if r.draws > 0 then
+        out(("  %-16s %d in %.1f s  =  %.2f/s")
+            :format("redraws", r.draws, elapsed, r.draws / math.max(elapsed, 0.001)))
+        out(("  %-16s avg %6.3f ms   peak %6.3f ms   total %7.2f ms")
+            :format("cost", r.totalMs / r.draws, r.maxMs, r.totalMs))
+    else
+        out("  none - the window was closed, or no graph had new data")
+    end
+    out(("  %-16s %d   |cff5d6675redraws the round-robin budget refused this window; they happen on a later pass, they are not lost|r")
+        :format("deferred", r.deferred))
+    out(("  %-16s %d"):format("budget passes", r.passes))
     out(("  %-18s %6.3f %%  of the frame budget at the current %s FPS")
         :format("frame budget", WTM.Overhead:GetFrameBudgetPercent(),
                 Fmt.FPS(WTM.FrameTime.current.fps)))

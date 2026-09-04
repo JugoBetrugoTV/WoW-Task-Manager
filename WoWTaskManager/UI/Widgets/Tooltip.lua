@@ -121,6 +121,13 @@ function UI.HideTooltip()
     if tooltip then tooltip:Hide() end
 end
 
+--- Whether the tooltip is on screen. Exists so a test can ask directly rather
+--- than inferring it from stray text, which is how a harness ends up auditing
+--- things nobody can see.
+function UI.IsTooltipShown()
+    return tooltip ~= nil and tooltip:IsShown()
+end
+
 --- Convenience for the common "title plus one paragraph" case.
 function UI.ShowTooltip(anchorFrame, title, text, tone)
     UI.TooltipClear(title)

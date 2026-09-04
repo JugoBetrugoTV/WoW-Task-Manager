@@ -419,9 +419,28 @@ end
 --- Asks a budget for permission to redraw ONE item this pass.
 --- `index` keeps the rotation stable, so every item gets its turn instead of
 --- the first two always winning.
+--- What the redraw budget actually did, so the benchmark reports measurements
+--- rather than intentions. Every field here is counted, none is derived from a
+--- setting.
+MainWindow.redrawStats = {
+    draws     = 0,   -- redraws that happened
+    deferred  = 0,   -- redraws the budget refused this pass
+    totalMs   = 0,
+    maxMs     = 0,
+    passes    = 0,
+}
+
+function MainWindow:ResetRedrawStats()
+    local r = self.redrawStats
+    r.draws, r.deferred, r.totalMs, r.maxMs, r.passes = 0, 0, 0, 0, 0
+end
+
 local function TakeSlot(budget, index, total)
     if budget.full then return true end
-    if budget.left <= 0 then return false end
+    if budget.left <= 0 then
+        MainWindow.redrawStats.deferred = MainWindow.redrawStats.deferred + 1
+        return false
+    end
     if not total or total <= GRAPHS_PER_PASS then
         budget.left = budget.left - 1
         return true
@@ -435,6 +454,7 @@ local function TakeSlot(budget, index, total)
         end
         return true
     end
+    MainWindow.redrawStats.deferred = MainWindow.redrawStats.deferred + 1
     return false
 end
 
@@ -444,6 +464,7 @@ end
 ---
 --- Call this exactly once at the top of a refresh, before anything that draws.
 function MainWindow:BeginGraphPass()
+    self.redrawStats.passes = self.redrawStats.passes + 1
     self.graphBudget = self.graphBudget or NewBudget()
     self.sparkBudget = self.sparkBudget or NewBudget()
 

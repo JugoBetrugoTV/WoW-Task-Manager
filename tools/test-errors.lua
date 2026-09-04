@@ -679,6 +679,103 @@ check("the client-supplied attribution is marked as such",
     blockedReport:find("named by the client", 1, true) ~= nil)
 
 --------------------------------------------------------------------------
+print("\n== installing twice, and malformed input ==")
+--------------------------------------------------------------------------
+
+do
+    local seen = {}
+    local other = function(message) seen[#seen + 1] = tostring(message) end
+    reinstall(other)
+
+    -- Install again. If this chained a second time it would put our handler in
+    -- front of itself, and every error would reach the addon below us twice -
+    -- which is the one thing that visibly breaks another error addon.
+    local before = Errors.chaining.previous
+    Errors:Install()
+    Errors:Install()
+    check("installing again is a no-op", Errors.chaining.previous == before)
+
+    raise("Interface/AddOns/Twice/Twice.lua:1: only once please")
+    check("and the handler below still receives it exactly once", #seen == 1, #seen)
+
+    -- The previous handler throwing must not propagate back into whatever
+    -- raised the error, and must not stop us recording.
+    reinstall(function() error("the handler below us is broken") end)
+    local groupsBefore = #Errors.groups
+    local ok = pcall(mock.RaiseError, "Interface/AddOns/Ok/Ok.lua:1: still fine")
+    check("a throwing previous handler does not propagate", ok == true)
+    check("and we still recorded the error", #Errors.groups == groupsBefore + 1)
+
+    -- Input that is not a well-formed error string.
+    reinstall(nil)
+    Errors:Record(setmetatable({}, { __tostring = function() return "a table error" end }), nil, false)
+    check("a non-string message is tolerated", #Errors.groups == 1, #Errors.groups)
+
+    Errors:Record("Interface/AddOns/A/A.lua:1: bad stack", 12345, false)
+    Errors:Record("Interface/AddOns/B/B.lua:1: table stack", {}, false)
+    Errors:Record("Interface/AddOns/C/C.lua:1: no stack", nil, false)
+    check("a malformed stack is tolerated", #Errors.groups == 4, #Errors.groups)
+    check("and nothing threw doing it", #mock.errors == 0, #mock.errors)
+end
+
+--------------------------------------------------------------------------
+print("\n== a thousand distinct errors ==")
+--------------------------------------------------------------------------
+
+do
+    reinstall(nil)
+    NS.db.profile.errors.maxUnique = 400
+    for i = 1, 1000 do
+        raise(("Interface/AddOns/Many%d/File.lua:%d: a distinct failure number %d")
+            :format(i % 60, i, i))
+    end
+    check("distinct errors stop at the cap", #Errors.groups == 400, #Errors.groups)
+    check("every occurrence is still counted", Errors.stats.total == 1000, Errors.stats.total)
+    check("the ones refused by the cap are counted separately",
+        Errors.stats.droppedByCap == 600, Errors.stats.droppedByCap)
+    NS.db.profile.errors.maxUnique = C.ERROR_MAX_UNIQUE
+end
+
+--------------------------------------------------------------------------
+print("\n== BugSack, which is a consumer and not a competitor ==")
+--------------------------------------------------------------------------
+-- BugSack never calls seterrorhandler. It reads from BugGrabber through the
+-- same published feed this addon uses, and announces itself as a DISPLAY so
+-- BugGrabber stops printing errors to chat itself.
+--
+-- Which means the load order between us and BugSack cannot matter, and there
+-- is exactly one thing we must not do: claim the display slot. Doing that
+-- would silence BugGrabber's chat output for somebody who wanted it, by
+-- changing another addon's behaviour on their behalf.
+
+do
+    local announced = {}
+    local listeners = {}
+    _G.EventRegistry = {
+        RegisterCallback = function(_, event, fn) listeners[event] = fn end,
+        TriggerEvent = function(_, event, ...)
+            announced[event] = (announced[event] or 0) + 1
+            if listeners[event] then listeners[event](nil, ...) end
+        end,
+    }
+    _G.BugGrabber = {
+        GetSessionId = function() return 1 end,
+        GetDB = function() return {} end,
+        GetErrorByID = function() return nil end,
+    }
+
+    Errors.bridge = nil
+    Errors:InstallBugGrabberBridge()
+    check("we subscribe to the feed", listeners["BugGrabber.BugGrabbed"] ~= nil)
+    check("and never announce ourselves as a display",
+        announced["BugGrabber.DisplayRegistered"] == nil,
+        "we claimed the display slot BugSack uses")
+
+    _G.BugGrabber, _G.EventRegistry = nil, nil
+    Errors.bridge = nil
+end
+
+--------------------------------------------------------------------------
 print("\n== a client that cannot do this at all ==")
 --------------------------------------------------------------------------
 

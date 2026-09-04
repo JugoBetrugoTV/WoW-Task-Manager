@@ -369,6 +369,11 @@ function UI.Graph(parent, opts)
         local height = plot:GetHeight() or 0
         if width < 8 or height < 8 then return end
 
+        -- Timed, because redrawing a graph is by a wide margin the most
+        -- expensive thing this addon does, and "expensive" should be a
+        -- measurement on the benchmark rather than a claim in a comment.
+        local drawStart = WTM.Compat.Now()
+
         self.columnPool:ReleaseAll()
         self.gridPool:ReleaseAll()
         self.markerPool:ReleaseAll()
@@ -608,6 +613,16 @@ function UI.Graph(parent, opts)
         end
 
         self.dirty = false
+
+        -- One redraw, measured. The benchmark reports the average and the
+        -- worst of these next to how many the budget refused.
+        local stats = UI.MainWindow and UI.MainWindow.redrawStats
+        if stats then
+            local spent = WTM.Compat.Now() - drawStart
+            stats.draws   = stats.draws + 1
+            stats.totalMs = stats.totalMs + spent
+            if spent > stats.maxMs then stats.maxMs = spent end
+        end
     end
 
     --- Sets the time window the graph represents, used for the axis and markers.

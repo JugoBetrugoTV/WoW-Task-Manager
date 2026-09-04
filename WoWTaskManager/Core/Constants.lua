@@ -12,7 +12,7 @@ WTM.C = C
 C.ADDON_NAME    = ADDON_NAME
 C.ADDON_TITLE   = "WoW Task Manager"
 C.ADDON_SHORT   = "WTM"
-C.VERSION       = "0.7.0"
+C.VERSION       = "0.7.1"
 
 -- SavedVariables schema version.  Bump this whenever the stored shape changes
 -- and add a migration step in Core/Database.lua; never reinterpret old data in
@@ -53,7 +53,6 @@ C.SPIKE_DEBOUNCE_SEC = 1.5
 
 C.CLUSTER_WINDOW_SEC   = 2.0    -- a spike this soon after the last joins it
 C.CLUSTER_MAX_SPAN_SEC = 10.0   -- a cluster is closed once it has run this long
-C.CLUSTER_MIN_FRAMES   = 2      -- below this it is reported as a single spike
 
 --------------------------------------------------------------------------
 -- False positive suppression
@@ -65,7 +64,6 @@ C.CLUSTER_MIN_FRAMES   = 2      -- below this it is reported as a single spike
 C.WARMUP_LOGIN_SEC   = 12   -- after an initial login
 C.WARMUP_RELOAD_SEC  = 8    -- after /reload
 C.WARMUP_ZONE_SEC    = 5    -- after a zone change or loading screen ends
-C.WARMUP_COMBAT_SEC  = 0    -- combat is NOT warmed up; those spikes matter most
 
 C.SUPPRESSION_REASONS = {
     loading  = "Loading screen",
@@ -321,7 +319,6 @@ C.ERROR_KINDS = {
     forbidden = { label = "Blocked action", short = "BLOCKED",   tone = "warn" },
     warning   = { label = "Lua warning",    short = "WARNING",   tone = "warn" },
 }
-C.ERROR_KIND_ORDER = { "lua", "forbidden", "warning" }
 
 C.TXT_FORBIDDEN_NOTE =
     "The client refused a protected call from this addon. That is taint, not a " ..
@@ -378,10 +375,7 @@ C.TXT_UNAVAILABLE_CLIENT  = "Unavailable on this client"
 C.TXT_REQUIRES_PROFILING  = "Requires CPU profiling"
 C.TXT_COMBAT_BLOCKED      = "Unavailable during combat"
 C.TXT_COMBAT_QUEUED       = "Queued until combat ends"
-C.TXT_HEURISTIC           = "heuristic"
 C.TXT_INSUFFICIENT        = "Insufficient data"
-C.TXT_SUPPRESSED          = "Suppressed"
-C.TXT_SIMULATED           = "SIMULATED"
 
 --------------------------------------------------------------------------
 -- Wording rules

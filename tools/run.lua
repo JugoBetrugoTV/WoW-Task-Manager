@@ -435,6 +435,24 @@ do
     NS.Errors:Reset()
 end
 
+--- The benchmark itself, run end to end. It is the thing a player is told to
+--- use when this addon feels expensive, so it has to survive being called.
+print("\n-- /wtm benchmark --")
+do
+    NS.db.profile.dev.enabled = true
+    NS.UI.MainWindow:Open()
+    NS.Dev:Benchmark(3)
+    for _ = 1, 40 do mock.Tick(0.1) end
+    NS.Dev:FinishBenchmark()
+    -- The mock collects chat rather than printing it, so echo what the player
+    -- would have seen.
+    for _, line in ipairs(DEFAULT_CHAT_FRAME.messages) do
+        if line:find("WTM dev", 1, true) or line:find("--", 1, true) then
+            print("   " .. (line:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")))
+        end
+    end
+end
+
 print("\n-- measured overhead breakdown --")
 do
     for _, row in ipairs(NS.Overhead:GetBreakdown()) do

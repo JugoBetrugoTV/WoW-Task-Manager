@@ -131,9 +131,32 @@ function Region:GetFrameLevel() return self._frameLevel or 1 end
 function Region:SetFrameStrata(strata) self._strata = strata end
 function Region:GetFrameStrata() return self._strata or "MEDIUM" end
 
-function Region:Show() self._shown = true end
-function Region:Hide() self._shown = false end
-function Region:SetShown(v) self._shown = v and true or false end
+--- Show and Hide fire OnShow and OnHide, the way the client does, and only on
+--- an actual transition.
+---
+--- They used to be plain flag writes. The main window enables its refresh task
+--- from OnShow, so nothing in the harness ever turned the UI task on - the one
+--- task that drives every page refresh and every graph redraw was untested.
+local function fireVisibility(self, script)
+    local fn = self._scripts and self._scripts[script]
+    if fn then fn(self) end
+end
+
+function Region:Show()
+    if self._shown then return end
+    self._shown = true
+    fireVisibility(self, "OnShow")
+end
+
+function Region:Hide()
+    if not self._shown then return end
+    self._shown = false
+    fireVisibility(self, "OnHide")
+end
+
+function Region:SetShown(v)
+    if v then self:Show() else self:Hide() end
+end
 function Region:IsShown() return self._shown end
 function Region:IsVisible()
     if not self._shown then return false end
@@ -565,7 +588,12 @@ function M.AuditText(tolerance)
     local MIN_MEANINGFUL_BOX = 60
     local findings = {}
     for _, region in ipairs(M.allFrames) do
-        if region._kind == "FontString" and not region._wordWrap then
+        -- Only text somebody can actually see. Auditing hidden text reported
+        -- every tooltip line the moment a tooltip had ever been populated -
+        -- a tooltip sizes itself to its content, so its lines are unbounded by
+        -- design - and that noise is exactly what buries a real finding.
+        if region._kind == "FontString" and not region._wordWrap
+           and region:IsVisible() then
             local text = region._text or ""
             if text ~= "" then
                 local own = region:GetStringWidth()
