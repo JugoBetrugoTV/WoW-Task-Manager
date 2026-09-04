@@ -20,6 +20,10 @@ local T     = Theme.Get
 local M     = Theme.metrics
 local Fmt   = WTM.Format
 
+-- One row of cards is this tall; UI.LayoutCardRow returns what the row needs
+-- once it has decided how many rows the width allows.
+local CARD_ROW_HEIGHT = 78
+
 local Page = UI.RegisterPage("memory", {})
 
 local growthData = {}
@@ -51,7 +55,7 @@ function Page:Build(frame)
     -- Summary cards
     ------------------------------------------------------------------
     local row = CreateFrame("Frame", nil, frame)
-    row:SetHeight(78)
+    row:SetHeight(CARD_ROW_HEIGHT)
     row:SetPoint("TOPLEFT", pad, -pad)
     row:SetPoint("TOPRIGHT", -pad, -pad)
     self.cardRow = row
@@ -119,25 +123,17 @@ end
 
 function Page:OnLayout()
     if not self.cardRow then return end
-    local width = self.cardRow:GetWidth()
-    if not width or width <= 0 then return end
-    local count = 5
-    local cardWidth = (width - M.cardGap * (count - 1)) / count
-    local previous
-    local order = { "total", "addons", "growth", "rate", "gc" }
-    for _, key in ipairs(order) do
-        local card = self.cards[key]
-        card:ClearAllPoints()
-        card:SetPoint("TOP")
-        card:SetPoint("BOTTOM")
-        card:SetWidth(cardWidth)
-        if previous then
-            card:SetPoint("LEFT", previous, "RIGHT", M.cardGap, 0)
-        else
-            card:SetPoint("LEFT")
-        end
-        previous = card
+    if (self.cardRow:GetWidth() or 0) <= 0 then return end
+
+    -- "ATTRIBUTED TO ADDONS" needs more than a fifth of a narrow window. The
+    -- cards wrap onto a second row rather than trimming to "ATTR...".
+    local ordered = {}
+    for _, key in ipairs({ "total", "addons", "growth", "rate", "gc" }) do
+        ordered[#ordered + 1] = self.cards[key]
     end
+    self.cardRow:SetHeight(
+        UI.LayoutCardRow(self.cardRow, ordered, { rowHeight = CARD_ROW_HEIGHT }))
+
     self:LayoutTable()
 end
 

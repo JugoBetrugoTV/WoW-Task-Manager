@@ -157,18 +157,28 @@ function Page:Build(frame)
     self.factsCard:SetPoint("TOPLEFT")
     self.factsCard:SetPoint("BOTTOMLEFT")
 
+    -- Fifteen facts in a card that stretches to whatever the panel leaves it.
+    -- At the minimum window size that is about 206 px, which fits eleven of
+    -- them; the other four were clipped off the bottom with nothing to say
+    -- they existed. They scroll now, so the height of the window decides how
+    -- many are visible at once rather than how many exist.
+    local factScroll, factCanvas = UI.ScrollCanvas(self.factsCard.content, { step = 48 })
+    self.factScroll = factScroll
+
     self.factRows = {}
     local FACTS = {
         "Timestamp", "Severity", "Frame time", "FPS equivalent", "Rolling baseline",
         "Home latency", "World latency", "Event rate", "Event storms",
         "Lua memory", "Memory growth", "Combat", "Zone", "Instance", "Group",
     }
+    local FACT_PITCH, FACT_HEIGHT = 16, 18
     for i, label in ipairs(FACTS) do
-        local row = UI.StatRow(self.factsCard.content, label)
-        row:SetPoint("TOPLEFT", 0, -(i - 1) * 16)
-        row:SetPoint("TOPRIGHT", 0, -(i - 1) * 16)
+        local row = UI.StatRow(factCanvas, label)
+        row:SetPoint("TOPLEFT", 0, -(i - 1) * FACT_PITCH)
+        row:SetPoint("TOPRIGHT", 0, -(i - 1) * FACT_PITCH)
         self.factRows[label] = row
     end
+    factCanvas:SetHeight((#FACTS - 1) * FACT_PITCH + FACT_HEIGHT)
 
     self.cpuCard = UI.Card(body, "ADDON CPU WITHIN THE OBSERVATION WINDOW", {})
     self.cpuCard:SetPoint("TOPLEFT", self.factsCard, "TOPRIGHT", M.cardGap, 0)

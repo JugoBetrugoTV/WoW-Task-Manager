@@ -116,6 +116,10 @@ Theme.metrics = {
     headerHeight   = 28,
     cardHeight     = 92,
     cardGap        = 12,
+    -- Below this a metric card is not a card any more: the heading trims to
+    -- "UNIQ...", the sublabel to "every o...", and six unreadable boxes in a
+    -- row tell the reader less than three readable ones over two rows.
+    cardMinWidth   = 150,
     navItemHeight  = 28,
     borderSize     = 1,
     scrollbarWidth = 6,

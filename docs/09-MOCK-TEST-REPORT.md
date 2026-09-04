@@ -1,6 +1,6 @@
 # Mock-Testbericht
 
-Erzeugt am 2026-09-04 gegen Addon-Version 0.7.1.
+Erzeugt am 2026-09-04 gegen Addon-Version 0.7.2.
 
 > **Alles hier ist MOCK VERIFIED, nichts ist REAL CLIENT VERIFIED.**
 > Der Mock verhält sich so, wie ich glaube, dass der Client sich verhält. Wo
@@ -49,38 +49,38 @@ Gestartet mit `./tools/run-tests.sh` bzw. `./tools/release-check.sh`.
 ## Matrix: 4 Clients x Profiling an/aus x volle/abgeräumte API x Ace3 an/aus
 
 ```
-  PASS  Retail-12.1.0      profiling=on  api=normal   no-ace3    437 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=normal   ace3       437 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=degraded no-ace3    447 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=degraded ace3       447 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=normal   no-ace3    438 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=normal   ace3       438 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=degraded no-ace3    448 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=degraded ace3       448 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=normal   no-ace3    437 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=normal   ace3       437 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=degraded no-ace3    447 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=degraded ace3       447 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=normal   no-ace3    438 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=normal   ace3       438 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=degraded no-ace3    448 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=degraded ace3       448 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=normal   no-ace3    437 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=normal   ace3       437 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=degraded no-ace3    447 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=degraded ace3       447 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=normal   no-ace3    438 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=normal   ace3       438 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=degraded no-ace3    448 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=degraded ace3       448 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=normal   no-ace3    437 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=normal   ace3       437 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=degraded no-ace3    447 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=degraded ace3       447 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=normal   no-ace3    438 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=normal   ace3       438 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=degraded no-ace3    448 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=degraded ace3       448 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=normal   no-ace3    448 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=normal   ace3       448 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=degraded no-ace3    458 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=degraded ace3       458 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=normal   no-ace3    449 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=normal   ace3       449 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=degraded no-ace3    459 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=degraded ace3       459 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=normal   no-ace3    448 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=normal   ace3       448 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=degraded no-ace3    458 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=degraded ace3       458 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=normal   no-ace3    449 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=normal   ace3       449 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=degraded no-ace3    459 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=degraded ace3       459 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=normal   no-ace3    448 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=normal   ace3       448 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=degraded no-ace3    458 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=degraded ace3       458 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=normal   no-ace3    449 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=normal   ace3       449 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=degraded no-ace3    459 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=degraded ace3       459 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=normal   no-ace3    448 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=normal   ace3       448 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=degraded no-ace3    458 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=degraded ace3       458 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=normal   no-ace3    449 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=normal   ace3       449 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=degraded no-ace3    459 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=degraded ace3       459 passed, 0 failed, 0 lua errors
 syntax check:
   all 75 files parse
 ```
@@ -360,8 +360,105 @@ bei 60 fps in 20 von 36 000 Frames. Dafür lohnt sich keine Zeile Code.
 
 | Suite | Was sie festnagelt |
 |---|---|
-| `tools/test-ui.lua` | Jede Seite bei 940x600, 1280x800 und 1920x1080: nichts ragt aus seinem Elternteil, nichts überlappt, nichts überlebt einen Seitenwechsel. Dazu Hover, Klick, Rechtsklick, Scroll, Tooltip-Abbau, Schliessen und Wiederöffnen. |
+| `tools/test-ui.lua` | Jede Seite bei 940x600, 1280x800 und 1920x1080: nichts ragt aus seinem Elternteil, nichts überlappt **horizontal wie vertikal**, nichts überlebt einen Seitenwechsel, keine Kartenüberschrift wird auf Initialen gekürzt. Dazu Hover, Klick, Rechtsklick, echtes Scrollen, Tooltip-Abbau, Schliessen und Wiederöffnen. |
 | `tools/test-longrun.lua` | Sechs simulierte Stunden bei 0,1 s Takt durch den **echten** Scheduler. Caps, Kompaktierung, Allokationsbudgets, das Selbstdrosseln des Scans, und zum Schluss ein Quervergleich: dieselbe Zahl muss überall dieselbe sein. |
+
+## 0.7.2: der Harness lernt die zweite Achse
+
+Bis hierher löste der Mock **nur horizontale** Anker auf. Jede vertikale
+Layoutfrage — passt diese Zeile noch in diese Karte, passt dieser Satz in die
+zwei Zeilen, die er bekommen hat — wurde von einem Screenshot beantwortet oder
+gar nicht. Das ist jetzt zu.
+
+### Erst die Abdeckung, dann der Audit
+
+Die erste Messung war ernüchternd: von 993 sichtbaren Regionen liessen sich
+**169 horizontal** und **157 vertikal** auflösen. Der Text-Audit, den es seit
+0.5.0 gibt, war also für rund 83 % der Oberfläche blind, ohne dass das jemand
+gemerkt hätte.
+
+Zwei Ursachen, beide im Mock:
+
+| Bruchstelle | Folge |
+|---|---|
+| `Minimap` hatte gar keinen Anker | Der komplette Minimap-Button-Teilbaum löste sich nicht auf |
+| Ein **Scroll-Child** trägt keine Anker — der ScrollFrame positioniert es | Die Kette brach an jeder scrollenden Seite ab, und das ist fast jede |
+
+Nach beiden Fixes: **945 horizontal, 783 vertikal.** Derselbe Audit-Code, die
+gleiche Oberfläche, fünfmal so viel gesehen.
+
+Nebenbei fiel auf, dass `GetVerticalScroll` im Mock **gar nicht existierte**.
+Jeder Mausrad-Handler liest den Wert, bevor er einen Schritt abzieht — ein
+Rad-Ereignis hätte also geworfen. Es hat nie eines gegeben, obwohl „scrolled"
+in der Kopfzeile der UI-Suite stand. Jetzt ist der Pfad echt und wird geprüft.
+
+### Was der vertikale Audit meldet
+
+| Art | Bedeutung |
+|---|---|
+| `spill` | Nichts klippt, WoW malt den Inhalt über das, was darunter liegt |
+| `cutoff` | Etwas weiter oben klippt: nichts wird übermalt, der Inhalt ist einfach weg |
+| `truncated` | Umbrechender Text braucht mehr Zeilen, als seine Höhe erlaubt |
+
+Ein Frame, der seine **eigenen** Kinder klippt, ist ein Viewport — dort ist
+Überstand gewollt. Eine virtualisierte Liste zeichnet absichtlich eine Zeile
+über den unteren Rand hinaus, damit beim Scrollen eine angeschnittene Zeile
+sichtbar ist. Gemeldet wird deshalb nur, was über einen Eltern-Frame
+hinausläuft, der **nicht** klippt.
+
+### Neun Layoutfehler, die dabei herausfielen
+
+Alle waren im echten Client sichtbar, und keiner hätte sich vorher zeigen
+können.
+
+| Seite | Fund |
+|---|---|
+| System | Die CLIENT-Karte trug eine handgesetzte Höhe. Ich hatte eine Zeile ergänzt — die letzten **zwei** Zeilen waren abgeschnitten |
+| Incidents | Die INCIDENT-Karte füllt ihr Panel; bei 940x600 fehlten **vier** von 15 Fakten |
+| Timeline | SELECTED RANGE war **48 px** zu kurz: drei von sieben Zeilen weg |
+| Timeline | Markerspur und Detailpanel hingen **40 px** unter dem Seitenrand |
+| Overview | BIGGEST CONCERN: eine Zeile abgeschnitten |
+| Sessions | SUMMARY: eine Zeile abgeschnitten |
+| Alerts | RECENT ALERTS: 4 px zu kurz, letzte Zeile weg |
+| Events | EVENT STORMS: 4 px zu kurz, vierte Zeile weg |
+| Errors, Memory | Sechs bzw. fünf Karten wurden stur nebeneinander gequetscht |
+
+Die vier mittleren hatten dieselbe Ursache: das Widget rechnet sich seine
+`naturalHeight` selbst aus, und die Seite überschrieb sie mit einer kleineren
+Handzahl. `grid:Add` gibt einem Widget jetzt **nie weniger als seine
+naturalHeight** — ein Fix an einer Stelle statt sieben neuer Zahlen.
+
+### Drei Fehler, bei denen Text zu Unsinn wurde
+
+**`UI.FitText` gab die leere Zeichenkette zurück**, wenn nicht einmal ein
+Zeichen plus Ellipse passte. Das Label verschwand dann spurlos — neunmal in
+einem einzigen Durchlauf über die Seiten. Es gibt jetzt in jedem Fall
+mindestens drei Punkte aus: „hier steht Text, frag danach" ist mehr als nichts.
+
+**Die Processes-Zusammenfassung** bekam hinter sechs Filterknöpfen **55 px**
+und las sich als `"176 of ..."`. Mit `UI.FitBest` wählt sie die längste
+Formulierung, die ganz passt — in derselben Breite steht dort jetzt
+`"176/220"`.
+
+**Jede StatRow** reservierte die Hälfte ihrer Breite für den Wert. Eine 321 px
+breite Zeile gab **160 px an die Zeichenkette `"0"`** und kürzte
+„Collections observed" auf den Rest. Ursache war ein Anker: der Wert war
+zusätzlich zur rechten Kante an die **Mitte** der Zeile gebunden, und das ist
+ein fest verdrahteter 50/50-Split, den kein `SetWidth` überstimmt — im echten
+Client so wenig wie hier. Label jetzt 267 px statt 154.
+
+### Formatierer: was auf den Schirm kommt, wenn die Zahl keine ist
+
+Jeder Formatierer beantwortete `nil` mit `"-"`. Für die **anderen** Arten, wie
+eine Messung schiefgeht, hatte keiner eine Antwort: eine Rate über null
+Sekunden ist ein NaN, ein Anteil an einer leeren Summe eine Unendlichkeit, und
+beides landete wörtlich auf dem Bildschirm — `-nan KB`, `infh ago`, `inf %`.
+Alles, was gar keine Zahl war, **warf** — aus einem Refresh-Pfad heraus, dem
+schlechtesten Ort für eine Meinung über Eingaben.
+
+Gemessen: **44 Würfe und 29 Mal `nan`/`inf`** über elf Formatierer. Jetzt ein
+Tor an der Grenze (`finite`), und „keine brauchbare Zahl" wird überall so
+behandelt wie `nil` es schon wurde.
 
 ## Was der Mock nicht kann
 
@@ -374,6 +471,8 @@ bei 60 fps in 20 von 36 000 Frames. Dafür lohnt sich keine Zeile Code.
   `/wtm benchmark`.
 * **Kein Taint.** Das Addon fasst nichts Geschütztes an, aber bewiesen ist das
   erst durch einen Kampf ohne Blocked-Action-Meldung.
-* **Kein Rendering.** Ob Text abgeschnitten wird oder Graphen lesbar sind,
-  sehe ich nur auf deinen Screenshots.
+* **Kein Rendering.** Seit 0.7.2 werden beide Achsen aufgelöst, der Mock kann
+  also sagen, ob etwas in seinen Kasten passt. Ob es *gut aussieht* — ob ein
+  Graph lesbar ist, ob eine Farbe trägt — sehe ich weiter nur auf deinen
+  Screenshots.
 * **Nur enUS.** Deutsche Umlaute in Addon-Titeln sind ungetestet.

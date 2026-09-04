@@ -170,6 +170,44 @@ do
     for i = before + 1, math.min(#mock.errors, before + 4) do
         print("      " .. mock.errors[i])
     end
+
+    -- Rendering without throwing is the low bar. The one that matters to
+    -- somebody who just installed this is whether the page SAYS anything: a
+    -- panel full of dashes and a broken page look identical from the outside,
+    -- and the difference is a sentence explaining that there is nothing to
+    -- show yet and what would make something appear.
+    local function isDescendant(ancestor, node)
+        local n, guard = node, 0
+        while n and guard < 64 do
+            if n == ancestor then return true end
+            n, guard = n._parent, guard + 1
+        end
+        return false
+    end
+
+    local silent = {}
+    for _, key in ipairs(NS.UI.pageOrder) do
+        NS.UI.MainWindow:ShowPage(key)
+        NS.UI.MainWindow:RefreshCurrentPage()
+        local page = NS.UI.Pages[key]
+        local sentences, contentful = 0, 0
+        for _, region in ipairs(mock.allFrames) do
+            if region._kind == "FontString" and region:IsVisible()
+               and isDescendant(page.frame, region) then
+                local text = NS.Format.StripColors(region._text or "")
+                -- A number, a dash or a one-word heading explains nothing. A
+                -- sentence does.
+                if #text > 24 and text:find(" ") then sentences = sentences + 1 end
+                if #text > 1 and text ~= "-" then contentful = contentful + 1 end
+            end
+        end
+        -- Either explain, or show something. A table of addon names is not
+        -- prose and does not need to be: it is already telling the reader what
+        -- the page is for. What is not allowed is a panel that does neither.
+        if sentences == 0 and contentful < 10 then silent[#silent + 1] = key end
+    end
+    check("no page is silent about having no data yet",
+        #silent == 0, table.concat(silent, ", "))
 end
 
 --------------------------------------------------------------------------

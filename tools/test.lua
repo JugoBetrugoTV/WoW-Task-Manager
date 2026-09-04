@@ -2218,6 +2218,65 @@ do
 end
 
 --------------------------------------------------------------------------
+-- Formatters: what reaches the screen when the number is not a number
+--------------------------------------------------------------------------
+-- Every formatter already answers "-" for nil. It did not answer anything
+-- sensible for the OTHER ways a measurement fails: a rate over zero seconds is
+-- a NaN, a ratio against an empty total is an infinity, and both rendered
+-- literally - "-nan KB", "infh ago", "inf %". A player seeing that reasonably
+-- concludes the addon is broken.
+--
+-- And anything that was not a number at all threw, from inside a refresh path,
+-- which is the worst place for a formatter to have an opinion.
+do
+    local F = NS.Format
+    local NOT_NUMBERS = {
+        { "NaN", 0/0 }, { "+inf", 1/0 }, { "-inf", -1/0 },
+        { "a string", "abc" }, { "an empty string", "" },
+        { "a table", {} }, { "a boolean", true },
+    }
+    local FORMATTERS = { "Comma", "Memory", "MemoryDelta", "Ms", "Percent",
+                         "FPS", "Rate", "Duration", "Ago", "Bytes", "Signed" }
+
+    local threw, nonsense = {}, {}
+    for _, fname in ipairs(FORMATTERS) do
+        for _, case in ipairs(NOT_NUMBERS) do
+            local ok, out = pcall(F[fname], case[2])
+            if not ok then
+                threw[#threw + 1] = ("%s(%s)"):format(fname, case[1])
+            else
+                local text = tostring(out)
+                if text:lower():find("nan") or text:lower():find("inf")
+                   or text == "nil" then
+                    nonsense[#nonsense + 1] = ("%s(%s) -> %q"):format(fname, case[1], text)
+                end
+            end
+        end
+    end
+    check("no formatter throws on something that is not a number",
+        #threw == 0, ("%d threw, first: %s"):format(#threw, threw[1] or "-"))
+    check("no formatter puts nan or inf on the screen",
+        #nonsense == 0, ("%d, first: %s"):format(#nonsense, nonsense[1] or "-"))
+
+    -- The ordinary answers must not have moved.
+    check("Comma still groups digits", F.Comma(1234567) == "1,234,567", F.Comma(1234567))
+    check("Comma still signs negatives", F.Comma(-4321) == "-4,321", F.Comma(-4321))
+    check("Memory still picks a unit", F.Memory(2048) == "2.0 MB", F.Memory(2048))
+    check("Ms still takes its decimals", F.Ms(1.25, 2) == "1.25 ms", F.Ms(1.25, 2))
+    check("nil is still a dash", F.Memory(nil) == "-" and F.Ms(nil) == "-")
+    check("zero is still zero, not a dash", F.Memory(0) == "0 KB", F.Memory(0))
+
+    -- Truncate compared a length against its limit without checking there was
+    -- one, so calling it with no limit threw.
+    check("Truncate survives a missing limit",
+        pcall(F.Truncate, "a reasonably long label", nil))
+    check("Truncate still truncates",
+        F.Truncate("abcdefghij", 5) == "abcd...", F.Truncate("abcdefghij", 5))
+    check("Truncate leaves a short string alone",
+        F.Truncate("abc", 10) == "abc", F.Truncate("abc", 10))
+end
+
+--------------------------------------------------------------------------
 print(("   %d passed, %d failed, %d lua errors"):format(passed, failed, #mock.errors))
 for i = 1, math.min(5, #mock.errors) do print("   error: " .. mock.errors[i]) end
 os.exit((failed == 0 and #mock.errors == 0) and 0 or 1)

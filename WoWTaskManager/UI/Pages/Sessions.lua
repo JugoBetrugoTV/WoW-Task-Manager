@@ -86,7 +86,6 @@ function Page:Build(frame)
 
     -- Stat grid
     local stats = UI.Card(detail, "SUMMARY", {})
-    stats:SetHeight(150)
     stats:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -M.cardGap)
     stats:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", 0, -M.cardGap)
     self.statsCard = stats
@@ -108,6 +107,11 @@ function Page:Build(frame)
         self.statRows[label] = statRow
         statRow.column, statRow.rowIndex = column, rowIndex
     end
+    -- Sized from the rows rather than by hand: sixteen keys in two columns is
+    -- eight rows, and the hand-written 150 fitted seven of them.
+    local ROW_PITCH, ROW_HEIGHT = 16, 18
+    stats:SetContentHeight(
+        (math.ceil(#STAT_KEYS / 2) - 1) * ROW_PITCH + ROW_HEIGHT)
 
     -- Top lists
     self.topCard = UI.Card(detail, "TOP CONSUMERS", {})

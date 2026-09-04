@@ -282,6 +282,9 @@ unter *Options → AddOns* und funktioniert unverändert weiter.
 | Selbstdrosselung des Addon-Memory-Scans | Neu in 0.7.1. Der Mock misst echte Zeit, aber nicht *WoWs* Zeit — ob `C.MEMORY_SCAN_BUDGET_MS` auf deinem 182-Addon-Client der richtige Schwellwert ist, sagt nur der Client |
 | `/wtm benchmark` mit geöffnetem Fenster | Neu aufgeschlüsselt in 0.7.1. Die Aufschlüsselung pro Aufgabe existiert erst seit dem Phasen-Fix und ist im Spiel noch nie vollständig gelaufen |
 | Overhead bei geschlossenem Fenster | 16,5 ms/s im Retail-Test gemeldet. Ob das nach der Drosselung fällt, ist die eine Zahl, die ich nicht selbst nachmessen kann |
+| Neun Layout-Fixes aus dem Vertikal-Audit (0.7.2) | Der Harness sagt jetzt, dass alles in seinen Kasten passt. Ob es **gut aussieht** — ob die umbrochenen Karten auf Errors und Memory eine sinnvolle Anordnung ergeben, ob die scrollende Incident-Karte sich richtig anfühlt — zeigt nur der Client |
+| Timeline bei kleiner Fensterhöhe | Die Spuren schrumpfen jetzt bis auf 34 px, statt Markerspur und Detailpanel unter den Rand zu schieben. Ob eine 34-px-Spur noch lesbar ist, ist eine Frage an dein Auge, nicht an den Test |
+| Mausrad auf jeder Seite | Der Pfad war im Mock gar nicht ausführbar und ist es jetzt. Im Spiel gescrollt wurde damit trotzdem noch nie |
 
 ## Wie die Spalte auf PASS kommt
 

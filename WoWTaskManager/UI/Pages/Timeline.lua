@@ -41,6 +41,11 @@ local TRACKS = {
 }
 
 local TRACK_HEIGHT = 54
+-- Below this a track is a coloured smear rather than a graph, so the page
+-- stops shrinking them and accepts that a very short window shows less.
+local MIN_TRACK_HEIGHT  = 34
+-- What the detail panel underneath needs before the tracks may take the rest.
+local MIN_DETAIL_HEIGHT = 120
 
 -- Zoom presets. Deliberately fewer than the Performance page offers: the
 -- timeline is for locating an event, not for scrubbing a continuum.
@@ -213,10 +218,13 @@ function Page:Build(frame)
     -- Drag across any track to mark a span; the panel then summarises just
     -- that span. This is what turns the timeline from a picture into
     -- something you can ask a question of.
+    -- Scrolling, because this card is sized by the detail panel and not by its
+    -- own rows: at the minimum window size the panel leaves it about 104 px,
+    -- and seven rows need 152. Three of them used to be clipped away.
     self.inspector = UI.StatCard(detail, "SELECTED RANGE", {
         "Span", "Average FPS", "Worst frame", "Average world latency",
         "Peak addon CPU", "Events at peak", "Lua memory change",
-    })
+    }, { scroll = true })
     self.inspector:SetPoint("TOPRIGHT", detail, "TOPRIGHT", -M.padding, -12)
     self.inspector:SetWidth(280)
     self.inspector:SetPoint("BOTTOM", detail, "BOTTOM", 0, M.padding)
@@ -470,7 +478,39 @@ function Page:RefreshAddonTracks()
     end
 end
 
+--- Fits the fixed stack into whatever height the window has.
+---
+--- The page is a stack of fixed pieces - toolbar, tracks, addon tracks, the
+--- marker lane, the detail panel - and the track height was a constant. At the
+--- minimum window size the total came to more than the page, so the marker
+--- lane hung 40 px below the bottom edge and the detail panel with it. The
+--- tracks shrink instead, down to a floor below which a graph stops being
+--- readable at all.
+function Page:OnLayout()
+    if not self.stack then return end
+    local available = self.frame and self.frame:GetHeight()
+    if not available or available <= 0 then return end
+
+    -- Everything on the page that is not the track stack.
+    local reserved = 34 + 10                        -- toolbar and its gap
+        + (self.addonTrackHost:GetHeight() or 1)
+        + 6 + 38                                    -- marker lane and its gap
+        + M.cardGap + MIN_DETAIL_HEIGHT
+        + M.padding * 2
+
+    local perTrack = (available - reserved) / #TRACKS
+    perTrack = math.max(MIN_TRACK_HEIGHT, math.min(TRACK_HEIGHT, perTrack))
+
+    self.stack:SetHeight(#TRACKS * perTrack)
+    for i, track in ipairs(self.tracks) do
+        track:SetHeight(perTrack)
+        track:SetPoint("TOPLEFT", 0, -(i - 1) * perTrack)
+        track:SetPoint("TOPRIGHT", 0, -(i - 1) * perTrack)
+    end
+end
+
 function Page:OnShow()
+    self:OnLayout()
     self:RebuildAddonTracks()
     self:Refresh()
 end

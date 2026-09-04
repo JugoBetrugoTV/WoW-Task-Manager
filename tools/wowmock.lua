@@ -109,6 +109,7 @@ function Region:SetTextColor(...) checkColor("SetTextColor", self, ...) end
 function Region:SetColorTexture(...) checkColor("SetColorTexture", self, ...) end
 function Region:SetVertexColor(...) checkColor("SetVertexColor", self, ...) end
 
+
 local methods = {
     "SetTexture","SetTexCoord","SetAlpha",
     "SetJustifyH","SetJustifyV",
@@ -117,7 +118,7 @@ local methods = {
     "SetMovable","SetResizable","SetResizeBounds","SetMinResize","StartMoving",
     "StopMovingOrSizing","StartSizing","RegisterForDrag","RegisterForClicks",
     "EnableMouse","EnableMouseWheel","EnableKeyboard",
-    "SetScrollChild","SetVerticalScroll","SetHorizontalScroll","SetScale",
+    "SetScale",
     "SetThickness","SetStartPoint","SetEndPoint","SetGradient","SetGradientAlpha",
     "SetBackdrop","Raise","Lower","SetHitRectInsets","SetAutoFocus","ClearFocus",
     "SetFocus","HighlightText","SetIgnoreParentScale","SetPropagateKeyboardInput",
@@ -188,9 +189,14 @@ end
 -- anchored LEFT and RIGHT has a real width, and a label that outgrows it can be
 -- caught here instead of in a screenshot.
 --
--- This is a deliberately small subset of the real anchoring system: horizontal
--- edges only, no scale, no strata. It is enough to find text overflow and not
--- enough to pretend it is a layout engine.
+-- This is a deliberately small subset of the real anchoring system: edges only,
+-- no scale, no strata. It is enough to find text overflow and content that runs
+-- off the bottom of its box, and not enough to pretend it is a layout engine.
+--
+-- Vertical resolution mirrors the horizontal one, with WoW's sign convention:
+-- y grows upward, so a child anchored TOPLEFT with y = -12 sits twelve pixels
+-- BELOW its parent's top. Getting that backwards would turn every padded frame
+-- into a reported overflow, so the direction is asserted in the suites.
 
 local function invalidateLayout() M.layoutEpoch = (M.layoutEpoch or 0) + 1 end
 M.layoutEpoch = 0
@@ -219,7 +225,17 @@ function Region:SetPoint(a, b, c, d, e)
     local p = parsePoint(a, b, c, d, e)
     -- Setting the same anchor point twice replaces it, as in the real client.
     for i = 1, #self._points do
-        if self._points[i].point == p.point then
+        local existing = self._points[i]
+        if existing.point == p.point then
+            -- Re-anchoring to exactly where it already is is not a change, and
+            -- treating it as one throws away every resolved edge in the tree.
+            -- Layout code re-applies identical anchors constantly: a single
+            -- click sweep over one page issued thirteen thousand SetPoints and
+            -- invalidated the whole cache on every one of them.
+            if existing.rel == p.rel and existing.relPoint == p.relPoint
+               and existing.x == p.x and existing.y == p.y then
+                return
+            end
             self._points[i] = p
             invalidateLayout()
             return
@@ -250,6 +266,8 @@ function Region:GetNumPoints() return #self._points end
 
 local LEFT_POINTS  = { LEFT = true, TOPLEFT = true, BOTTOMLEFT = true }
 local RIGHT_POINTS = { RIGHT = true, TOPRIGHT = true, BOTTOMRIGHT = true }
+local TOP_POINTS    = { TOP = true, TOPLEFT = true, TOPRIGHT = true }
+local BOTTOM_POINTS = { BOTTOM = true, BOTTOMLEFT = true, BOTTOMRIGHT = true }
 
 --- Absolute left and right edges, or nil where they cannot be worked out.
 --- Memoised per layout epoch; recursion through a cycle yields nil rather than
@@ -283,6 +301,17 @@ local function resolveEdges(region, seen)
             end
         end
 
+        -- A scroll child carries no anchors: the scroll frame positions it.
+        -- Without this the chain stops dead here, and everything on a
+        -- scrolling page - which is most of the addon - resolves to nothing.
+        if not (left or right) and region._scrollParent then
+            local sl, sr = resolveEdges(region._scrollParent, seen)
+            if sl then
+                left = sl - (region._scrollParent._hScroll or 0)
+                if not region._explicitW and sr then right = sr end
+            end
+        end
+
         -- One edge (or the centre) plus an explicit width gives the rest.
         local w = region._explicitW
         if not (left and right) and w then
@@ -311,6 +340,127 @@ local function resolveEdges(region, seen)
     region._edgeLeft, region._edgeRight = left, right
     region._edgeFromText = fromText or false
     return left, right
+end
+
+--- Absolute top and bottom edges, or nil where they cannot be worked out.
+--- The vertical twin of resolveEdges, with WoW's convention that y grows
+--- upward: a TOPLEFT anchor with y = -12 sits twelve pixels lower than the
+--- thing it is anchored to.
+local function resolveVertical(region, seen)
+    if not region then return nil, nil end
+    if region._vEpoch == M.layoutEpoch then
+        return region._vTop, region._vBottom
+    end
+    seen = seen or {}
+    if seen[region] then return nil, nil end
+    seen[region] = true
+
+    local top, bottom, middle, fromText
+    if region == _G.UIParent or region == _G.WorldFrame then
+        top, bottom = region._h or 1080, 0
+    else
+        for _, p in ipairs(region._points) do
+            local rel = p.rel or region._parent
+            local rt, rb = resolveVertical(rel, seen)
+            if rt and rb then
+                local anchorY
+                if TOP_POINTS[p.relPoint] then anchorY = rt
+                elseif BOTTOM_POINTS[p.relPoint] then anchorY = rb
+                else anchorY = rb + (rt - rb) / 2 end
+
+                local at = anchorY + p.y
+                if TOP_POINTS[p.point] then top = at
+                elseif BOTTOM_POINTS[p.point] then bottom = at
+                else middle = at end
+            end
+        end
+
+        -- The vertical twin, and the one that matters: scrolling down moves
+        -- the child up, so its top sits ABOVE the viewport's by the offset.
+        if not (top or bottom) and region._scrollParent then
+            local st = resolveVertical(region._scrollParent, seen)
+            if st then top = st + (region._scrollParent._vScroll or 0) end
+        end
+
+        local h = region._explicitH
+        if not (top and bottom) and h then
+            if top then bottom = top - h
+            elseif bottom then top = bottom + h
+            elseif middle then top, bottom = middle + h / 2, middle - h / 2 end
+        end
+
+        -- A font string with one vertical anchor and no height is as tall as
+        -- its text, the same way it is as wide as its text horizontally. And
+        -- the same caveat applies: a height that came from the text is not a
+        -- height the layout imposed.
+        if region._kind == "FontString" and not (top and bottom) then
+            local textHeight = region:GetStringHeight()
+            if top then bottom, fromText = top - textHeight, true
+            elseif bottom then top, fromText = bottom + textHeight, true end
+        end
+    end
+
+    seen[region] = nil
+    region._vEpoch = M.layoutEpoch
+    region._vTop, region._vBottom = top, bottom
+    region._vFromText = fromText or false
+    return top, bottom
+end
+
+--- Recorded, not discarded. A scroll canvas is SUPPOSED to be taller than the
+--- viewport holding it - that is the whole point of scrolling - so the
+--- vertical audit has to be able to tell that subtree apart from a frame that
+--- simply spills over its parent.
+function Region:SetScrollChild(child)
+    self._scrollChild = child
+    if child then
+        child._isScrollChild = true
+        child._scrollParent = self
+    end
+    invalidateLayout()
+end
+function Region:GetScrollChild() return self._scrollChild end
+
+--- Real, not a no-op. GetVerticalScroll was not defined at all, so the wheel
+--- handler on every scrolling page - which reads it before subtracting a step
+--- - would have thrown the moment a test turned a wheel. Nothing ever did.
+function Region:SetVerticalScroll(v)
+    self._vScroll = tonumber(v) or 0
+    invalidateLayout()
+end
+function Region:GetVerticalScroll() return self._vScroll or 0 end
+function Region:SetHorizontalScroll(v)
+    self._hScroll = tonumber(v) or 0
+    invalidateLayout()
+end
+function Region:GetHorizontalScroll() return self._hScroll or 0 end
+function Region:GetVerticalScrollRange()
+    local child = self._scrollChild
+    if not child then return 0 end
+    return math.max(0, (child:GetHeight() or 0) - (self:GetHeight() or 0))
+end
+
+--- The height the ANCHORS give this region, with no fallbacks. nil means the
+--- region has no height of its own - in the real client it would grow to fit
+--- its content and spill over whatever is below it.
+function Region:GetAnchoredHeight()
+    local top, bottom = resolveVertical(self)
+    if self._vFromText then
+        if self._explicitH and self._explicitH > 0 then return self._explicitH end
+        return nil
+    end
+    if top and bottom and top - bottom > 1 then return top - bottom end
+    if self._explicitH and self._explicitH > 0 then return self._explicitH end
+    return nil
+end
+
+function Region:GetResolvedHeight()
+    local top, bottom = resolveVertical(self)
+    if top and bottom and top - bottom > 1 then return top - bottom end
+    if self._explicitH then return self._explicitH end
+    local parent = self._parent
+    if parent and parent ~= self then return parent:GetResolvedHeight() end
+    return nil
 end
 
 --- The width this region actually occupies on screen, worked out from its
@@ -362,17 +512,24 @@ local function fireSizeChanged(region)
     if not ok then geterrorhandler()(err) end
 end
 
+-- Same reasoning as SetPoint: setting a width to the width it already has is
+-- not a resize, and firing OnSizeChanged for it makes layout code recurse
+-- through work it has already done.
 function Region:SetWidth(w)
+    if self._explicitW == w and self._w == w then return end
     self._w, self._explicitW = w, w
     invalidateLayout()
     fireSizeChanged(self)
 end
 function Region:SetHeight(h)
+    if self._explicitH == h and self._h == h then return end
     self._h, self._explicitH = h, h
     invalidateLayout()
     fireSizeChanged(self)
 end
 function Region:SetSize(w, h)
+    if self._explicitW == w and self._explicitH == h
+       and self._w == w and self._h == h then return end
     self._w, self._h = w, h
     self._explicitW, self._explicitH = w, h
     invalidateLayout()
@@ -386,17 +543,24 @@ end
 function Region:GetWidth()
     return self:GetResolvedWidth() or self._w
 end
-function Region:GetHeight() return self._h end
-function Region:GetSize() return self._w, self._h end
+--- Resolved where the anchors allow it, for the same reason GetWidth is: a
+--- frame stretched between its parent's top and bottom has a real height, and
+--- layout code that subtracts padding from it deserves the real number.
+function Region:GetHeight()
+    return self:GetResolvedHeight() or self._h
+end
+function Region:GetSize() return self:GetWidth(), self:GetHeight() end
 
-function Region:GetTop() return self._h end
-function Region:GetBottom() return 0 end
+function Region:GetTop() local t = resolveVertical(self) return t end
+function Region:GetBottom() local _, b = resolveVertical(self) return b end
 --- The centre of a frame, which is how a minimap button works out where the
 --- cursor is relative to the minimap.
 function Region:GetCenter()
     local left, right = resolveEdges(self)
+    local top, bottom = resolveVertical(self)
     local x = (left and right) and (left + (right - left) / 2) or ((self._w or 0) / 2)
-    return x, (self._h or 0) / 2
+    local y = (top and bottom) and (bottom + (top - bottom) / 2) or ((self._h or 0) / 2)
+    return x, y
 end
 
 function Region:GetEffectiveScale() return 1 end
@@ -424,13 +588,55 @@ end
 --- catch a label that is obviously too long for its box, not to typeset.
 function Region:GetStringWidth()
     local size = (self._font and self._font[2]) or 12
+    -- Memoised on the exact text and size. FitText binary-searches a label by
+    -- calling SetText and GetStringWidth about fourteen times per fit, and
+    -- each call was stripping colour codes with three gsubs over the string.
+    if self._swText == self._text and self._swSize == size then
+        return self._swValue
+    end
     local widest = 0
     for line in (visibleText(self._text) .. "\n"):gmatch("(.-)\n") do
         widest = math.max(widest, #line)
     end
-    return widest * size * 0.5
+    self._swText, self._swSize, self._swValue = self._text, size, widest * size * 0.5
+    return self._swValue
 end
-function Region:GetStringHeight() return 12 end
+--- Approximate rendered height: line count times line height, where the line
+--- count accounts for wrapping against whatever width the anchors give.
+---
+--- A flat 12 was fine while nothing measured vertically. It is not fine now:
+--- a report that wraps to eighty lines and a label that fits on one both
+--- claimed to be twelve pixels tall, so a scroll canvas sized from this was
+--- always one line high and every long block silently had no room.
+---
+--- Only the horizontal chain is consulted here, so this cannot recurse into
+--- the vertical resolution that calls it.
+function Region:GetStringHeight()
+    local size = (self._font and self._font[2]) or 12
+    local lineHeight = size * 1.2
+    local text = visibleText(self._text)
+    if text == "" then return 0 end
+
+    local width = self._explicitW
+    if not width then
+        local left, right = resolveEdges(self)
+        if left and right and not self._edgeFromText then width = right - left end
+    end
+
+    local lines = 0
+    for line in (text .. "\n"):gmatch("(.-)\n") do
+        if width and width > 0 and self._wordWrap ~= false then
+            local charsPerLine = math.max(1, math.floor(width / (size * 0.5)))
+            lines = lines + math.max(1, math.ceil(#line / charsPerLine))
+        else
+            lines = lines + 1
+        end
+    end
+    if self._maxLines and self._maxLines > 0 then
+        lines = math.min(lines, self._maxLines)
+    end
+    return lines * lineHeight
+end
 function Region:SetScript(k, fn) self._scripts[k] = fn end
 function Region:GetScript(k) return self._scripts[k] end
 function Region:HookScript(k, fn) self._scripts[k .. "_hook"] = fn end
@@ -705,14 +911,120 @@ function M.AuditTextOverlap(maxRowHeight, tolerance)
 end
 
 --------------------------------------------------------------------------
+-- Vertical overflow audit
+--------------------------------------------------------------------------
+--
+-- The blind spot that outlived every other one: until the anchors resolved
+-- vertically, nothing here could see content running off the bottom of its
+-- box. Two failure modes, and they fail differently:
+--
+--   "spill"     a frame's resolved span reaches past its parent's and nothing
+--               in the chain clips, so WoW paints it over whatever is below -
+--               the vertical twin of the "unbounded" text case.
+--   "cutoff"    the same overflow, but an ancestor further up clips. Nothing
+--               is painted over and the content is simply gone. Less
+--               alarming, still a layout bug: the reader cannot see what was
+--               written, and nothing tells them so.
+--
+-- A frame that clips its OWN children is a viewport, and content extending
+-- past a viewport is scrolled, not lost - that is what the flag is for. A
+-- virtualised list deliberately draws one row past the bottom edge so a
+-- partial row appears while scrolling. So overflow is only reported when the
+-- immediate parent does not clip; whether something further up does decides
+-- which of the two kinds it is.
+--   "truncated" a wrapping font string needs more lines than its height
+--               allows, so the reader loses the end of the sentence.
+--
+-- A scroll canvas is exempt by construction: being taller than the viewport is
+-- what it is for. So is anything inside one.
+
+--- Only the canvas ITSELF is exempt, not everything in it.
+---
+--- Exempting the whole subtree was the first thing tried and it made the audit
+--- useless: most of this addon lives inside a scroll canvas, so a row whose
+--- content ran past the bottom of that row was excused along with the canvas.
+--- The canvas may outgrow its viewport; a row inside it may not outgrow the
+--- row.
+
+--- Does anything between this region and the root clip its children?
+local function clippedByAncestor(region)
+    local node, guard = region._parent, 0
+    while node and guard < 64 do
+        if node._clipsChildren then return true end
+        node, guard = node._parent, guard + 1
+    end
+    return false
+end
+
+function M.AuditVertical(tolerance)
+    tolerance = tolerance or 2
+    -- Same reasoning as the horizontal audit: a box this short was never laid
+    -- out, and what its children do inside it says nothing about the real UI.
+    local MIN_MEANINGFUL_BOX = 40
+    -- A drop shadow is a thin texture deliberately anchored just outside the
+    -- frame it softens - the window has four of them. That idiom is not a
+    -- layout bug, so textures are given this much slack and no more; one that
+    -- spills further is still reported, and nothing else gets slack at all.
+    local DECORATION_SLACK = 12
+    local findings = {}
+
+    for _, region in ipairs(M.allFrames) do
+        if region:IsVisible() and not region._isScrollChild then
+            local parent = region._parent
+
+            -- 1. Content that reaches past the box holding it.
+            if parent and parent ~= _G.UIParent and not parent._clipsChildren then
+                local top, bottom = region:GetTop(), region:GetBottom()
+                local pTop, pBottom = parent:GetTop(), parent:GetBottom()
+                if top and bottom and pTop and pBottom
+                   and pTop - pBottom >= MIN_MEANINGFUL_BOX then
+                    local over = math.max(pBottom - bottom, top - pTop)
+                    local slack = (region._kind == "Texture")
+                        and DECORATION_SLACK or tolerance
+                    if over > slack then
+                        findings[#findings + 1] = {
+                            kind = clippedByAncestor(region) and "cutoff" or "spill",
+                            region = region, over = over,
+                            name = region._name or (parent and parent._name) or "unnamed",
+                            text = region._text,
+                        }
+                    end
+                end
+            end
+
+            -- 2. Wrapping text that needs more room than it was given.
+            if region._kind == "FontString" and region._wordWrap
+               and (region._text or "") ~= "" and region._explicitH
+               and region._explicitH >= 12 then
+                local needed = region:GetStringHeight()
+                if needed > region._explicitH + tolerance then
+                    findings[#findings + 1] = {
+                        kind = "truncated", region = region,
+                        over = needed - region._explicitH,
+                        box = region._explicitH, needed = needed,
+                        name = region._name or (region._parent and region._parent._name) or "unnamed",
+                        text = region._text,
+                    }
+                end
+            end
+        end
+    end
+    return findings
+end
+
+--------------------------------------------------------------------------
 -- Globals
 --------------------------------------------------------------------------
 UIParent = CreateFrame("Frame", "UIParent")
 UIParent._w, UIParent._h = 1920, 1080
 WorldFrame = CreateFrame("Frame", "WorldFrame")
 -- Every supported client has a Minimap; addons anchor buttons to it by name.
+-- It is anchored, not just sized: an unanchored Minimap resolves to nothing,
+-- and with it the entire minimap-button subtree - 717 regions that no geometry
+-- audit could see. Top right, roughly where the real client puts it.
 Minimap = CreateFrame("Frame", "Minimap", UIParent)
-Minimap._w, Minimap._h = 140, 140
+Minimap:SetSize(140, 140)
+Minimap:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -20, -20)
 
 -- Panel management. HideUIPanel is what an addon calls to close the options
 -- window behind its own; it is only ever reached out of combat.

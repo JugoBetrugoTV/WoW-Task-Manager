@@ -54,10 +54,21 @@ function UI.Grid(parent, opts)
 
     function grid:Add(frame, cellOpts)
         cellOpts = cellOpts or {}
+        local height = cellOpts.height or self.rowHeight
+
+        -- A widget that knows how tall it needs to be is never given less.
+        -- Seven cards across the addon carried a hand-written height that had
+        -- fallen behind the rows inside them - "SELECTED RANGE" was 48 px
+        -- short - and the rows past the bottom edge were simply clipped away
+        -- with nothing to say they existed. The call sites keep their numbers
+        -- as the intent; this is the floor.
+        local natural = frame.naturalHeight
+        if natural and natural > height then height = natural end
+
         self.cells[#self.cells + 1] = {
             frame  = frame,
             span   = cellOpts.span or 1,
-            height = cellOpts.height or self.rowHeight,
+            height = height,
             fill   = cellOpts.fill,
             -- A cell can be hidden without being removed, which is what the
             -- dashboard's show/hide settings need.
@@ -152,6 +163,56 @@ end
 --------------------------------------------------------------------------
 -- Scroll container
 --------------------------------------------------------------------------
+
+--- Lays a row of equal cards out, wrapping onto more rows rather than letting
+--- each card shrink below the width its own heading needs.
+---
+--- Both pages that show a card row divided the available width by the number
+--- of cards and stopped there. Six error cards in a 940 px window came out
+--- about 105 px each, and at that width every heading trimmed to four letters
+--- and a full stop: "UNIQ...", "TOTA...", "WORS...". The information was
+--- there and unreadable.
+---
+--- Returns the total height the row now needs, so the caller can resize the
+--- container and re-anchor whatever sits below it.
+---
+--- `cards` is an ordered array. Anchors are set on each card; nothing else
+--- about them is touched.
+function UI.LayoutCardRow(container, cards, opts)
+    opts = opts or {}
+    local gap       = opts.gap or M.cardGap
+    local minWidth  = opts.minWidth or M.cardMinWidth
+    local rowHeight = opts.rowHeight or M.cardHeight
+
+    local count = #cards
+    if count == 0 then return 0 end
+    local width = container:GetWidth() or 0
+    if width <= 0 then return rowHeight end
+
+    -- How many fit on one row at the minimum width, capped at the number of
+    -- cards and floored at one - a container narrower than one card still has
+    -- to put that card somewhere.
+    local perRow = math.floor((width + gap) / (minWidth + gap))
+    perRow = math.max(1, math.min(count, perRow))
+
+    -- Spread the cards evenly over the rows they need, so eight cards over two
+    -- rows come out 4 + 4 rather than 7 + 1.
+    local rows = math.ceil(count / perRow)
+    perRow = math.ceil(count / rows)
+
+    local cardWidth = (width - gap * (perRow - 1)) / perRow
+    for index, card in ipairs(cards) do
+        local row    = math.floor((index - 1) / perRow)
+        local column = (index - 1) % perRow
+        card:ClearAllPoints()
+        card:SetWidth(cardWidth)
+        card:SetHeight(rowHeight)
+        card:SetPoint("TOPLEFT", container, "TOPLEFT",
+            column * (cardWidth + gap), -row * (rowHeight + gap))
+    end
+
+    return rows * rowHeight + (rows - 1) * gap
+end
 
 --- A scroll frame with a canvas inside it, which is what every page that has
 --- more content than height needs. Returns the scroll frame and the canvas.

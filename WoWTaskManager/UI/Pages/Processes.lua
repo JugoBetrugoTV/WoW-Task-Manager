@@ -581,12 +581,20 @@ function Page:Refresh()
     end
 
     local loaded = WTM.Processes:CountLoaded()
+    local total = #WTM.Processes.list
     local attribution = WTM.Processes.attribution
-    self.summary:SetText(UI.FitText(self.summary, ("%d of %d loaded  -  %s%s")
-        :format(loaded, #WTM.Processes.list,
-                attribution.totalFrames > 0
-                    and ("%d frames scanned, %d attributed"):format(
-                        attribution.totalFrames, attribution.matchedFrames)
-                    or "frames not scanned",
-                self.hovering and "  -  sort paused while hovering" or "")))
+    local scan = attribution.totalFrames > 0
+        and ("%d frames scanned, %d attributed"):format(
+            attribution.totalFrames, attribution.matchedFrames)
+        or "frames not scanned"
+    local paused = self.hovering and "  -  sort paused while hovering" or ""
+
+    -- Six filter buttons can leave this line 55 pixels, and trimming the full
+    -- sentence into "176 of ..." says less than the short form says in the
+    -- same space. Shortest that still fits wins.
+    self.summary:SetText(UI.FitBest(self.summary,
+        ("%d of %d loaded  -  %s%s"):format(loaded, total, scan, paused),
+        ("%d of %d loaded  -  %s"):format(loaded, total, scan),
+        ("%d of %d loaded"):format(loaded, total),
+        ("%d/%d"):format(loaded, total)))
 end

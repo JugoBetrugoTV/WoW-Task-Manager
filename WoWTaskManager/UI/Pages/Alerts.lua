@@ -171,7 +171,9 @@ function Page:Build(frame)
     self.log = UI.TopList(frame, "RECENT ALERTS", { rows = 6, wideValue = true })
     self.log:SetPoint("BOTTOMLEFT", pad, pad)
     self.log:SetPoint("BOTTOMRIGHT", -pad, pad)
-    self.log:SetHeight(160)
+    -- The widget works out what six rows plus its chrome need; a hand-written
+    -- 160 was four pixels short of it and clipped the last row.
+    self.log:SetHeight(self.log.naturalHeight or 160)
 
     self.clearButton = UI.Button(self.log, "Clear", function()
         WTM.Alerts:ClearLog()

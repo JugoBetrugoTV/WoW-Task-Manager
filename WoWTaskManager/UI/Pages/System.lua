@@ -40,7 +40,6 @@ function Page:Build(frame)
     self.infoCard = UI.Card(frame, "CLIENT", {})
     self.infoCard:SetWidth(380)
     self.infoCard:SetPoint("TOPLEFT", pad, -pad)
-    self.infoCard:SetHeight(406)
 
     self.infoRows = {}
     local INFO_KEYS = {
@@ -51,12 +50,17 @@ function Page:Build(frame)
         "Database schema", "Saved database size", "Event monitoring",
         "Spike detection", "Baseline",
     }
+    -- The card is sized from the rows rather than the other way round. It used
+    -- to carry a hand-tuned height, and adding one row to the list above left
+    -- the last two rows clipped off the bottom with nothing to say so.
+    local ROW_PITCH, ROW_HEIGHT = 17, 18
     for i, label in ipairs(INFO_KEYS) do
         local row = UI.StatRow(self.infoCard.content, label)
-        row:SetPoint("TOPLEFT", 0, -(i - 1) * 17)
-        row:SetPoint("TOPRIGHT", 0, -(i - 1) * 17)
+        row:SetPoint("TOPLEFT", 0, -(i - 1) * ROW_PITCH)
+        row:SetPoint("TOPRIGHT", 0, -(i - 1) * ROW_PITCH)
         self.infoRows[label] = row
     end
+    self.infoCard:SetContentHeight((#INFO_KEYS - 1) * ROW_PITCH + ROW_HEIGHT)
 
     ------------------------------------------------------------------
     -- CVar card

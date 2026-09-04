@@ -26,6 +26,10 @@ local T     = Theme.Get
 local M     = Theme.metrics
 local Fmt   = WTM.Format
 
+-- One row of cards is this tall; wrapping to a second row costs the same
+-- again plus a gap, which UI.LayoutCardRow works out and returns.
+local CARD_ROW_HEIGHT = 78
+
 local Page = UI.RegisterPage("errors", {})
 
 local viewData = {}
@@ -189,7 +193,7 @@ function Page:Build(frame)
     -- Summary cards
     ------------------------------------------------------------------
     local cardRow = CreateFrame("Frame", nil, frame)
-    cardRow:SetHeight(78)
+    cardRow:SetHeight(CARD_ROW_HEIGHT)
     cardRow:SetPoint("TOPLEFT", toolbar, "BOTTOMLEFT", 0, -10)
     cardRow:SetPoint("TOPRIGHT", toolbar, "BOTTOMRIGHT", 0, -10)
     self.cardRow = cardRow
@@ -256,21 +260,17 @@ end
 
 function Page:OnLayout()
     if not self.cardRow then return end
-    local width = self.cardRow:GetWidth() or 0
-    if width <= 0 then return end
-    local count = #self.cardSpecs
-    local cardWidth = (width - M.cardGap * (count - 1)) / count
-    local previous
+    if (self.cardRow:GetWidth() or 0) <= 0 then return end
+
+    -- Six cards, wrapped rather than squeezed: below about 150 px a card's
+    -- heading trims to four letters and the card stops being readable.
+    local ordered = {}
     for _, spec in ipairs(self.cardSpecs) do
-        local card = self.cards[spec.key]
-        card:ClearAllPoints()
-        card:SetPoint("TOP")
-        card:SetPoint("BOTTOM")
-        card:SetWidth(cardWidth)
-        if previous then card:SetPoint("LEFT", previous, "RIGHT", M.cardGap, 0)
-        else card:SetPoint("LEFT") end
-        previous = card
+        ordered[#ordered + 1] = self.cards[spec.key]
     end
+    self.cardRow:SetHeight(
+        UI.LayoutCardRow(self.cardRow, ordered, { rowHeight = CARD_ROW_HEIGHT }))
+
     self:PositionTable()
 end
 

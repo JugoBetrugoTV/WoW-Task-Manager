@@ -31,22 +31,38 @@ local Fmt   = WTM.Format
 --- A titled card holding N label-and-value rows. The workhorse for summaries.
 ---
 --- Rows are created once from `labels`; :Set(label, value, tone) updates one.
+--- `opts.scroll` puts the rows in a scroll canvas, for a card whose height is
+--- decided by the panel around it rather than by its own contents. Without it
+--- a card shorter than its rows simply clips the last few away, and nothing on
+--- screen says they exist - which is what the timeline inspector did at the
+--- minimum window size, hiding three of its seven rows.
 function UI.StatCard(parent, title, labels, opts)
     opts = opts or {}
     local card = UI.Card(parent, title, {})
     card.rows = {}
 
     local rowHeight = opts.rowHeight or 16
+    local host = card.content
+    if opts.scroll then
+        local scroll, canvas = UI.ScrollCanvas(card.content, { step = rowHeight * 3 })
+        card.scroll, card.canvas = scroll, canvas
+        canvas:SetHeight(#labels * rowHeight)
+        host = canvas
+    end
+
     for i, label in ipairs(labels) do
-        local row = UI.StatRow(card.content, label)
+        local row = UI.StatRow(host, label)
         row:SetHeight(rowHeight)
         row:SetPoint("TOPLEFT", 0, -(i - 1) * rowHeight)
         row:SetPoint("TOPRIGHT", 0, -(i - 1) * rowHeight)
         card.rows[label] = row
     end
 
-    --- The height this card needs for its rows, so a grid can be told.
-    card.naturalHeight = #labels * rowHeight + 40
+    --- The height this card needs for its rows, so a grid can be told. A
+    --- scrolling card does not claim one: it is meant to be given less.
+    if not opts.scroll then
+        card.naturalHeight = #labels * rowHeight + 40
+    end
 
     function card:Set(label, value, tone)
         local row = self.rows[label]

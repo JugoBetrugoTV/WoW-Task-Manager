@@ -103,9 +103,20 @@ function UI.Card(parent, title, opts)
         card.titleText:SetText(UI.FitText(card.titleText, title))
     end
 
+    local topInset = title and (M.paddingSmall + 22) or M.paddingSmall
     card.content = CreateFrame("Frame", nil, card)
-    card.content:SetPoint("TOPLEFT", M.padding, title and -(M.paddingSmall + 22) or -M.paddingSmall)
+    card.content:SetPoint("TOPLEFT", M.padding, -topInset)
     card.content:SetPoint("BOTTOMRIGHT", -M.padding, M.paddingSmall)
+
+    -- What the title and padding cost vertically, so a page sizing a card
+    -- around a known number of rows can add it instead of guessing. The System
+    -- page guessed, and adding one row left the last two clipped.
+    card.chromeHeight = topInset + M.paddingSmall
+
+    --- Sizes the card so `contentHeight` pixels of content fit inside it.
+    function card:SetContentHeight(contentHeight)
+        self:SetHeight(contentHeight + self.chromeHeight)
+    end
 
     function card:SetTitle(text)
         if self.titleText then
@@ -179,7 +190,7 @@ function UI.FitText(fontString, text)
 
     -- Binary search on length: a linear trim is O(n) SetText calls on exactly
     -- the strings that are already the longest.
-    local lo, hi, best = 1, #text, ""
+    local lo, hi, best = 1, #text, nil
     while lo <= hi do
         local mid = math.floor((lo + hi) / 2)
         local candidate = text:sub(1, mid) .. "..."
@@ -191,8 +202,50 @@ function UI.FitText(fontString, text)
             hi = mid - 1
         end
     end
+
+    -- Nothing fit, not even one character and an ellipsis. This used to return
+    -- the empty string, and an empty string is the one answer that is never
+    -- useful: the label simply vanishes, and the reader has no way to know one
+    -- was ever there. It happened nine times in a single sweep of the pages.
+    --
+    -- Show the ellipsis instead. It overflows a box this narrow, and that is
+    -- the right trade: a box six pixels wide is a layout that has already gone
+    -- wrong, and three dots say "there is text here, ask for it" where nothing
+    -- says nothing. Every caller that trims also carries the full text in a
+    -- tooltip.
+    best = best or "..."
+
     fontString:SetText(best)
     return best
+end
+
+--- Picks the longest of several phrasings that fits whole, longest first.
+---
+--- Truncating is the wrong tool when there is a shorter way to say the same
+--- thing. The processes toolbar is the case that prompted this: six filter
+--- buttons left its summary 55 pixels, and "176 of 220 loaded - 4000 frames
+--- scanned, 91 attributed" was trimmed to "176 of ...", which tells the reader
+--- strictly less than "176/220" would have in the same space.
+---
+--- Falls back to trimming the SHORTEST candidate, so the box is still filled
+--- with something rather than left blank.
+function UI.FitBest(fontString, ...)
+    local candidates = { ... }
+    local width = fontString:GetWidth()
+    if not width or width <= 0 then
+        local first = candidates[1] or ""
+        fontString:SetText(first)
+        return first
+    end
+
+    for i = 1, #candidates do
+        local candidate = tostring(candidates[i] or "")
+        if candidate ~= "" then
+            fontString:SetText(candidate)
+            if fontString:GetStringWidth() <= width then return candidate end
+        end
+    end
+    return UI.FitText(fontString, candidates[#candidates] or "")
 end
 
 --- A label above a value, the shape used everywhere a number is shown.

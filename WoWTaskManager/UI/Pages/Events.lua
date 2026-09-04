@@ -124,7 +124,9 @@ function Page:Build(frame)
     -- Rate summary and the events-per-second graph
     ------------------------------------------------------------------
     local rateRow = CreateFrame("Frame", nil, frame)
-    rateRow:SetHeight(120)
+    -- Tall enough for the cards inside it. This was 120, and the storm card
+    -- needs 124, so its fourth row was clipped away.
+    rateRow:SetHeight(124)
     rateRow:SetPoint("TOPLEFT", toolbar, "BOTTOMLEFT", 0, -10)
     rateRow:SetPoint("TOPRIGHT", toolbar, "BOTTOMRIGHT", 0, -10)
     self.rateRow = rateRow

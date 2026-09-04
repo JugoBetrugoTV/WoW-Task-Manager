@@ -172,9 +172,25 @@ end
 
 --------------------------------------------------------------------------
 
+-- Counted for the whole run rather than in a sweep of its own: FitText is
+-- called thousands of times by the sweeps that already happen, and a second
+-- pass over every page at every size to ask one more question is three
+-- minutes of CI for nothing.
+local fitEmptied = 0
+do
+    local original = NS.UI.FitText
+    NS.UI.FitText = function(fs, text)
+        local out = original(fs, text)
+        if (text or "") ~= "" and out == "" then fitEmptied = fitEmptied + 1 end
+        return out
+    end
+end
+
 local worstBounds, worstBoundsWhere = 0, ""
 local overlapWorst, overlapWhere = 0, ""
 local unboundedWorst, unboundedWhere = 0, ""
+local verticalWorst, verticalWhere = 0, nil
+local trimmedHeadings, trimmedWhere = 0, nil
 local errorsBefore = #mock.errors
 
 for _, size in ipairs(SIZES) do
@@ -211,6 +227,30 @@ for _, size in ipairs(SIZES) do
                 overlaps[1].a:sub(1, 24), overlaps[1].b:sub(1, 24))
         end
 
+        -- Vertical geometry, new in 0.7.2. Until the harness resolved top and
+        -- bottom edges, every "does this fit below that" question was answered
+        -- by a screenshot or not at all.
+        local vertical = mock.AuditVertical()
+        if #vertical > verticalWorst then
+            verticalWorst = #vertical
+            verticalWhere = ("%s/%s: %s %s over %.0f px"):format(size.name, key,
+                vertical[1].kind, tostring(vertical[1].name), vertical[1].over)
+        end
+
+        -- A card heading trimmed to initials. Short, upper case, and ending in
+        -- an ellipsis only because it did not fit: "UNIQ...", "TOTA...".
+        for _, region in ipairs(mock.allFrames) do
+            if region._kind == "FontString" and region:IsVisible() then
+                local text = region._text or ""
+                if text:match("%.%.%.$") and text:upper() == text
+                   and #text <= 12 and #text >= 4 then
+                    trimmedHeadings = trimmedHeadings + 1
+                    trimmedWhere = trimmedWhere
+                        or ("%s/%s: %q"):format(size.name, key, text)
+                end
+            end
+        end
+
         -- Hover every frame, then leave every frame. A tooltip still up after
         -- the mouse has left everything is a leak.
         mock.FireScriptOnAll("OnEnter")
@@ -229,7 +269,13 @@ for _, size in ipairs(SIZES) do
         unboundedWorst == 0, unboundedWhere)
     check(("%s: no two labels collide on a row"):format(size.name),
         overlapWorst == 0, overlapWhere)
+    check(("%s: nothing runs off the bottom of its box"):format(size.name),
+        verticalWorst == 0, verticalWhere)
+    check(("%s: no card heading is trimmed to initials"):format(size.name),
+        trimmedHeadings == 0, ("%d, first %s"):format(trimmedHeadings, trimmedWhere or "-"))
     worstBounds, unboundedWorst, overlapWorst = 0, 0, 0
+    verticalWorst, verticalWhere = 0, nil
+    trimmedHeadings, trimmedWhere = 0, nil
 end
 
 check("nothing threw during the sweep", #mock.errors == errorsBefore,
@@ -293,6 +339,159 @@ for i = clickErrors + 1, math.min(#mock.errors, clickErrors + 5) do
     print("      " .. mock.errors[i])
 end
 check("nothing was left open by the click sweep", leftovers() == "", leftovers())
+
+--------------------------------------------------------------------------
+print("\n== a squeezed label still says something ==")
+--------------------------------------------------------------------------
+-- Trimming text to fit is right. Trimming it to NOTHING is not: the reader
+-- sees an empty space where a label belongs and has no way to know a label
+-- was ever there. This happened nine times in one sweep of the pages.
+
+do
+    local probe = MW.frame:CreateFontString(nil, "OVERLAY")
+    for _, width in ipairs({ 40, 24, 12, 6, 2 }) do
+        probe:SetWidth(width)
+        local out = NS.UI.FitText(probe, "Addon memory usage")
+        check(("a %d px box keeps something visible"):format(width),
+            out ~= "" and out ~= nil, ("%q"):format(tostring(out)))
+    end
+
+    -- And the ordinary case must be untouched: text that fits is returned
+    -- whole, with no ellipsis bolted on.
+    probe:SetWidth(400)
+    check("text that fits is returned unchanged",
+        NS.UI.FitText(probe, "Addon memory usage") == "Addon memory usage")
+    check("empty text stays empty", NS.UI.FitText(probe, "") == "")
+end
+
+-- The same question over everything this file has done so far. It does NOT go
+-- red on the bug above - the addon names in this fixture are short enough that
+-- no row is ever squeezed that hard - so it is a regression guard rather than
+-- the proof. The probe above is the proof.
+check("no label anywhere was trimmed out of existence", fitEmptied == 0,
+    fitEmptied .. " labels vanished")
+
+--------------------------------------------------------------------------
+print("\n== a stat row spends its width on the label, not the value ==")
+--------------------------------------------------------------------------
+-- Every stat row reserved half its width for the value, so a row 321 px wide
+-- gave 160 px to the string "0" and trimmed "Collections observed" to fit in
+-- what was left. The value was anchored LEFT to the row's centre as well as
+-- RIGHT, which hard-codes a 50/50 split that no SetWidth can override - in
+-- the real client as much as here.
+--
+-- The card-heading half of this question is checked inside the size sweep
+-- above, where the pages are already laid out at three widths.
+
+do
+    MW.frame:SetSize(1280, 800)
+    MW:LayoutAllPages()
+    MW:ShowPage("sessions")
+    MW:RefreshCurrentPage()
+    mock.Tick(0.1)
+
+    local greedy, checked, worstRow = 0, 0, nil
+    for _, region in ipairs(mock.allFrames) do
+        if region.value and region.label and region.RefitLabel and region:IsVisible() then
+            local rowWidth = region:GetWidth() or 0
+            local valueWidth = region.value:GetWidth() or 0
+            if rowWidth > 80 then
+                checked = checked + 1
+                if valueWidth > rowWidth * 0.55 then
+                    greedy = greedy + 1
+                    worstRow = worstRow or ("%s: value %.0f of %.0f"):format(
+                        tostring(region.labelFull), valueWidth, rowWidth)
+                end
+            end
+        end
+    end
+    check("some stat rows were actually examined", checked > 5, checked)
+    check("no stat row hands most of its width to the value",
+        greedy == 0, worstRow or "-")
+end
+
+--------------------------------------------------------------------------
+print("\n== the mouse wheel actually scrolls ==")
+--------------------------------------------------------------------------
+-- This path had never run. The mock did not define GetVerticalScroll at all,
+-- and every wheel handler reads it before subtracting a step - so firing a
+-- wheel would have thrown, and nothing ever fired one. "Scrolled" was in this
+-- file's own header the whole time.
+
+do
+    local threw, moved, scrollable = 0, 0, 0
+    for _, key in ipairs(NS.UI.pageOrder) do
+        MW:ShowPage(key)
+        MW:RefreshCurrentPage()
+        mock.Tick(0.1)
+        for _, frame in ipairs(mock.allFrames) do
+            local handler = frame._scripts and frame._scripts.OnMouseWheel
+            if frame:GetScrollChild() and frame:IsVisible() and handler then
+                local range = frame:GetVerticalScrollRange()
+                if range > 0 then
+                    scrollable = scrollable + 1
+                    local before = frame:GetVerticalScroll()
+                    local ok = pcall(handler, frame, -1)
+                    if not ok then threw = threw + 1
+                    elseif frame:GetVerticalScroll() > before then moved = moved + 1 end
+                    -- Back to the top, and never past the end.
+                    pcall(handler, frame, 1)
+                    check("scrolling never goes above the top",
+                        frame:GetVerticalScroll() >= 0, frame:GetVerticalScroll())
+                    frame:SetVerticalScroll(0)
+                end
+            end
+        end
+    end
+    check("at least one page has something to scroll", scrollable > 0, scrollable)
+    check("no wheel handler threw", threw == 0, threw .. " threw")
+    check("every scrollable view moved when the wheel turned",
+        moved == scrollable, ("%d of %d moved"):format(moved, scrollable))
+end
+
+--------------------------------------------------------------------------
+print("\n== the vertical audit can actually fail ==")
+--------------------------------------------------------------------------
+-- Three green ticks per window size mean nothing unless the check that
+-- produced them is capable of going red. The pages are audited inside the
+-- size sweep above; this breaks both shapes deliberately and confirms both
+-- are caught.
+
+-- And the audit has to be capable of failing, or three green ticks mean
+-- nothing. Break the two shapes deliberately and confirm both are caught.
+do
+    -- On a page that is actually showing: the audit only looks at what a
+    -- player can see, so probing a hidden page would prove nothing.
+    MW:ShowPage("dashboard")
+    MW:RefreshCurrentPage()
+    mock.Tick(0.1)
+    local host = NS.UI.Pages.dashboard.frame
+    local runner = CreateFrame("Frame", "WTMTestOverflowProbe", host)
+    runner:SetPoint("TOPLEFT")
+    runner:SetPoint("TOPRIGHT")
+    runner:SetHeight((host:GetHeight() or 300) + 80)
+    runner:Show()
+
+    local label = host:CreateFontString(nil, "OVERLAY")
+    label:SetPoint("TOPLEFT", host, "TOPLEFT", 4, -4)
+    label:SetPoint("TOPRIGHT", host, "TOPRIGHT", -4, -4)
+    label:SetHeight(14)
+    label:SetWordWrap(true)
+    label:SetText(("a sentence that keeps going and going "):rep(8))
+    label:Show()
+
+    local kinds = {}
+    for _, f in ipairs(mock.AuditVertical()) do kinds[f.kind] = true end
+    check("the audit catches a frame that outgrows its parent",
+        kinds.spill or kinds.cutoff)
+    check("the audit catches text that needs more lines than it has",
+        kinds.truncated)
+
+    runner:Hide()
+    runner:SetParent(nil)
+    label:Hide()
+    label:SetText("")
+end
 
 --------------------------------------------------------------------------
 print("\n== close, reopen, resize while closed ==")

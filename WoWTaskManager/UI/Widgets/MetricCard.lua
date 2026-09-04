@@ -183,9 +183,15 @@ function UI.StatRow(parent, label)
     local row = CreateFrame("Frame", nil, parent)
     row:SetHeight(18)
 
+    -- The value is pinned on the RIGHT only, so the width RefitLabel gives it
+    -- is the width it gets. Anchoring its LEFT to the row's CENTER as well -
+    -- which is what this did - hard-codes a 50/50 split that no SetWidth can
+    -- override, in the real client as much as in the harness, and that is how
+    -- 160 px came to be reserved for the string "0".
     row.value = UI.Text(row, "numeric", "textPrimary", "RIGHT")
+    row.value:SetPoint("TOP")
+    row.value:SetPoint("BOTTOM")
     row.value:SetPoint("RIGHT")
-    row.value:SetPoint("LEFT", row, "CENTER", 0, 0)
 
     row.label = UI.Text(row, "small", "textSecondary")
     row.label:SetPoint("LEFT")
@@ -199,15 +205,32 @@ function UI.StatRow(parent, label)
     --- before that. Giving each half an explicit width makes the answer
     --- available immediately, and keeps the anchors as the backstop.
     ---
-    --- Recomputed only when the row's width actually changes; the fit itself
-    --- is cheap and runs on every Set, because the value changes constantly.
+    --- The split used to be a flat 45/55, which is how a row 321 px wide came
+    --- to reserve 160 px for the string "0" while trimming "Collections
+    --- observed" to fit in what was left. The value takes what it needs now
+    --- and the label gets the rest.
+    ---
+    --- Quantised to a step so that 9 -> 10 -> 11 does not shove the label
+    --- sideways on every refresh, and never below a floor, so a row whose
+    --- value is briefly "-" does not collapse and then jump back.
+    local VALUE_STEP, VALUE_FLOOR = 24, 48
+
     function row:RefitLabel()
         local width = self:GetWidth() or 0
         if width <= 40 then return end
-        if width ~= self._fittedAt then
-            self._fittedAt = width
-            self.value:SetWidth(math.max(36, width * 0.45))
-            self.label:SetWidth(math.max(24, width * 0.55 - 6))
+
+        self.value:SetText(self.valueFull or "-")
+        local needed = (self.value:GetStringWidth() or 0) + 6
+        local share = math.ceil(math.max(VALUE_FLOOR, needed) / VALUE_STEP) * VALUE_STEP
+        -- Never more than half the row: a very long value is trimmed rather
+        -- than allowed to squeeze the label out, because the label is what
+        -- says which number this is.
+        share = math.min(share, width * 0.5)
+
+        if width ~= self._fittedAt or share ~= self._valueShare then
+            self._fittedAt, self._valueShare = width, share
+            self.value:SetWidth(share)
+            self.label:SetWidth(math.max(24, width - share - 6))
         end
         self.label:SetText(UI.FitText(self.label, self.labelFull or ""))
     end
