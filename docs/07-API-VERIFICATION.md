@@ -274,11 +274,14 @@ unter *Options → AddOns* und funktioniert unverändert weiter.
 | Copy-Box | Neu in 0.6.0. WoW hat **keinen** Clipboard-Zugriff für Addons - die Box zeigt Text zum Selbst-Kopieren, mehr ist nicht möglich |
 | Options → AddOns-Eintrag | Neu in 0.4.0; welcher der drei Registrierungswege auf 12.1.0 tatsächlich greift, ist nur im Spiel feststellbar |
 | Onboarding | Neu in 0.4.0, nie im echten Client gelaufen |
-| `seterrorhandler` / `geterrorhandler` | Neu in 0.7.0. Im Harness verkettet, verdrängt und wieder gefunden - aber noch nie neben einem echten BugGrabber gelaufen |
-| `debugstack` | Neu in 0.7.0. Der Mock hat die Funktion **nicht**, also lief der Stack-Pfad bisher ausschliesslich als "nicht verfügbar". Die Trimmung auf `maxStackLength` ist getestet, das Format eines echten WoW-Stacks nicht |
-| Errors-Seite, Error-Detail, Reports-Seite | Neu in 0.7.0, nie im echten Client |
+| `seterrorhandler` / `geterrorhandler` | ✅ REAL CLIENT VERIFIED (0.7.0, 2026-09-03) - neben einem echten BugGrabber gelaufen. Dabei kam heraus, dass BugGrabber `seterrorhandler` durch eine leere Funktion ersetzt: der Aufruf gelingt, wirft nichts und tut nichts. Deshalb wird die Installation jetzt per Rücklesen geprüft. **Offen bleibt**: die umgekehrte Ladereihenfolge, und BugGrabber neben einer anderen Version seiner selbst |
+| `debugstack` | ✅ REAL CLIENT VERIFIED (0.7.0, 2026-09-03) - Stacks kamen an und wurden angezeigt. **Offen bleibt** die Trimmung: ein Stack, der `maxStackLength` tatsächlich überschreitet, ist im Spiel noch nicht aufgetreten |
+| Errors-Seite, Error-Detail, Reports-Seite | ✅ REAL CLIENT VERIFIED (0.7.0, 2026-09-03), nachdem drei Bugs gefixt waren (leere Seite, Seitenüberlagerung, alles auf 0.0). **Offen bleibt** die Reports-Seite mit einem grossen Bericht in der Copy-Box |
 | Safe Mode | Neu in 0.7.0. Im Harness ausgelöst und wieder abgeschaltet; im Spiel nie erreicht |
 | Persistenz der Fehler über Sessions | Neu in 0.7.0. Geschrieben und gedeckelt im Test, nie über einen echten Logout gegangen |
+| Selbstdrosselung des Addon-Memory-Scans | Neu in 0.7.1. Der Mock misst echte Zeit, aber nicht *WoWs* Zeit — ob `C.MEMORY_SCAN_BUDGET_MS` auf deinem 182-Addon-Client der richtige Schwellwert ist, sagt nur der Client |
+| `/wtm benchmark` mit geöffnetem Fenster | Neu aufgeschlüsselt in 0.7.1. Die Aufschlüsselung pro Aufgabe existiert erst seit dem Phasen-Fix und ist im Spiel noch nie vollständig gelaufen |
+| Overhead bei geschlossenem Fenster | 16,5 ms/s im Retail-Test gemeldet. Ob das nach der Drosselung fällt, ist die eine Zahl, die ich nicht selbst nachmessen kann |
 
 ## Wie die Spalte auf PASS kommt
 

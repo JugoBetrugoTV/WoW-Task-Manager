@@ -35,7 +35,18 @@ end
 --------------------------------------------------------------------------
 M.clock = 1000.0
 function GetTime() return M.clock end
-function debugprofilestop() return M.clock * 1000 end
+--- REAL elapsed milliseconds, not the simulated clock.
+---
+--- This used to return M.clock * 1000, which only moves when the harness moves
+--- it - so every "how long did this task take" measurement inside the addon
+--- was exactly zero, and the harness was structurally incapable of finding a
+--- slow sampler. A real client reported 16 ms/s of sampling cost that no test
+--- here could see.
+---
+--- The absolute numbers are this machine's, not WoW's. What they are good for
+--- is comparing samplers against each other and catching one that becomes
+--- disproportionately expensive.
+function debugprofilestop() return os.clock() * 1000 end
 function M.Advance(seconds) M.clock = M.clock + seconds end
 
 --------------------------------------------------------------------------

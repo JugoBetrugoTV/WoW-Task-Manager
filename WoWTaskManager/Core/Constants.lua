@@ -104,6 +104,14 @@ C.SAMPLE_DEFAULTS = {
 -- How long the high-resolution burst lasts after the last spike.
 C.BURST_DURATION_SEC = 10
 
+-- The per-addon memory scan walks the whole Lua state in one call. On a client
+-- with a couple of hundred addon folders it is by a wide margin the most
+-- expensive thing this addon does, and it lands as one hitch rather than as a
+-- smooth cost. Above this, the scan stretches its own interval rather than
+-- keeping a promise the client cannot afford.
+C.MEMORY_SCAN_BUDGET_MS = 25
+C.MEMORY_SCAN_MAX_STRETCH = 6
+
 -- Self-imposed budget.  Above this the scheduler stretches its own intervals
 -- and the UI shows a warning; a monitor that costs more than it measures is a
 -- bug, not a feature.

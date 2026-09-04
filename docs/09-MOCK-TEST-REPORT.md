@@ -1,6 +1,6 @@
 # Mock-Testbericht
 
-Erzeugt am 2026-09-03 gegen Addon-Version 0.7.0.
+Erzeugt am 2026-09-04 gegen Addon-Version 0.7.1.
 
 > **Alles hier ist MOCK VERIFIED, nichts ist REAL CLIENT VERIFIED.**
 > Der Mock verhält sich so, wie ich glaube, dass der Client sich verhält. Wo
@@ -19,6 +19,8 @@ Addon- und Profiling-APIs, CVars und die Uhr nach. Darauf laufen drei Suiten:
 | `tools/test-recorder.lua` | Flight-Recorder-Härtung, Coalescing, DB-Migrationen |
 | `tools/test-errors.lua` | Der Error-Handler-Vertrag und die Duplikat-Fast-Path |
 | `tools/test-scale.lua` | 220 Addons, 140 Incidents, 300 Errors, leere Session |
+| `tools/test-ui.lua` | Jede Seite bei drei Fenstergrössen, Maus, Scroll, Tooltips |
+| `tools/test-longrun.lua` | Sechs simulierte Stunden durch den echten Scheduler |
 | `tools/run.lua` | Kompletter Login-bis-Logout-Durchlauf, alle vier Clients |
 
 ### Seit 0.5.0: Text-Geometrie ist messbar
@@ -47,38 +49,38 @@ Gestartet mit `./tools/run-tests.sh` bzw. `./tools/release-check.sh`.
 ## Matrix: 4 Clients x Profiling an/aus x volle/abgeräumte API x Ace3 an/aus
 
 ```
-  PASS  Retail-12.1.0      profiling=on  api=normal   no-ace3    400 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=normal   ace3       400 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=degraded no-ace3    410 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=degraded ace3       410 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=normal   no-ace3    401 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=normal   ace3       401 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=degraded no-ace3    411 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=degraded ace3       411 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=normal   no-ace3    400 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=normal   ace3       400 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=degraded no-ace3    411 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=degraded ace3       410 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=normal   no-ace3    401 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=normal   ace3       401 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=degraded no-ace3    412 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=degraded ace3       411 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=normal   no-ace3    400 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=normal   ace3       400 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=degraded no-ace3    411 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=degraded ace3       410 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=normal   no-ace3    401 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=normal   ace3       401 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=degraded no-ace3    412 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=degraded ace3       411 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=normal   no-ace3    400 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=normal   ace3       400 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=degraded no-ace3    411 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=degraded ace3       410 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=normal   no-ace3    401 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=normal   ace3       401 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=degraded no-ace3    412 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=degraded ace3       411 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=normal   no-ace3    437 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=normal   ace3       437 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=degraded no-ace3    447 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=degraded ace3       447 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=normal   no-ace3    438 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=normal   ace3       438 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=degraded no-ace3    448 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=degraded ace3       448 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=normal   no-ace3    437 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=normal   ace3       437 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=degraded no-ace3    447 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=degraded ace3       447 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=normal   no-ace3    438 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=normal   ace3       438 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=degraded no-ace3    448 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=degraded ace3       448 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=normal   no-ace3    437 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=normal   ace3       437 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=degraded no-ace3    447 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=degraded ace3       447 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=normal   no-ace3    438 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=normal   ace3       438 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=degraded no-ace3    448 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=degraded ace3       448 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=normal   no-ace3    437 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=normal   ace3       437 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=degraded no-ace3    447 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=degraded ace3       447 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=normal   no-ace3    438 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=normal   ace3       438 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=degraded no-ace3    448 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=degraded ace3       448 passed, 0 failed, 0 lua errors
 syntax check:
   all 75 files parse
 ```
@@ -121,7 +123,7 @@ Spielers.
 == correlation is never causation ==
 == a client that cannot do this at all ==
 
-   79 passed, 0 failed, 0 lua errors
+   132 passed, 0 failed, 0 lua errors
 ```
 
 Der Error-Handler ist die einzige Stelle im Addon, an der ein Bug **ein anderes
@@ -201,7 +203,7 @@ Vergrösserung.
 
 ```
 == downsampling: spikes must survive ==
-   34 passed, 0 failed, 0 lua errors
+   41 passed, 0 failed, 0 lua errors
 ```
 
 Enthält genau den beschriebenen Fall: ein Bucket mit 5 / 6 / 97 / 5 ms muss den
@@ -276,12 +278,100 @@ Der Hover-Sweep hat sofort einen **zweiten**, vorher unbemerkten Bug gefunden:
 der X-Button der Titelleiste rief `Close()` auf dem Frame statt auf dem
 Fenster-Modul und warf, statt zu schliessen.
 
+## Audit-Pass 0.7.1
+
+Kein neues Feature. Ein Durchgang über den Stand, den du im Retail-Test
+sauber laufen hattest, mit der Frage: *was ist hier falsch, und was kann der
+Test hier gar nicht sehen?*
+
+### Zwei echte Bugs im Code
+
+| # | Fund | Auswirkung | Wie bewiesen |
+|---|---|---|---|
+| 1 | `ErrorMonitor:Record()` verliess sich darauf, dass `stack` ein String ist | Ein Aufrufer mit einer Zahl als Stack liess `TopFrames` eine Zahl indizieren — **das Aufzeichnen eines Fehlers erzeugte selbst einen Fehler**, in genau dem Pfad, der das nie tun darf | Test zuerst rot, dann Coercion an der Grenze, dann grün |
+| 2 | Timeline-Marker hielten die Fehlergruppe als direkte Referenz | Nach dem Cap zeigten **399 von 400** Markern auf Gruppen, die es nicht mehr gibt: der Klick auf einen Marker führte ins Leere, ohne dass irgendwo etwas gemeldet wurde | Marker halten jetzt den Fingerabdruck und lösen über `byFingerprint` auf; baut man es zurück, meldet die Suite `(400)` |
+
+### Zwei Bugs im Benchmark, mit einer Ursache
+
+`/wtm benchmark 10` gab im echten Client `-- benchmark: 0.0 s, 0 frames --`
+aus. Vier Symptome, eine Ursache: `Scheduler:Register(...)` nimmt die Phase
+als **Bruchteil des Intervalls für den ersten Lauf**. `0` heisst damit nicht
+„kein Versatz", sondern „beim nächsten Tick" — der Benchmark war fertig,
+bevor er angefangen hatte.
+
+Der zweite: die Zeile `per-frame callback: ... averaged over 0 timed frames`.
+Ein Durchschnitt über null Messungen ist kein Durchschnitt. Er wurde
+trotzdem gedruckt, in `Dev.lua` und in `Overhead:GetBreakdown()`, und sah
+dabei aus wie eine frische Messung. Beide Stellen sagen jetzt, dass in
+diesem Fenster nichts gemessen wurde.
+
+### Die Lücke, die alle Timing-Aussagen vorher wertlos machte
+
+`debugprofilestop()` im Mock gab `M.clock * 1000` zurück — die **simulierte**
+Uhr, die sich nur bewegt, wenn der Test sie bewegt. Jede Messung der Form
+„wie lange hat diese Aufgabe gebraucht" war damit im Test exakt null. Die
+Suite war strukturell ausserstande, einen teuren Sampler zu finden, egal wie
+teuer er ist.
+
+Das ist wichtiger als es klingt: meine früheren Aussagen zur *Laufzeit*
+einzelner Aufgaben stammen aus dieser kaputten Messung und waren wertlos.
+Die Aussagen zur *Allokation* nicht — die kamen aus `collectgarbage("count")`
+und waren immer echt.
+
+Jetzt liefert `debugprofilestop()` echte Millisekunden (`os.clock`). Die
+absoluten Zahlen sind die dieser Maschine, nicht die von WoW. Wofür sie
+taugen: Aufgaben **gegeneinander** zu vergleichen und eine zu finden, die
+unverhältnismässig teuer ist. `tools/test-scale.lua` sagt seitdem Sätze wie
+„langsamste Seite unter Last: dashboard mit 20,3 ms Harness-Zeit", und das
+ist eine Zahl, die vorher nicht existierte.
+
+Drei kleinere Lücken im selben Durchgang geschlossen:
+
+* `Show()` / `Hide()` feuerten `OnShow` / `OnHide` nicht — der halbe
+  Lebenszyklus jeder Seite war ungetestet.
+* `AuditText` prüfte auch unsichtbare Regionen und meldete Überlappungen für
+  Dinge, die niemand sieht.
+* `SetClipsChildren` wurde verworfen statt aufgezeichnet, also konnte kein
+  Test prüfen, ob der Inhaltsbereich überhaupt klippt — genau der Punkt, an
+  dem die Seiten im echten Client übereinander lagen.
+
+### Die einzige Optimierung, die gemessen nötig war
+
+Auf deinem Client stand *Sampling tasks* bei **16,5 ms/s** mit geschlossenem
+Fenster, bei **182 Addon-Ordnern**. Alles darin ist billig bis auf eine
+Sache: `UpdateAddOnMemoryUsage()` läuft einmal durch den kompletten
+Lua-Zustand. Ein Client mit 200 Ordnern zahlt für denselben Aufruf ein
+Vielfaches eines Clients mit 20 — und das Intervall war für beide gleich.
+
+Der Scan misst sich jetzt selbst und streckt sein eigenes Intervall, wenn er
+über dem Budget liegt (`C.MEMORY_SCAN_BUDGET_MS`, Deckel bei 6x). Er ist
+schnell beim Strecken und langsam beim Zurückgehen, damit ein einzelner
+billiger Scan keine Entscheidung umwirft. Nichts entfällt dabei — der
+Wachstumstrend bekommt weiter Messpunkte, nur weniger davon. Und es passiert
+nicht heimlich: die System-Seite hat dafür eine eigene Zeile, und die
+Overhead-Aufschlüsselung nennt den Scan beim Namen, statt ihn in einer Summe
+verschwinden zu lassen.
+
+Alles andere im Hot Path wurde gemessen und **nicht** angefasst. Die
+Scheduler-Koinzidenz zum Beispiel: die drei teuersten Sampler treffen sich
+bei 60 fps in 20 von 36 000 Frames. Dafür lohnt sich keine Zeile Code.
+
+### Zwei neue Suiten
+
+| Suite | Was sie festnagelt |
+|---|---|
+| `tools/test-ui.lua` | Jede Seite bei 940x600, 1280x800 und 1920x1080: nichts ragt aus seinem Elternteil, nichts überlappt, nichts überlebt einen Seitenwechsel. Dazu Hover, Klick, Rechtsklick, Scroll, Tooltip-Abbau, Schliessen und Wiederöffnen. |
+| `tools/test-longrun.lua` | Sechs simulierte Stunden bei 0,1 s Takt durch den **echten** Scheduler. Caps, Kompaktierung, Allokationsbudgets, das Selbstdrosseln des Scans, und zum Schluss ein Quervergleich: dieselbe Zahl muss überall dieselbe sein. |
+
 ## Was der Mock nicht kann
 
 * **Keine echten Rückgabewerte.** Ob `GetEventCPUUsage` ms oder s liefert,
   entscheidet der echte Client.
-* **Keine echten Kosten.** Ob `RegisterAllEvents` im Schlachtzug tragbar ist,
-  zeigt nur der Schlachtzug. Dafür gibt es `/wtm benchmark`.
+* **Keine echten Kosten.** Seit 0.7.1 misst der Mock echte Zeit, aber es ist
+  die Zeit dieser Maschine an einem nachgebauten Client. Sie taugt zum
+  Vergleich zwischen Aufgaben, nicht als Vorhersage. Ob `RegisterAllEvents`
+  im Schlachtzug tragbar ist, zeigt nur der Schlachtzug — dafür gibt es
+  `/wtm benchmark`.
 * **Kein Taint.** Das Addon fasst nichts Geschütztes an, aber bewiesen ist das
   erst durch einen Kampf ohne Blocked-Action-Meldung.
 * **Kein Rendering.** Ob Text abgeschnitten wird oder Graphen lesbar sind,

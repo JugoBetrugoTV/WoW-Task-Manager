@@ -178,15 +178,27 @@ function Overhead:GetBreakdown(out)
     local windowOpen = WTM.UI.MainWindow and WTM.UI.MainWindow:IsOpen()
     local miniOpen = WTM.UI.LiveMonitor and WTM.UI.LiveMonitor:IsShown()
 
+    -- Both of these are asked for twice below; building them once keeps the
+    -- string work out of the table constructor.
+    local frameSamples = WTM.Scheduler:GetFrameCallbackSamples()
+    local scanCost     = WTM.Memory:DescribeScanCost()
+
     local rows = {
         { key = "frame",   label = "Frame accounting", ms = cur.frameMsPerSec,
           measured = cur.frameCostMs ~= nil,
-          note = cur.frameCostMs
+          -- The sample count is part of the claim: "averaged over 0 frames"
+          -- is not an average, and printing one made a stale reading look
+          -- like a fresh measurement.
+          note = (cur.frameCostMs and frameSamples > 0)
               and ("%.4f ms per frame, averaged over %d timed frames")
-                  :format(cur.frameCostMs, WTM.Scheduler:GetFrameCallbackSamples())
+                  :format(cur.frameCostMs, frameSamples)
               or "not yet sampled" },
         { key = "sampler", label = "Sampling tasks", ms = cur.samplingMsPerSec, measured = true,
-          note = "frame time, CPU, memory, network, history, spike detection" },
+          -- The per-addon memory scan dominates this line on a client with
+          -- many addons, so it is named here rather than left inside a total.
+          note = scanCost
+              and ("per-addon memory scan: %s"):format(scanCost)
+              or "frame time, CPU, memory, network, history, spike detection" },
         { key = "events",  label = "Event monitoring", ms = cur.eventsMsPerSec, measured = true,
           note = ("mode: %s"):format(WTM.Events:GetMode()) },
         { key = "ui",      label = "UI updates", ms = cur.uiMsPerSec, measured = true,

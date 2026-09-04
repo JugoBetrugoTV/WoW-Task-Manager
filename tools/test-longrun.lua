@@ -310,6 +310,50 @@ check("the saved database is under a megabyte after six hours",
     savedBytes < 1024 * 1024, NS.Format.Bytes(savedBytes))
 
 --------------------------------------------------------------------------
+print("\n== the expensive scan throttles itself ==")
+--------------------------------------------------------------------------
+-- UpdateAddOnMemoryUsage walks the whole Lua state in one call. On a client
+-- with a couple of hundred addon folders it is the most expensive thing this
+-- addon does, and it arrives as one hitch rather than a smooth cost. A real
+-- client reported 16 ms/s of sampling with the window closed, which is what
+-- that call looks like spread over its interval.
+
+do
+    local baseInterval = NS.db.profile.sampling.intervals.memory
+    NS.Memory.scanStretch = 1
+    NS.Scheduler:SetInterval("memory", baseInterval)
+
+    check("a cheap scan leaves the interval alone", (function()
+        NS.Memory:AdaptScanInterval(1)
+        return NS.Memory.scanStretch == 1
+    end)(), NS.Memory.scanStretch)
+
+    -- Now make it expensive, the way two hundred addon folders would.
+    for _ = 1, 10 do NS.Memory:AdaptScanInterval(NS.C.MEMORY_SCAN_BUDGET_MS * 4) end
+    check("an expensive scan stretches its own interval",
+        NS.Memory.scanStretch > 1, NS.Memory.scanStretch)
+    check("but never past the cap",
+        NS.Memory.scanStretch <= NS.C.MEMORY_SCAN_MAX_STRETCH, NS.Memory.scanStretch)
+
+    local task = NS.Scheduler:GetTask("memory")
+    check("and the scheduler was actually told",
+        task and task.normal > baseInterval,
+        task and ("%.0f s vs a %.0f s base"):format(task.normal, baseInterval))
+
+    check("what happened is reported rather than done quietly",
+        (NS.Memory:DescribeScanCost() or ""):find("stretched", 1, true) ~= nil,
+        tostring(NS.Memory:DescribeScanCost()))
+
+    -- And it comes back down on a quiet client, slowly.
+    for _ = 1, 20 do NS.Memory:AdaptScanInterval(1) end
+    check("it relaxes again when the scan is cheap",
+        NS.Memory.scanStretch == 1, NS.Memory.scanStretch)
+    check("and the interval goes back with it",
+        NS.Scheduler:GetTask("memory").normal == baseInterval,
+        NS.Scheduler:GetTask("memory").normal)
+end
+
+--------------------------------------------------------------------------
 print("\n== the same number, wherever it is shown ==")
 --------------------------------------------------------------------------
 -- Every figure here is produced by one module and displayed by several. Two

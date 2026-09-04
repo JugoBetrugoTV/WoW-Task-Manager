@@ -252,9 +252,13 @@ function Dev:Benchmark(seconds)
     self.benchmarkStart = GetTime()
     self.benchmarkFrames = WTM.FrameTime:GetSessionStats().frames
 
+    -- Phase 1, not 0. The phase is a FRACTION OF THE INTERVAL applied to the
+    -- first run, so 0 means "fire on the very next tick" - the benchmark was
+    -- finishing immediately and reporting a zero-second window, which is why
+    -- it said no task had run and no frame had been timed.
     self.benchmarkTimer = WTM.Scheduler:Register("devbenchmark", function()
         Dev:FinishBenchmark()
-    end, seconds, seconds, 0, "sampler")
+    end, seconds, seconds, 1, "sampler")
 end
 
 function Dev:FinishBenchmark()
@@ -319,11 +323,13 @@ function Dev:FinishBenchmark()
         :format("frame budget", WTM.Overhead:GetFrameBudgetPercent(),
                 Fmt.FPS(WTM.FrameTime.current.fps)))
 
-    if cur.frameCostMs then
+    local frameSamples = WTM.Scheduler:GetFrameCallbackSamples()
+    if cur.frameCostMs and frameSamples > 0 then
         out(("  per-frame callback: %.4f ms, averaged over %d timed frames")
-            :format(cur.frameCostMs, WTM.Scheduler:GetFrameCallbackSamples()))
+            :format(cur.frameCostMs, frameSamples))
     else
-        out("  per-frame callback: not sampled yet")
+        -- An average "over 0 frames" is not an average. Say so instead.
+        out("  per-frame callback: not sampled in this window")
     end
 
     out(("  own memory: %s   own CPU: %s")

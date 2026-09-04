@@ -131,6 +131,52 @@ end
 --------------------------------------------------------------------------
 -- Per-addon memory (expensive, infrequent)
 --------------------------------------------------------------------------
+--
+-- What "expensive" means here is a measurement, not an adjective: the scan
+-- times itself, and if it is costing more than the budget it stretches its own
+-- interval. A client with two hundred addon folders pays several times what a
+-- client with twenty pays for the identical call, and the fixed interval was
+-- the same for both.
+--
+-- Nothing is dropped: the growth trend still gets samples, just fewer of them,
+-- and the System page and the benchmark both say when this has happened.
+
+Memory.scanStretch = 1
+
+--- Stretches or relaxes the scan interval based on what the scan just cost.
+---
+--- Deliberately slow to relax and quick to stretch: one cheap scan on a quiet
+--- client should not undo a decision made because the scan is genuinely
+--- expensive here.
+function Memory:AdaptScanInterval(costMs)
+    if not costMs then return end
+    local budget = C.MEMORY_SCAN_BUDGET_MS
+    local previous = self.scanStretch
+
+    if costMs > budget then
+        self.scanStretch = math.min(C.MEMORY_SCAN_MAX_STRETCH, self.scanStretch + 1)
+    elseif costMs < budget * 0.5 and self.scanStretch > 1 then
+        self.scanStretch = self.scanStretch - 1
+    end
+
+    if self.scanStretch ~= previous then
+        local base = WTM.db.profile.sampling.intervals.memory
+        WTM.Scheduler:SetInterval("memory", base * self.scanStretch)
+    end
+end
+
+--- What the scan costs and what has been done about it, for the System page
+--- and the benchmark. Returns nil when it has never run.
+function Memory:DescribeScanCost()
+    local cost = self.current.addonScanCostMs
+    if not cost then return nil end
+    local base = WTM.db.profile.sampling.intervals.memory
+    if self.scanStretch > 1 then
+        return ("%.1f ms per scan, every %.0f s - stretched from %.0f s because it costs more than the %d ms budget")
+            :format(cost, base * self.scanStretch, base, C.MEMORY_SCAN_BUDGET_MS)
+    end
+    return ("%.1f ms per scan, every %.0f s"):format(cost, base)
+end
 
 function Memory:SampleAddons()
     if not (api.UpdateAddOnMemoryUsage and api.GetAddOnMemoryUsage) then return end
@@ -171,6 +217,8 @@ function Memory:SampleAddons()
     if sum > (cur.addonPeakKB or 0) then cur.addonPeakKB = sum end
     cur.lastAddonScanAt = now
     cur.addonScanCostMs = Compat.Now() - t0
+
+    self:AdaptScanInterval(cur.addonScanCostMs)
 
     WTM:SendMessage("WTM_MEMORY_SAMPLED")
 end

@@ -40,14 +40,14 @@ function Page:Build(frame)
     self.infoCard = UI.Card(frame, "CLIENT", {})
     self.infoCard:SetWidth(380)
     self.infoCard:SetPoint("TOPLEFT", pad, -pad)
-    self.infoCard:SetHeight(388)
+    self.infoCard:SetHeight(406)
 
     self.infoRows = {}
     local INFO_KEYS = {
         "Client", "Version", "Build", "Build date", "Interface", "Project ID",
         "Locale", "Realm", "Character",
         "Screen resolution", "UI scale", "Addon folder count", "Loaded addons",
-        "Lua memory", "Addon version", "Other copies installed", "Library backend",
+        "Lua memory", "Per-addon memory scan", "Addon version", "Other copies installed", "Library backend",
         "Database schema", "Saved database size", "Event monitoring",
         "Spike detection", "Baseline",
     }
@@ -203,6 +203,10 @@ function Page:Refresh()
     -- Two copies of this addon draw two windows over each other and measure
     -- everything twice, and neither can see the other from inside. Answering
     -- it here means nobody has to go looking through Interface/AddOns.
+    local scan = WTM.Memory:DescribeScanCost()
+    set("Per-addon memory scan", scan or "not run yet",
+        (scan and WTM.Memory.scanStretch > 1) and "warn" or nil)
+
     self._copies = WTM:FindOtherCopies(self._copies or {})
     if #self._copies == 0 then
         set("Other copies installed", "none", "ok")
