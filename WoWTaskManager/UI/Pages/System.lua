@@ -38,7 +38,7 @@ function Page:Build(frame)
     -- Client info card
     ------------------------------------------------------------------
     self.infoCard = UI.Card(frame, "CLIENT", {})
-    self.infoCard:SetWidth(380)
+    self.infoCard:SetWidth(UI.SideColumnWidth(frame:GetWidth()))
     self.infoCard:SetPoint("TOPLEFT", pad, -pad)
 
     self.infoRows = {}
@@ -66,7 +66,7 @@ function Page:Build(frame)
     -- CVar card
     ------------------------------------------------------------------
     self.cvarCard = UI.Card(frame, "GRAPHICS CVARS", {})
-    self.cvarCard:SetWidth(380)
+    self.cvarCard:SetWidth(UI.SideColumnWidth(frame:GetWidth()))
     self.cvarCard:SetPoint("TOPLEFT", self.infoCard, "BOTTOMLEFT", 0, -M.cardGap)
     self.cvarCard:SetPoint("BOTTOM", frame, "BOTTOM", 0, pad)
 
@@ -136,7 +136,16 @@ function Page:Build(frame)
     self.capList:SetAllPoints(self.capCard.content)
 end
 
-function Page:OnShow() self:Refresh() end
+--- The side column is a share of the page, not a fixed number of pixels, so
+--- it has to be recomputed whenever the window changes size.
+function Page:OnLayout()
+    if not self.infoCard or not self.frame then return end
+    local width = UI.SideColumnWidth(self.frame:GetWidth())
+    self.infoCard:SetWidth(width)
+    self.cvarCard:SetWidth(width)
+end
+
+function Page:OnShow() self:OnLayout() self:Refresh() end
 
 --------------------------------------------------------------------------
 

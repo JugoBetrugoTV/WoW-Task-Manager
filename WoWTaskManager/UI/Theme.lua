@@ -120,6 +120,12 @@ Theme.metrics = {
     -- "UNIQ...", the sublabel to "every o...", and six unreadable boxes in a
     -- row tell the reader less than three readable ones over two rows.
     cardMinWidth   = 150,
+    -- A list-or-detail side column: a share of the page, never narrower than
+    -- a readable list row nor wider than it needs to be. Eight pages carried
+    -- eight different fixed widths for this before.
+    sideColumnFraction = 0.26,
+    sideColumnMin      = 250,
+    sideColumnMax      = 400,
     navItemHeight  = 28,
     borderSize     = 1,
     scrollbarWidth = 6,

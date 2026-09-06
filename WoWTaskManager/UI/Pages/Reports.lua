@@ -73,7 +73,7 @@ function Page:Build(frame)
     -- Left column: what can be generated
     ------------------------------------------------------------------
     local side = CreateFrame("Frame", nil, frame)
-    side:SetWidth(250)
+    side:SetWidth(UI.SideColumnWidth(frame:GetWidth()))
     side:SetPoint("TOPLEFT", pad, -pad)
     side:SetPoint("BOTTOMLEFT", pad, pad)
     self.side = side
@@ -175,7 +175,14 @@ function Page:Build(frame)
     self:Clear()
 end
 
-function Page:OnShow() self:Refresh() end
+--- The side column is a share of the page, not a fixed number of pixels, so
+--- it has to be recomputed whenever the window changes size.
+function Page:OnLayout()
+    if not self.side or not self.frame then return end
+    self.side:SetWidth(UI.SideColumnWidth(self.frame:GetWidth()))
+end
+
+function Page:OnShow() self:OnLayout() self:Refresh() end
 
 --------------------------------------------------------------------------
 

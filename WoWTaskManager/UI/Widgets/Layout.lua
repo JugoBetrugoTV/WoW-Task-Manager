@@ -164,6 +164,23 @@ end
 -- Scroll container
 --------------------------------------------------------------------------
 
+--- The width for a list-or-detail side column, as a share of what is there.
+---
+--- Eight pages had a side column and eight different hard-coded widths - 196,
+--- 230, 250, 280, 300, 320, 330, 380 - for what is visually the same thing. A
+--- fixed width is wrong at both ends: at the minimum window size it eats half
+--- the page, and at 1920 it is a sliver beside an enormous pane.
+---
+--- A share of the available width, clamped so it never becomes unreadably
+--- narrow or absurdly wide, behaves at both.
+function UI.SideColumnWidth(available, opts)
+    opts = opts or {}
+    if not available or available <= 0 then return opts.min or M.sideColumnMin end
+    local width = available * (opts.fraction or M.sideColumnFraction)
+    return math.max(opts.min or M.sideColumnMin,
+                    math.min(opts.max or M.sideColumnMax, width))
+end
+
 --- Lays a row of equal cards out, wrapping onto more rows rather than letting
 --- each card shrink below the width its own heading needs.
 ---

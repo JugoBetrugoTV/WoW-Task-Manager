@@ -141,7 +141,7 @@ function Page:Build(frame)
     -- Correlation panel
     ------------------------------------------------------------------
     self.correlationCard = UI.Card(body, "SPIKE CORRELATION", {})
-    self.correlationCard:SetWidth(380)
+    self.correlationCard:SetWidth(UI.SideColumnWidth(frame:GetWidth()))
     self.correlationCard:SetPoint("TOPRIGHT")
     self.correlationCard:SetPoint("BOTTOMRIGHT")
     self.findingsCard:SetPoint("RIGHT", self.correlationCard, "LEFT", -M.cardGap, 0)
@@ -197,7 +197,14 @@ function Page:Build(frame)
     UI.Wrap(self.correlationNote)
 end
 
-function Page:OnShow() self:Refresh() end
+--- The side column is a share of the page, not a fixed number of pixels, so
+--- it has to be recomputed whenever the window changes size.
+function Page:OnLayout()
+    if not self.correlationCard or not self.frame then return end
+    self.correlationCard:SetWidth(UI.SideColumnWidth(self.frame:GetWidth()))
+end
+
+function Page:OnShow() self:OnLayout() self:Refresh() end
 
 --------------------------------------------------------------------------
 

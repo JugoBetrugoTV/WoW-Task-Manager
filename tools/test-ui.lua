@@ -411,6 +411,184 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n== the harness does not invent allocation ==")
+--------------------------------------------------------------------------
+-- A page refresh appeared to allocate 150 KB. Almost none of it was the
+-- addon: SetPoint built a table per call and ClearAllPoints threw those
+-- tables away, so the ClearAllPoints-then-SetPoint that all layout code does
+-- allocated two fresh tables per cell - 304 per list refresh. The real
+-- client's anchors are not Lua tables at all.
+--
+-- Left alone, that hides real regressions behind harness noise, so the cost
+-- of the mock's own hot methods is asserted rather than assumed.
+
+do
+    local function perCall(times, fn)
+        fn(0)   -- warm up with the same shape of argument the loop passes
+        collectgarbage(); collectgarbage()
+        local before = collectgarbage("count")
+        for i = 1, times do fn(i) end
+        return (collectgarbage("count") - before) * 1024 / times
+    end
+
+    local a = CreateFrame("Frame", nil, UIParent)
+    local b = CreateFrame("Frame", nil, UIParent)
+    a:SetPoint("TOPLEFT", b, "TOPLEFT", 0, 0)
+
+    check("re-anchoring allocates nothing",
+        perCall(2000, function(i) a:SetPoint("TOPLEFT", b, "TOPLEFT", i % 13, 0) end) < 8,
+        ("%.0f bytes/call"):format(
+            perCall(2000, function(i) a:SetPoint("TOPLEFT", b, "TOPLEFT", i % 13, 0) end)))
+
+    check("clear-then-anchor allocates nothing either",
+        perCall(2000, function(i)
+            a:ClearAllPoints()
+            a:SetPoint("TOPLEFT", b, "TOPLEFT", i % 13, 0)
+            a:SetPoint("TOPRIGHT", b, "TOPRIGHT", 0, 0)
+        end) < 16, "clear + two anchors")
+
+    check("setting a colour allocates nothing",
+        perCall(2000, function() a:SetAlpha(1) b:SetFrameLevel(2) end) < 8, "colour path")
+
+    -- And the thing those add up to: one page refresh.
+    MW:ShowPage("errors")
+    MW:RefreshCurrentPage()
+    local perRefresh = perCall(20, function() MW:RefreshCurrentPage() end) / 1024
+    check("a page refresh stays well under 100 KB of garbage",
+        perRefresh < 100, ("%.1f KB per refresh"):format(perRefresh))
+end
+
+--------------------------------------------------------------------------
+print("\n== side columns behave the same on every page ==")
+--------------------------------------------------------------------------
+-- Eight pages had a list-or-detail side column and eight different hard-coded
+-- widths for it. A fixed width is wrong at both ends: at 940 a 380 px column
+-- takes 40% of the page, and at 1920 the same column is a sliver next to an
+-- enormous pane. They are a clamped share of the page now.
+
+do
+    local COLUMNS = {
+        { page = "incidents",   get = function(p) return p.listCard end },
+        { page = "sessions",    get = function(p) return p.listCard end },
+        { page = "reports",     get = function(p) return p.side end },
+        { page = "system",      get = function(p) return p.infoCard end },
+        { page = "diagnostics", get = function(p) return p.correlationCard end },
+    }
+
+    for _, size in ipairs(SIZES) do
+        MW.frame:SetSize(size.w, size.h)
+        MW:LayoutAllPages()
+
+        local widths, narrowest, widest = {}, math.huge, 0
+        for _, spec in ipairs(COLUMNS) do
+            MW:ShowPage(spec.page)
+            MW:RefreshCurrentPage()
+            mock.Tick(0.1)
+
+            local card = spec.get(NS.UI.Pages[spec.page])
+            local width = card and card:GetWidth() or 0
+            widths[spec.page] = width
+            narrowest, widest = math.min(narrowest, width), math.max(widest, width)
+
+            local pageWidth = NS.UI.Pages[spec.page].frame:GetWidth() or 1
+            check(("%s/%s: the side column leaves most of the page to the content")
+                :format(size.name, spec.page),
+                width / pageWidth < 0.4,
+                ("%.0f of %.0f = %.0f%%"):format(width, pageWidth, width / pageWidth * 100))
+            check(("%s/%s: and is still wide enough to read"):format(size.name, spec.page),
+                width >= 240, width)
+        end
+
+        check(("%s: every side column is the same width"):format(size.name),
+            widest - narrowest < 2, ("%.0f..%.0f"):format(narrowest, widest))
+    end
+end
+
+--------------------------------------------------------------------------
+print("\n== settings uses the width it is given ==")
+--------------------------------------------------------------------------
+-- Sixteen sections in one fixed 520 px column: at 1920 the right two thirds
+-- of the page were empty and the page was 4840 px tall regardless of how much
+-- room there was. The sections are cards now and flow into as many columns as
+-- fit, so the same content is a third as tall on a wide window.
+
+do
+    local page = NS.UI.Pages.settings
+    check("settings has sections at all", page.sections and #page.sections > 8,
+        page.sections and #page.sections)
+
+    local tallest, heights = 0, {}
+    for _, size in ipairs(SIZES) do
+        MW.frame:SetSize(size.w, size.h)
+        MW:LayoutAllPages()
+        MW:ShowPage("settings")
+        MW:RefreshCurrentPage()
+        mock.Tick(0.1)
+
+        -- How many distinct left edges the visible cards sit on.
+        local lefts, columns = {}, 0
+        for _, card in ipairs(page.sections) do
+            if card:IsShown() then
+                local left = card:GetLeft()
+                if left and not lefts[left] then lefts[left] = true; columns = columns + 1 end
+            end
+        end
+        heights[size.name] = page.canvas:GetHeight() or 0
+        tallest = math.max(tallest, columns)
+
+        check(("%s: every section card is visible"):format(size.name), (function()
+            for _, card in ipairs(page.sections) do
+                if not card:IsShown() then return false end
+            end
+            return true
+        end)())
+        check(("%s: the canvas fills the width it was given"):format(size.name),
+            math.abs((page.canvas:GetWidth() or 0) - (page.scroll:GetWidth() or 0)) < 2,
+            ("canvas %.0f vs scroll %.0f"):format(
+                page.canvas:GetWidth() or 0, page.scroll:GetWidth() or 0))
+    end
+
+    check("a wide window gets more than one column", tallest > 1, tallest)
+    check("and that makes the page shorter, not just wider",
+        heights.large < heights.minimum * 0.6,
+        ("%.0f at 1920 vs %.0f at 940"):format(heights.large, heights.minimum))
+
+    -- The filter.
+    MW.frame:SetSize(1280, 800)
+    MW:LayoutAllPages()
+    MW:ShowPage("settings")
+    mock.Tick(0.1)
+
+    local function visibleSections()
+        local n = 0
+        for _, card in ipairs(page.sections) do
+            if card:IsShown() then n = n + 1 end
+        end
+        return n
+    end
+
+    local total = visibleSections()
+    page.filter = "memory"
+    page:LayoutSections()
+    local matched = visibleSections()
+    check("filtering narrows the page", matched > 0 and matched < total,
+        ("%d of %d"):format(matched, total))
+    check("and says how much it narrowed it",
+        (page.filterCount:GetText() or ""):find("match") ~= nil,
+        page.filterCount:GetText())
+
+    page.filter = "zzzznothing"
+    page:LayoutSections()
+    check("a filter that matches nothing hides everything rather than throwing",
+        visibleSections() == 0, visibleSections())
+
+    page.filter = nil
+    page:LayoutSections()
+    check("clearing the filter brings every section back",
+        visibleSections() == total, ("%d of %d"):format(visibleSections(), total))
+end
+
+--------------------------------------------------------------------------
 print("\n== the mouse wheel actually scrolls ==")
 --------------------------------------------------------------------------
 -- This path had never run. The mock did not define GetVerticalScroll at all,

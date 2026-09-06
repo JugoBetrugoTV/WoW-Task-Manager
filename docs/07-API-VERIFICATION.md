@@ -285,6 +285,9 @@ unter *Options → AddOns* und funktioniert unverändert weiter.
 | Neun Layout-Fixes aus dem Vertikal-Audit (0.7.2) | Der Harness sagt jetzt, dass alles in seinen Kasten passt. Ob es **gut aussieht** — ob die umbrochenen Karten auf Errors und Memory eine sinnvolle Anordnung ergeben, ob die scrollende Incident-Karte sich richtig anfühlt — zeigt nur der Client |
 | Timeline bei kleiner Fensterhöhe | Die Spuren schrumpfen jetzt bis auf 34 px, statt Markerspur und Detailpanel unter den Rand zu schieben. Ob eine 34-px-Spur noch lesbar ist, ist eine Frage an dein Auge, nicht an den Test |
 | Mausrad auf jeder Seite | Der Pfad war im Mock gar nicht ausführbar und ist es jetzt. Im Spiel gescrollt wurde damit trotzdem noch nie |
+| Settings als Karten-Layout (0.7.3) | Der Harness sagt, dass 3 Spalten bei 1920 passen und nichts abgeschnitten wird. Ob die Aufteilung **angenehm zu bedienen** ist — ob man den gesuchten Schalter schneller findet — sagt nur der Client |
+| Der Settings-Filter | Im Harness geprüft: tippen, treffen, leeren. Mit einer echten Tastatur im Spiel noch nie benutzt |
+| Einheitliche Seitenspalten-Breite | 250 px bei 940 ist rechnerisch lesbar. Ob eine 250-px-Sessionliste im Spiel noch brauchbar ist, ist eine Frage an dein Auge |
 
 ## Wie die Spalte auf PASS kommt
 

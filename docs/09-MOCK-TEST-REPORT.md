@@ -1,6 +1,6 @@
 # Mock-Testbericht
 
-Erzeugt am 2026-09-04 gegen Addon-Version 0.7.2.
+Erzeugt am 2026-09-06 gegen Addon-Version 0.7.3.
 
 > **Alles hier ist MOCK VERIFIED, nichts ist REAL CLIENT VERIFIED.**
 > Der Mock verhält sich so, wie ich glaube, dass der Client sich verhält. Wo
@@ -459,6 +459,76 @@ schlechtesten Ort für eine Meinung über Eingaben.
 Gemessen: **44 Würfe und 29 Mal `nan`/`inf`** über elf Formatierer. Jetzt ein
 Tor an der Grenze (`finite`), und „keine brauchbare Zahl" wird überall so
 behandelt wie `nil` es schon wurde.
+
+## 0.7.3: Layout und eine Messung, die sich selbst gemessen hat
+
+### Die Settings-Seite
+
+Sechzehn Abschnitte in **einer festen 520-px-Spalte**. Bei 1920 stand das
+rechte Drittel leer und die Seite war 4840 px hoch, egal wie viel Platz da
+war. Die Abschnitte sind jetzt Karten und fliessen in so viele Spalten, wie
+die Breite hergibt:
+
+| Fenster | Spalten | Seitenhöhe |
+|---|---|---|
+| 940 x 600 | 1 | 4840 px |
+| 1280 x 800 | 2 | 2460 px |
+| 1920 x 1080 | 3 | **1656 px** |
+
+Dazu ein Filterfeld: `memory` lässt 2 von 16 Abschnitten stehen, `error`
+einen. Bei sechzehn Abschnitten ist Scrollen keine Suche.
+
+Die Button-Raster in *Commands* und *Developer* waren auf ein Drittel von 520
+px fest verdrahtet; sie verteilen sich jetzt über die Breite, die ihre Karte
+tatsächlich bekommen hat.
+
+### Seitenspalten: ein Mass statt acht
+
+Acht Seiten hatten eine Listen-oder-Detail-Spalte und **acht verschiedene
+feste Breiten** — 196, 230, 250, 280, 300, 320, 330, 380. Eine feste Breite
+ist an beiden Enden falsch: bei 940 frisst eine 380er-Spalte 40 % der Seite,
+bei 1920 ist dieselbe Spalte ein Streifen neben einer riesigen Fläche.
+
+Jetzt ein Anteil mit Deckel (`UI.SideColumnWidth`): 250 px bei 940 (34 %),
+280 px bei 1280 (26 %), 400 px bei 1920 (23 %) — auf allen fünf betroffenen
+Seiten identisch.
+
+### Die Messung, die sich selbst gemessen hat
+
+Ein Seiten-Refresh schien **151 KB** zu allokieren, zweimal pro Sekunde. Das
+sah nach dem dringendsten Optimierungsziel im ganzen Addon aus.
+
+Es war der Harness. Zwei Stellen:
+
+| Fund | Kosten |
+|---|---|
+| `SetPoint` baute pro Aufruf eine Tabelle | 384 Bytes x 324 Aufrufe pro Listen-Refresh |
+| `ClearAllPoints` warf diese Tabellen weg | jedes folgende `SetPoint` allokierte neu — und Layout-Code macht fast immer beides nacheinander |
+| `checkColor` iterierte über `{ r, g, b }` | eine Tabelle pro Farbsetzung, 171 pro Refresh |
+
+Im echten Client sind Anker überhaupt keine Lua-Tabellen. Nach dem Fix
+(Anker werden in place aktualisiert und in einem Pool wiederverwendet, die
+Farbprüfung vergleicht direkt):
+
+```
+ein Listen-Refresh:   137,9 KB  ->   2,7 KB
+errors-Seite:         151,3 KB  ->   7,1 KB      2,02 ms -> 0,70 ms
+performance:          189,2 KB  ->  15,1 KB      1,83 ms -> 1,08 ms
+timeline:             132,5 KB  ->  17,6 KB
+dashboard:             77,0 KB  ->  43,5 KB
+```
+
+Rund **90 % der scheinbaren Addon-Allokation waren das Messgerät.** Das ist
+dieselbe Lektion wie bei `debugprofilestop` in 0.7.1, und deshalb steht sie
+jetzt als Assertion in `tools/test-ui.lua`: ein erneutes Anker-Setzen muss
+unter 8 Bytes pro Aufruf bleiben, und ein Seiten-Refresh unter 100 KB. Sonst
+versteckt sich die nächste echte Regression wieder hinter dem Rauschen.
+
+**Am Addon wurde daraufhin nichts optimiert.** Die Zahl, die das gefordert
+hätte, gab es nicht.
+
+Nebenbei wurde die UI-Suite dadurch schneller: 1 m 53 s bei 68 Assertions ->
+1 m 21 s bei 118.
 
 ## Was der Mock nicht kann
 

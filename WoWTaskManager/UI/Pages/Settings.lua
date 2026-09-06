@@ -18,6 +18,14 @@ local T     = Theme.Get
 local M     = Theme.metrics
 local Fmt   = WTM.Format
 
+-- The filter row above the scrolling area, and the gap between two controls
+-- inside a section card.
+local FILTER_HEIGHT = 24
+local CONTROL_GAP   = 6
+-- Below this a section card cannot hold a label, a slider and a value without
+-- one of them being trimmed, so the page uses fewer columns instead.
+local MIN_SECTION_WIDTH = 360
+
 local Page = UI.RegisterPage("settings", {})
 
 --------------------------------------------------------------------------
@@ -57,6 +65,7 @@ local function Checkbox(parent, label, get, set, description)
     end)
     frame:SetScript("OnLeave", UI.HideTooltip)
 
+    frame.searchText = label:lower()
     frame.Update = Update
     Update()
     return frame
@@ -126,6 +135,7 @@ local function Slider(parent, label, minValue, maxValue, step, get, set, format,
         frame:SetScript("OnLeave", UI.HideTooltip)
     end
 
+    frame.searchText = label:lower()
     frame.Update = Update
     frame:SetScript("OnShow", Update)
     Update()
@@ -182,6 +192,7 @@ local function Segmented(parent, label, options, get, set, description)
         frame:SetScript("OnLeave", UI.HideTooltip)
     end
 
+    frame.searchText = label:lower()
     frame.Update()
     return frame
 end
@@ -221,9 +232,34 @@ end
 function Page:Build(frame)
     local pad = M.padding
     self.controls = {}
+    self.sections = {}
+    -- Rows of equally sized buttons. They used to be a third of a fixed 520 px
+    -- column each; the cards are responsive now, so the widths are worked out
+    -- when the page is laid out.
+    self.buttonRows = {}
+
+    ------------------------------------------------------------------
+    -- Filter
+    ------------------------------------------------------------------
+    -- Sixteen sections is more than anyone scrolls through looking for one
+    -- switch. Typing narrows to the sections that mention what you typed.
+    self.filterBox = UI.SearchBox(frame, "Filter settings", function(text)
+        Page.filter = (text or ""):lower()
+        Page:LayoutSections()
+    end)
+    self.filterBox:SetPoint("TOPLEFT", pad, -pad)
+    self.filterBox:SetWidth(260)
+    self.filterBox:SetHeight(FILTER_HEIGHT)
+
+    self.filterCount = UI.Text(frame, "small", "textMuted", "RIGHT")
+    self.filterCount:SetPoint("RIGHT", frame, "RIGHT", -pad, 0)
+    self.filterCount:SetPoint("TOP", self.filterBox, "TOP", 0, 0)
+    self.filterCount:SetPoint("LEFT", self.filterBox, "RIGHT", 12, 0)
+    self.filterCount:SetHeight(FILTER_HEIGHT)
 
     local scroll = CreateFrame("ScrollFrame", nil, frame)
-    scroll:SetPoint("TOPLEFT", pad, -pad)
+    scroll:SetPoint("TOPLEFT", self.filterBox, "BOTTOMLEFT", 0, -10)
+    scroll:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -pad, 0)
     scroll:SetPoint("BOTTOMRIGHT", -pad, pad)
 
     local canvas = CreateFrame("Frame", nil, scroll)
@@ -238,22 +274,42 @@ function Page:Build(frame)
         local max = math.max(0, (canvas:GetHeight() or 0) - (self:GetHeight() or 0))
         self:SetVerticalScroll(math.max(0, math.min(max, newOffset)))
     end)
+    scroll:SetScript("OnSizeChanged", function() Page:LayoutSections() end)
 
-    local y = 0
-    local COLUMN = 520
+    ------------------------------------------------------------------
+    -- Sections
+    ------------------------------------------------------------------
+    -- Each section is a card, and the cards flow into as many columns as the
+    -- window is wide enough for. This used to be one 520 px column of
+    -- everything: at 1920 the right two thirds of the page were empty and the
+    -- whole thing was sixteen sections tall no matter how much room there was.
+    --
+    -- `host` is what the controls below are parented to. It moves to the
+    -- current section's content frame, so nothing has to be reparented after
+    -- the fact.
+    local host = canvas
+    local section
 
     local function AddSection(title)
-        local divider = UI.Divider(canvas, title)
-        divider:SetPoint("TOPLEFT", 0, -y)
-        divider:SetWidth(COLUMN)
-        y = y + 26
-        return divider
+        local card = UI.Card(canvas, title, {})
+        card.contentHeight = 0
+        card.words = title:lower()
+        self.sections[#self.sections + 1] = card
+        section, host = card, card.content
+        return card
     end
 
     local function Add(control, height)
-        control:SetPoint("TOPLEFT", 0, -y)
-        control:SetWidth(COLUMN)
-        y = y + (height or control:GetHeight() or 24) + 4
+        control:ClearAllPoints()
+        control:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -section.contentHeight)
+        control:SetPoint("TOPRIGHT", host, "TOPRIGHT", 0, -section.contentHeight)
+        section.contentHeight = section.contentHeight
+            + (height or control:GetHeight() or 24) + CONTROL_GAP
+        -- What this control is called, so the filter can match on it and not
+        -- only on the section heading.
+        if control.searchText then
+            section.words = section.words .. " " .. control.searchText
+        end
         self.controls[#self.controls + 1] = control
         return control
     end
@@ -262,7 +318,7 @@ function Page:Build(frame)
 
     ------------------------------------------------------------------
     AddSection("MONITORING")
-    Add(Checkbox(canvas, "Enable sampling",
+    Add(Checkbox(host, "Enable sampling",
         function() return profile.sampling.enabled end,
         function(v)
             profile.sampling.enabled = v
@@ -270,12 +326,12 @@ function Page:Build(frame)
         end,
         "Stops every sampling task. The addon keeps its data but records nothing new."))
 
-    Add(Checkbox(canvas, "Adaptive sampling around spikes",
+    Add(Checkbox(host, "Adaptive sampling around spikes",
         function() return profile.sampling.adaptive end,
         function(v) profile.sampling.adaptive = v end,
         "When a spike is detected, sampling rates temporarily increase for a few seconds so the window around it is dense, then drop back. This is what makes a flight recorder incident detailed without paying for that detail all the time."))
 
-    Add(Checkbox(canvas, "Automatically throttle if overhead exceeds the budget",
+    Add(Checkbox(host, "Automatically throttle if overhead exceeds the budget",
         function() return profile.sampling.autoThrottle end,
         function(v)
             profile.sampling.autoThrottle = v
@@ -283,7 +339,7 @@ function Page:Build(frame)
         end,
         "If this addon's own sampling cost stays above the budget for several seconds, the sampling intervals are stretched automatically. Frame time sampling is never throttled - it is cheap and it is the signal everything else depends on."))
 
-    Add(Slider(canvas, "Overhead budget", 0.5, 10, 0.5,
+    Add(Slider(host, "Overhead budget", 0.5, 10, 0.5,
         function() return profile.sampling.overheadBudgetMs end,
         function(v) profile.sampling.overheadBudgetMs = v end,
         function(v) return ("%.1f ms/s"):format(v) end,
@@ -308,7 +364,7 @@ function Page:Build(frame)
           desc = "How often the visible page redraws. Only runs while the window is open." },
     }
     for _, spec in ipairs(INTERVALS) do
-        Add(Slider(canvas, spec.label, spec.min, spec.max, spec.step,
+        Add(Slider(host, spec.label, spec.min, spec.max, spec.step,
             function() return profile.sampling.intervals[spec.key] end,
             function(v)
                 profile.sampling.intervals[spec.key] = v
@@ -320,23 +376,21 @@ function Page:Build(frame)
 
     ------------------------------------------------------------------
     AddSection("SPIKE THRESHOLDS")
-    local thresholdNote = UI.Text(canvas, "tiny", "textMuted")
-    thresholdNote:SetPoint("TOPLEFT", 0, -y)
-    thresholdNote:SetWidth(COLUMN)
+    local thresholdNote = UI.Text(host, "tiny", "textMuted")
     thresholdNote:SetJustifyH("LEFT")
     UI.Wrap(thresholdNote)
     thresholdNote:SetText("A frame counts as a spike only when it exceeds BOTH the absolute floor and the multiple of the rolling baseline. The floor stops a 144 Hz player from drowning in false positives; the multiplier stops a 25 Hz player from never seeing one.")
-    y = y + 34
+    Add(thresholdNote, 46)
 
     for _, kind in ipairs({ "minor", "stutter", "heavy", "freeze" }) do
-        Add(Slider(canvas, C.SPIKE_DEFAULTS[kind].label .. " - floor", 10, 500, 5,
+        Add(Slider(host, C.SPIKE_DEFAULTS[kind].label .. " - floor", 10, 500, 5,
             function() return profile.spikes[kind].absMs end,
             function(v)
                 profile.spikes[kind].absMs = v
                 WTM.FrameTime:RefreshThresholds()
             end,
             function(v) return ("%d ms"):format(v) end))
-        Add(Slider(canvas, C.SPIKE_DEFAULTS[kind].label .. " - baseline multiple", 1.2, 15, 0.1,
+        Add(Slider(host, C.SPIKE_DEFAULTS[kind].label .. " - baseline multiple", 1.2, 15, 0.1,
             function() return profile.spikes[kind].mult end,
             function(v)
                 profile.spikes[kind].mult = v
@@ -347,7 +401,7 @@ function Page:Build(frame)
 
     ------------------------------------------------------------------
     AddSection("FLIGHT RECORDER")
-    Add(Checkbox(canvas, "Enable flight recorder",
+    Add(Checkbox(host, "Enable flight recorder",
         function() return profile.flightRecorder.enabled end,
         function(v)
             profile.flightRecorder.enabled = v
@@ -355,26 +409,26 @@ function Page:Build(frame)
         end,
         "Continuously keeps the last minute of detailed samples in a pre-allocated ring buffer, so that when a spike happens the time BEFORE it is already recorded."))
 
-    Add(Slider(canvas, "Capture before a spike", 5, 60, 5,
+    Add(Slider(host, "Capture before a spike", 5, 60, 5,
         function() return profile.flightRecorder.preWindow end,
         function(v) profile.flightRecorder.preWindow = v end,
         function(v) return ("%d s"):format(v) end,
         "Changing this resizes the ring buffer, which takes effect after a reload."))
 
-    Add(Slider(canvas, "Capture after a spike", 5, 60, 5,
+    Add(Slider(host, "Capture after a spike", 5, 60, 5,
         function() return profile.flightRecorder.postWindow end,
         function(v) profile.flightRecorder.postWindow = v end,
         function(v) return ("%d s"):format(v) end,
         "The incident is only written out once this window has elapsed, so it includes the recovery as well as the run-up."))
 
-    Add(Checkbox(canvas, "Save incidents between sessions",
+    Add(Checkbox(host, "Save incidents between sessions",
         function() return profile.flightRecorder.persist end,
         function(v) profile.flightRecorder.persist = v end,
         "Saved incidents are downsampled to 1 Hz on the way into SavedVariables. The full-resolution version stays in memory for the current session."))
 
     ------------------------------------------------------------------
     AddSection("EVENT MONITORING")
-    Add(Segmented(canvas, "Event monitoring mode", {
+    Add(Segmented(host, "Event monitoring mode", {
         { key = "OFF",      label = "Off",
           detail = "no listener registered" },
         { key = "NORMAL",   label = "Normal",
@@ -390,20 +444,18 @@ function Page:Build(frame)
     end,
     "Event monitoring uses a frame with RegisterAllEvents. The handler is deliberately tiny, but in a raid it runs thousands of times a second, so how much it does is a choice.\n\nOFF registers no listener at all. NORMAL counts events and computes rates. DETAILED additionally keeps a short per-event rate history and reads per-event handler CPU, which needs the scriptProfile CVar.\n\nWhichever mode is active, its measured cost is shown under Overhead on the dashboard."), 48)
 
-    self.eventModeNote = UI.Text(canvas, "tiny", "textMuted")
-    self.eventModeNote:SetPoint("TOPLEFT", 0, -y)
-    self.eventModeNote:SetWidth(COLUMN)
+    self.eventModeNote = UI.Text(host, "tiny", "textMuted")
     self.eventModeNote:SetJustifyH("LEFT")
     UI.Wrap(self.eventModeNote)
-    y = y + 30
+    Add(self.eventModeNote, 30)
 
-    Add(Slider(canvas, "Event storm multiplier", 2, 20, 0.5,
+    Add(Slider(host, "Event storm multiplier", 2, 20, 0.5,
         function() return profile.events.stormMultiplier end,
         function(v) profile.events.stormMultiplier = v end,
         function(v) return ("%.1f x normal"):format(v) end))
 
     AddSection("MEMORY")
-    Add(Slider(canvas, "Memory growth threshold", 64, 4096, 64,
+    Add(Slider(host, "Memory growth threshold", 64, 4096, 64,
         function() return profile.memory.growthThresholdKBPerMin end,
         function(v) profile.memory.growthThresholdKBPerMin = v end,
         function(v) return Fmt.Memory(v) .. "/min" end,
@@ -411,28 +463,27 @@ function Page:Build(frame)
 
     ------------------------------------------------------------------
     AddSection("DATA RETENTION")
-    Add(Slider(canvas, "Sessions kept", 5, 100, 5,
+    Add(Slider(host, "Sessions kept", 5, 100, 5,
         function() return profile.retention.maxSessions end,
         function(v) profile.retention.maxSessions = v WTM.Database:Prune() end,
         function(v) return ("%d"):format(v) end))
 
-    Add(Slider(canvas, "Incidents kept", 5, 100, 5,
+    Add(Slider(host, "Incidents kept", 5, 100, 5,
         function() return profile.retention.maxIncidents end,
         function(v) profile.retention.maxIncidents = v WTM.Database:Prune() end,
         function(v) return ("%d"):format(v) end))
 
-    Add(Checkbox(canvas, "Save time series with each session",
+    Add(Checkbox(host, "Save time series with each session",
         function() return profile.retention.saveBuckets end,
         function(v) profile.retention.saveBuckets = v end,
         "Time series are aggregated into coarser buckets as they age (1 s, then 5 s, 15 s and 60 s), so a long session stays manageable. Turning this off keeps only the summary numbers."))
 
-    self.sizeText = UI.Text(canvas, "small", "textMuted")
-    self.sizeText:SetPoint("TOPLEFT", 0, -y)
-    self.sizeText:SetWidth(COLUMN)
+    self.sizeText = UI.Text(host, "small", "textMuted")
     self.sizeText:SetJustifyH("LEFT")
-    y = y + 24
+    UI.Wrap(self.sizeText, 2)
+    Add(self.sizeText, 30)
 
-    local wipeButton = ConfirmButton(canvas, "Delete all saved history", function()
+    local wipeButton = ConfirmButton(host, "Delete all saved history", function()
         -- Through the command, so this button and /wtm wipe cannot drift apart.
         local handler = WTM:GetCommandHandler("wipe")
         if handler then handler("") end
@@ -443,21 +494,19 @@ function Page:Build(frame)
 
     ------------------------------------------------------------------
     AddSection("CPU PROFILING")
-    self.profilingText = UI.Text(canvas, "small", "textSecondary")
-    self.profilingText:SetPoint("TOPLEFT", 0, -y)
-    self.profilingText:SetWidth(COLUMN)
+    self.profilingText = UI.Text(host, "small", "textSecondary")
     self.profilingText:SetJustifyH("LEFT")
     UI.Wrap(self.profilingText)
-    y = y + 52
+    Add(self.profilingText, 64)
 
-    local profilingButton = UI.Button(canvas, "Toggle scriptProfile", function()
+    local profilingButton = UI.Button(host, "Toggle scriptProfile", function()
         WTM.Caps:ToggleCPUProfiling()
         Page:Refresh()
     end, { height = 24, primary = true })
     Add(profilingButton, 28)
     self.profilingButton = profilingButton
 
-    local resetCountersButton = UI.Button(canvas, "Reset the client's CPU counters", function()
+    local resetCountersButton = UI.Button(host, "Reset the client's CPU counters", function()
         local ok, err = WTM.CPU:ResetClientCounters()
         WTM:Print(ok and "Client CPU counters reset."
             or ("Could not reset counters: " .. tostring(err)))
@@ -469,14 +518,14 @@ function Page:Build(frame)
     -- A profiling change only takes effect after a reload, so the reload button
     -- belongs here rather than only on the dashboard notice. It is its own
     -- button on purpose: nothing in this addon reloads without a click.
-    local reloadButton = ConfirmButton(canvas, "Reload the user interface", function()
+    local reloadButton = ConfirmButton(host, "Reload the user interface", function()
         local handler = WTM:GetCommandHandler("reload")
         if handler then handler("") end
     end, { height = 24 })
     reloadButton.tooltip = "Reloads the interface, which is what makes a CPU profiling change take effect. Queued until combat ends if you are fighting. Asks for a second click."
     Add(reloadButton, 28)
 
-    local capsButton = UI.Button(canvas, "Print the capability report", function()
+    local capsButton = UI.Button(host, "Print the capability report", function()
         WTM.Caps:PrintReport()
     end, { height = 24 })
     capsButton.tooltip = "Prints what this client can and cannot measure, and why, to chat. The same report is on the System page. Same as /wtm caps."
@@ -484,7 +533,7 @@ function Page:Build(frame)
 
     ------------------------------------------------------------------
     AddSection("INTERFACE")
-    local minimapCheck = Checkbox(canvas, "Show the minimap button",
+    local minimapCheck = Checkbox(host, "Show the minimap button",
         function() return WTM.UI.MinimapButton:IsShown() end,
         function(v) WTM.UI.MinimapButton:SetShown(v) end,
         "Left click opens the window, right click toggles the live monitor, drag moves it around the minimap. It shows the current FPS.")
@@ -495,7 +544,7 @@ function Page:Build(frame)
     Add(minimapCheck)
     self.minimapCheck = minimapCheck
 
-    local optionsButton = UI.Button(canvas, "Open the Options - AddOns entry", function()
+    local optionsButton = UI.Button(host, "Open the Options - AddOns entry", function()
         local ok, reason = WTM.UI.Options:OpenBlizzardPanel()
         if not ok then WTM:Print(reason) end
     end, { height = 24 })
@@ -506,32 +555,32 @@ function Page:Build(frame)
     end
     Add(optionsButton, 28)
 
-    local tourButton = UI.Button(canvas, "Show the introduction again", function()
+    local tourButton = UI.Button(host, "Show the introduction again", function()
         WTM.UI.Onboarding:Open()
     end, { height = 24 })
     tourButton.tooltip =
         "Replays the four-step introduction: what this measures, how to open it, why per-addon CPU needs a client setting, and how to read the results."
     Add(tourButton, 28)
 
-    Add(Checkbox(canvas, "Print a status line at login",
+    Add(Checkbox(host, "Print a status line at login",
         function() return profile.general.printOnLogin end,
         function(v) profile.general.printOnLogin = v end))
 
-    Add(Checkbox(canvas, "Jump to the timeline when a freeze is detected",
+    Add(Checkbox(host, "Jump to the timeline when a freeze is detected",
         function() return profile.general.openOnSpike end,
         function(v) profile.general.openOnSpike = v end,
         "Only for the most severe class. Opening a window during a freeze is itself disruptive, so this is off by default."))
 
-    Add(Checkbox(canvas, "Mark peaks on graphs",
+    Add(Checkbox(host, "Mark peaks on graphs",
         function() return profile.ui.showPeaks end,
         function(v) profile.ui.showPeaks = v end))
 
-    Add(Checkbox(canvas, "Show reference lines on graphs",
+    Add(Checkbox(host, "Show reference lines on graphs",
         function() return profile.ui.showReferenceLines end,
         function(v) profile.ui.showReferenceLines = v end,
         "Draws faint guides at the frame times that matter: 16.7 ms (60 FPS) and 6.9 ms (144 FPS) on the frame time graph, and the matching FPS lines on the FPS graph."))
 
-    Add(Slider(canvas, "Graph update rate", 0.1, 2, 0.1,
+    Add(Slider(host, "Graph update rate", 0.1, 2, 0.1,
         function() return profile.ui.graphUpdateRate end,
         function(v)
             profile.ui.graphUpdateRate = v
@@ -541,7 +590,7 @@ function Page:Build(frame)
         function(v) return ("%.1f s"):format(v) end,
         "How often the visible page redraws. Only runs while the window is open, and its measured cost appears under Overhead on the dashboard."))
 
-    Add(Slider(canvas, "Process list re-sort interval", 0.5, 10, 0.5,
+    Add(Slider(host, "Process list re-sort interval", 0.5, 10, 0.5,
         function() return profile.ui.processResortInterval end,
         function(v) profile.ui.processResortInterval = v end,
         function(v) return ("%.1f s"):format(v) end,
@@ -552,7 +601,7 @@ function Page:Build(frame)
 
     -- A button, not only a checkbox: this is the control people look for, and
     -- nobody should have to know that /wtm mini exists to find it.
-    local miniButton = UI.Button(canvas, "", function()
+    local miniButton = UI.Button(host, "", function()
         WTM.UI.LiveMonitor:Toggle()
         Page:Refresh()
     end, { height = 26, primary = true })
@@ -564,7 +613,7 @@ function Page:Build(frame)
     miniButton.Update()
     Add(miniButton, 30)
 
-    local miniCollapse = UI.Button(canvas, "", function()
+    local miniCollapse = UI.Button(host, "", function()
         WTM.UI.LiveMonitor:SetCollapsed(not WTM.UI.LiveMonitor:IsCollapsed())
         Page:Refresh()
     end, { height = 24 })
@@ -578,19 +627,19 @@ function Page:Build(frame)
     miniCollapse.Update()
     Add(miniCollapse, 28)
 
-    Add(Checkbox(canvas, "Show the compact live monitor",
+    Add(Checkbox(host, "Show the compact live monitor",
         function() return WTM.UI.LiveMonitor:IsShown() end,
         function(v)
             if v then WTM.UI.LiveMonitor:Show() else WTM.UI.LiveMonitor:Hide() end
         end,
         "A small always-on panel with FPS, frame time, latency, CPU, memory and event rate. Drag its header to move it. Also toggled with /wtm mini."))
 
-    Add(Checkbox(canvas, "Collapse the live monitor to one line",
+    Add(Checkbox(host, "Collapse the live monitor to one line",
         function() return WTM.UI.LiveMonitor:IsCollapsed() end,
         function(v) WTM.UI.LiveMonitor:SetCollapsed(v) end,
         "Hides the rows and keeps the header, which then carries the frame time and FPS. The panel keeps recording either way. Also on the panel's own - button."))
 
-    Add(Checkbox(canvas, "Sparklines in the live monitor",
+    Add(Checkbox(host, "Sparklines in the live monitor",
         function() return profile.liveMonitor.sparklines end,
         function(v)
             profile.liveMonitor.sparklines = v
@@ -598,7 +647,7 @@ function Page:Build(frame)
         end,
         "Sparklines are the expensive part of any graph. Turning them off leaves the numbers, which cost almost nothing."))
 
-    Add(Slider(canvas, "Live monitor width", 150, 400, 10,
+    Add(Slider(host, "Live monitor width", 150, 400, 10,
         function() return profile.liveMonitor.width end,
         function(v)
             profile.liveMonitor.width = v
@@ -606,7 +655,7 @@ function Page:Build(frame)
         end,
         function(v) return ("%d px"):format(v) end))
 
-    Add(Slider(canvas, "Live monitor opacity", 0.1, 1, 0.05,
+    Add(Slider(host, "Live monitor opacity", 0.1, 1, 0.05,
         function() return profile.liveMonitor.opacity end,
         function(v)
             profile.liveMonitor.opacity = v
@@ -614,7 +663,7 @@ function Page:Build(frame)
         end,
         function(v) return ("%.0f %%"):format(v * 100) end))
 
-    Add(Slider(canvas, "Live monitor scale", 0.6, 1.6, 0.05,
+    Add(Slider(host, "Live monitor scale", 0.6, 1.6, 0.05,
         function() return profile.liveMonitor.scale end,
         function(v)
             profile.liveMonitor.scale = v
@@ -624,7 +673,7 @@ function Page:Build(frame)
 
     ------------------------------------------------------------------
     AddSection("DIAGNOSTICS")
-    Add(Segmented(canvas, "Diagnostic aggressiveness", {
+    Add(Segmented(host, "Diagnostic aggressiveness", {
         { key = "conservative", label = "Conservative",
           detail = "only findings that clear the thresholds" },
         { key = "balanced",     label = "Balanced",
@@ -642,40 +691,39 @@ function Page:Build(frame)
     ------------------------------------------------------------------
     AddSection("ERROR MONITORING")
 
-    local errorsNote = UI.Text(canvas, "small", "textMuted", "LEFT")
-    errorsNote:SetWidth(COLUMN)
+    local errorsNote = UI.Text(host, "small", "textMuted", "LEFT")
     errorsNote:SetHeight(44)
     UI.Wrap(errorsNote, 3)
     errorsNote:SetText("This addon installs its error handler in FRONT of whatever was there before and passes every error on unchanged, so BugGrabber, BugSack or any other error addon keeps working exactly as it did. Turning capture off here stops the recording; it never removes the handler, because removing it would be this addon deciding what the previous one gets to see.")
     Add(errorsNote, 44)
 
-    Add(Checkbox(canvas, "Capture Lua errors",
+    Add(Checkbox(host, "Capture Lua errors",
         function() return profile.errors.enabled end,
         function(v) profile.errors.enabled = v end,
         "Records errors as they arrive. With this off, errors still reach every other handler - this addon simply writes nothing down."))
 
-    Add(Checkbox(canvas, "Group duplicates",
+    Add(Checkbox(host, "Group duplicates",
         function() return profile.errors.groupDuplicates end,
         function(v) profile.errors.groupDuplicates = v end,
         "Folds identical errors into one entry with a counter. Off, one error firing in OnUpdate would write thousands of entries and the cost of writing them would be the next thing you had to diagnose."))
 
-    Add(Checkbox(canvas, "Announce new errors in chat",
+    Add(Checkbox(host, "Announce new errors in chat",
         function() return profile.errors.notifications end,
         function(v) profile.errors.notifications = v end,
         "One line per NEW error, never per repeat, and never more often than the cooldown below."))
 
-    Add(Slider(canvas, "Notification cooldown", 5, 300, 5,
+    Add(Slider(host, "Notification cooldown", 5, 300, 5,
         function() return profile.errors.notifyCooldown end,
         function(v) profile.errors.notifyCooldown = v end,
         function(v) return ("%d s"):format(v) end,
         "The shortest gap between two chat notices. During a storm the notices are what makes the storm worse, so this floor exists."))
 
-    Add(Checkbox(canvas, "Mark errors on the timeline",
+    Add(Checkbox(host, "Mark errors on the timeline",
         function() return profile.errors.timelineMarkers end,
         function(v) profile.errors.timelineMarkers = v end,
         "Puts each new error on the shared time axis, next to the frame times around it. Overlap in time only - nothing causal is claimed by the marker."))
 
-    Add(Checkbox(canvas, "Include errors in diagnostics",
+    Add(Checkbox(host, "Include errors in diagnostics",
         function() return profile.errors.includeInDiagnostics end,
         function(v)
             profile.errors.includeInDiagnostics = v
@@ -683,7 +731,7 @@ function Page:Build(frame)
         end,
         "Lets error storms and repeating errors appear as findings on the Diagnostics page."))
 
-    Add(Checkbox(canvas, "Show the error count on the minimap button",
+    Add(Checkbox(host, "Show the error count on the minimap button",
         function() return profile.errors.minimapBadge end,
         function(v)
             profile.errors.minimapBadge = v
@@ -693,41 +741,41 @@ function Page:Build(frame)
         end,
         "A small count on the minimap icon, so a storm is visible without opening anything."))
 
-    Add(Checkbox(canvas, "Count ignored errors",
+    Add(Checkbox(host, "Count ignored errors",
         function() return profile.errors.countIgnored end,
         function(v) profile.errors.countIgnored = v end,
         "Ignoring an error hides it from the notices and from the top of the list. It never stops it being counted, and this switch only decides whether the badge and the totals include ignored errors as well."))
 
-    Add(Checkbox(canvas, "Keep errors across sessions",
+    Add(Checkbox(host, "Keep errors across sessions",
         function() return profile.errors.keepAcrossSessions end,
         function(v) profile.errors.keepAcrossSessions = v end,
         "Writes a trimmed copy of this session's errors to the database at logout, so a bug you saw last night is still there this morning."))
 
-    Add(Slider(canvas, "Error storm threshold", 5, 100, 5,
+    Add(Slider(host, "Error storm threshold", 5, 100, 5,
         function() return profile.errors.stormThreshold end,
         function(v) profile.errors.stormThreshold = v end,
         function(v) return ("%d in %d s"):format(v, C.ERROR_STORM_WINDOW_SEC) end,
         "How many errors inside the window count as a storm. A storm is a finding about the whole client; a single error repeating is a separate one."))
 
-    Add(Slider(canvas, "Repeating error threshold", 5, 200, 5,
+    Add(Slider(host, "Repeating error threshold", 5, 200, 5,
         function() return profile.errors.repeatThreshold end,
         function(v) profile.errors.repeatThreshold = v end,
         function(v) return ("%d occurrences"):format(v) end,
         "How often one error has to fire before it is called out on its own."))
 
-    Add(Slider(canvas, "Distinct errors kept", 50, 1000, 50,
+    Add(Slider(host, "Distinct errors kept", 50, 1000, 50,
         function() return profile.errors.maxUnique end,
         function(v) profile.errors.maxUnique = v end,
         function(v) return ("%d"):format(v) end,
         "Distinct fingerprints held in memory. Repeats never add to this - they increment a counter on the entry that already exists."))
 
-    Add(Slider(canvas, "Stack trace length kept", 500, 10000, 500,
+    Add(Slider(host, "Stack trace length kept", 500, 10000, 500,
         function() return profile.errors.maxStackLength end,
         function(v) profile.errors.maxStackLength = v end,
         function(v) return ("%d characters"):format(v) end,
         "How much of each stack trace is stored. A trace is captured once per distinct error, never per repeat."))
 
-    Add(Segmented(canvas, "When the distinct-error cap is reached", {
+    Add(Segmented(host, "When the distinct-error cap is reached", {
         { key = "keep",  label = "Keep the oldest",
           detail = "new distinct errors are counted but not detailed" },
         { key = "evict", label = "Drop the oldest",
@@ -737,12 +785,12 @@ function Page:Build(frame)
     function(v) profile.errors.evictOldest = (v == "evict") end,
     "Either way the total keeps rising, so the count stays honest. What differs is which errors keep their stack and their context."), 48)
 
-    Add(ConfirmButton(canvas, "Clear the ignore list", function()
+    Add(ConfirmButton(host, "Clear the ignore list", function()
         WTM.Errors:ClearIgnored()
         WTM:Print("Every ignored error and addon is shown again.")
     end, { description = "Un-ignores every error and every addon you have ignored. Nothing is deleted: ignoring never removed anything." }))
 
-    Add(ConfirmButton(canvas, "Clear captured errors", function()
+    Add(ConfirmButton(host, "Clear captured errors", function()
         WTM.Errors:Reset()
         WTM:Print("Captured errors cleared. Capture continues.")
     end, { description = "Empties this session's error list. It does not touch saved sessions and it does not stop capture." }))
@@ -757,8 +805,7 @@ function Page:Build(frame)
     ------------------------------------------------------------------
     AddSection("COMMANDS")
 
-    local commandsNote = UI.Text(canvas, "small", "textMuted", "LEFT")
-    commandsNote:SetWidth(COLUMN)
+    local commandsNote = UI.Text(host, "small", "textMuted", "LEFT")
     commandsNote:SetHeight(30)
     UI.Wrap(commandsNote, 2)
     commandsNote:SetText("Everything below is also a chat command, but nothing here requires typing one. Hover a button to see what it does.")
@@ -782,8 +829,7 @@ function Page:Build(frame)
         end
     end
     if #orphaned > 0 then
-        local warn = UI.Text(canvas, "small", "warn", "LEFT")
-        warn:SetWidth(COLUMN)
+        local warn = UI.Text(host, "small", "warn", "LEFT")
         warn:SetHeight(16)
         warn:SetText(("No button for: %s"):format(table.concat(orphaned, ", ")))
         Add(warn, 20)
@@ -791,8 +837,7 @@ function Page:Build(frame)
     self.orphanedCommands = orphaned
 
     for _, group in ipairs({ "window", "pages", "tools" }) do
-        local groupLabel = UI.Text(canvas, "small", "textSecondary", "LEFT")
-        groupLabel:SetWidth(COLUMN)
+        local groupLabel = UI.Text(host, "small", "textSecondary", "LEFT")
         groupLabel:SetText(GROUP_TITLES[group])
         Add(groupLabel, 20)
 
@@ -801,8 +846,10 @@ function Page:Build(frame)
         for _, entry in ipairs(WTM.COMMANDS) do
             if entry.group == group then
                 if inRow == 0 then
-                    row = CreateFrame("Frame", nil, canvas)
+                    row = CreateFrame("Frame", nil, host)
                     row:SetHeight(26)
+                    row.buttonRow = {}
+                    Page.buttonRows[#Page.buttonRows + 1] = row
                     Add(row, 30)
                 end
 
@@ -816,14 +863,14 @@ function Page:Build(frame)
                     Page:Refresh()
                 end
 
-                local opts = { height = 24, width = (COLUMN - 16) / 3 }
+                local opts = { height = 24 }
                 local button = entry.confirm
                     and ConfirmButton(row, entry.label, run, opts)
                     or UI.Button(row, entry.label, run, opts)
                 button.tooltipTitle = invocation
                 button.tooltip = entry.help ..
                     (entry.confirm and "\n\nThis one asks for a second click first." or "")
-                button:SetPoint("LEFT", (inRow * ((COLUMN - 16) / 3 + 8)), 0)
+                row.buttonRow[#row.buttonRow + 1] = button
 
                 inRow = inRow + 1
                 if inRow == 3 then inRow = 0 end
@@ -841,8 +888,7 @@ function Page:Build(frame)
     ------------------------------------------------------------------
     AddSection("DASHBOARD LAYOUT")
 
-    local layoutNote = UI.Text(canvas, "small", "textMuted", "LEFT")
-    layoutNote:SetWidth(COLUMN)
+    local layoutNote = UI.Text(host, "small", "textMuted", "LEFT")
     layoutNote:SetHeight(30)
     UI.Wrap(layoutNote, 2)
     layoutNote:SetText("Which blocks the dashboard shows, and how much room each gets. A hidden block is not refreshed at all, so hiding what you do not read makes the page cheaper as well as shorter.")
@@ -850,7 +896,7 @@ function Page:Build(frame)
 
     local SIZES = { "small", "medium", "large" }
     for _, widget in ipairs(WTM.UI.Pages.dashboard.WIDGETS) do
-        local row = CreateFrame("Frame", nil, canvas)
+        local row = CreateFrame("Frame", nil, host)
         row:SetHeight(26)
         Add(row, 30)
 
@@ -901,7 +947,7 @@ function Page:Build(frame)
         end
     end
 
-    local layoutReset = UI.Button(canvas, "Reset the dashboard layout", function()
+    local layoutReset = UI.Button(host, "Reset the dashboard layout", function()
         local dashboard = WTM.db.profile.dashboard
         for key in pairs(dashboard.hidden) do dashboard.hidden[key] = nil end
         for key in pairs(dashboard.sizes) do dashboard.sizes[key] = nil end
@@ -921,14 +967,13 @@ function Page:Build(frame)
     ------------------------------------------------------------------
     AddSection("DEVELOPER / ADVANCED")
 
-    local devNote = UI.Text(canvas, "small", "textMuted", "LEFT")
-    devNote:SetWidth(COLUMN)
+    local devNote = UI.Text(host, "small", "textMuted", "LEFT")
     devNote:SetHeight(44)
     UI.Wrap(devNote, 3)
     devNote:SetText("For testing this addon itself. The injection commands write simulated samples into the real history; everything they produce is marked SIMULATED wherever it is shown. Nothing here is needed for normal use.")
     Add(devNote, 48)
 
-    Add(Checkbox(canvas, "Enable developer mode",
+    Add(Checkbox(host, "Enable developer mode",
         function() return WTM.Dev:IsEnabled() end,
         function(v)
             WTM.Dev:SetEnabled(v)
@@ -941,8 +986,10 @@ function Page:Build(frame)
         local row, inRow = nil, 0
         for _, entry in ipairs(WTM.Dev.SUBCOMMANDS) do
             if inRow == 0 then
-                row = CreateFrame("Frame", nil, canvas)
+                row = CreateFrame("Frame", nil, host)
                 row:SetHeight(26)
+                row.buttonRow = {}
+                Page.buttonRows[#Page.buttonRows + 1] = row
                 Add(row, 30)
             end
 
@@ -952,11 +999,11 @@ function Page:Build(frame)
                 Page:Refresh()
             end
 
-            local opts = { height = 24, width = (COLUMN - 16) / 3 }
+            local opts = { height = 24 }
             local button = entry.destructive
                 and ConfirmButton(row, entry.label, run, opts)
                 or UI.Button(row, entry.label, run, opts)
-            button:SetPoint("LEFT", (inRow * ((COLUMN - 16) / 3 + 8)), 0)
+            row.buttonRow[#row.buttonRow + 1] = button
             button.tooltipTitle = "/wtm dev " .. entry.cmd
             button.tooltip = entry.help ..
                 (entry.destructive and "\n\nWrites a simulated sample into the real history." or "")
@@ -975,7 +1022,7 @@ function Page:Build(frame)
 
     ------------------------------------------------------------------
     AddSection("RESET")
-    local resetRuntimeButton = ConfirmButton(canvas, "Reset runtime counters", function()
+    local resetRuntimeButton = ConfirmButton(host, "Reset runtime counters", function()
         WTM.Database:ResetRuntime()
         WTM:Print("Runtime counters reset. Saved history is untouched.")
         Page:Refresh()
@@ -983,7 +1030,7 @@ function Page:Build(frame)
     resetRuntimeButton.tooltip = "Clears this session's spikes, incidents, CPU and memory counters and starts measuring again. Saved sessions and incidents are not affected."
     Add(resetRuntimeButton, 28)
 
-    local resetSettingsButton = ConfirmButton(canvas, "Reset all settings to defaults", function()
+    local resetSettingsButton = ConfirmButton(host, "Reset all settings to defaults", function()
         WTM.db:ResetProfile()
         WTM:Print("Settings reset to defaults. Some changes take effect after a reload.")
         Page:Refresh()
@@ -991,11 +1038,92 @@ function Page:Build(frame)
     resetSettingsButton.tooltip = "Restores every setting on this page. Saved sessions, incidents and history are not affected."
     Add(resetSettingsButton, 28)
 
-    canvas:SetHeight(y + 20)
-    canvas:SetWidth(COLUMN)
+    self:LayoutSections()
 end
 
-function Page:OnShow() self:Refresh() end
+--- Flows the section cards into as many columns as the width allows.
+---
+--- Shortest column first, so sixteen cards of wildly different heights come
+--- out roughly level instead of leaving one column hanging. Cards the filter
+--- excludes are hidden and take part in nothing.
+function Page:LayoutSections()
+    if not self.sections or not self.scroll then return end
+    local width = self.scroll:GetWidth() or 0
+    if width <= 0 then return end
+
+    local gap = M.cardGap
+    local columns = math.floor((width + gap) / (MIN_SECTION_WIDTH + gap))
+    columns = math.max(1, math.min(3, columns))
+    local columnWidth = (width - gap * (columns - 1)) / columns
+
+    local filter = self.filter
+    if filter == "" then filter = nil end
+
+    local heights, shown = {}, 0
+    for i = 1, columns do heights[i] = 0 end
+
+    for _, card in ipairs(self.sections) do
+        if filter and not card.words:find(filter, 1, true) then
+            card:Hide()
+        else
+            shown = shown + 1
+            -- The shortest column so far wins the next card.
+            local target, lowest = 1, heights[1]
+            for i = 2, columns do
+                if heights[i] < lowest then target, lowest = i, heights[i] end
+            end
+
+            card:Show()
+            card:ClearAllPoints()
+            card:SetWidth(columnWidth)
+            card:SetContentHeight(card.contentHeight)
+            card:SetPoint("TOPLEFT", self.canvas, "TOPLEFT",
+                (target - 1) * (columnWidth + gap), -lowest)
+            heights[target] = lowest + (card:GetHeight() or 0) + gap
+        end
+    end
+
+    -- Button grids spread across whatever their card ended up being.
+    for _, row in ipairs(self.buttonRows or {}) do
+        local buttons = row.buttonRow
+        local rowWidth = row:GetWidth() or 0
+        if #buttons > 0 and rowWidth > 0 then
+            local buttonGap = 8
+            local each = (rowWidth - buttonGap * (#buttons - 1)) / #buttons
+            for index, button in ipairs(buttons) do
+                button:ClearAllPoints()
+                button:SetWidth(math.max(40, each))
+                button:SetPoint("LEFT", row, "LEFT",
+                    (index - 1) * (each + buttonGap), 0)
+            end
+        end
+    end
+
+    local tallest = 0
+    for i = 1, columns do tallest = math.max(tallest, heights[i]) end
+    self.canvas:SetWidth(width)
+    self.canvas:SetHeight(math.max(1, tallest))
+
+    if self.filterCount then
+        if filter then
+            self.filterCount:SetText(("%d of %d sections match")
+                :format(shown, #self.sections))
+        else
+            self.filterCount:SetText(("%d sections"):format(#self.sections))
+        end
+    end
+
+    -- A filter that hides everything above the current scroll offset would
+    -- otherwise leave the page looking empty.
+    self.scroll:SetVerticalScroll(0)
+end
+
+function Page:OnLayout() self:LayoutSections() end
+
+function Page:OnShow()
+    self:LayoutSections()
+    self:Refresh()
+end
 
 function Page:Refresh()
     if not self.controls then return end

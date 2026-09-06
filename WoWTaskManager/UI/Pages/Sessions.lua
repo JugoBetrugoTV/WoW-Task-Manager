@@ -23,7 +23,7 @@ function Page:Build(frame)
     -- Session list on the left
     ------------------------------------------------------------------
     self.listCard = UI.Card(frame, "SESSIONS", {})
-    self.listCard:SetWidth(320)
+    self.listCard:SetWidth(UI.SideColumnWidth(frame:GetWidth()))
     self.listCard:SetPoint("TOPLEFT", pad, -pad)
     self.listCard:SetPoint("BOTTOMLEFT", pad, pad)
 
@@ -138,6 +138,13 @@ end
 
 function Page:OnLayout()
     if not self.statRows then return end
+
+    -- The list column is a share of the page rather than a fixed 320 px, so
+    -- it has to be recomputed on every resize.
+    if self.listCard and self.frame then
+        self.listCard:SetWidth(UI.SideColumnWidth(self.frame:GetWidth()))
+    end
+
     local width = (self.statsCard:GetWidth() or 600) - M.padding * 2
     for _, statRow in pairs(self.statRows) do
         statRow:ClearAllPoints()

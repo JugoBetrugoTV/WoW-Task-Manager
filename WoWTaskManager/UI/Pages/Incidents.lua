@@ -45,7 +45,7 @@ function Page:Build(frame)
     -- Left: cluster list
     ------------------------------------------------------------------
     self.listCard = UI.Card(frame, "STUTTER CLUSTERS", {})
-    self.listCard:SetWidth(330)
+    self.listCard:SetWidth(UI.SideColumnWidth(frame:GetWidth()))
     self.listCard:SetPoint("TOPLEFT", pad, -pad)
     self.listCard:SetPoint("BOTTOMLEFT", pad, pad)
 
@@ -239,7 +239,14 @@ end
 
 --------------------------------------------------------------------------
 
-function Page:OnShow() self:Refresh() end
+--- The side column is a share of the page, not a fixed number of pixels, so
+--- it has to be recomputed whenever the window changes size.
+function Page:OnLayout()
+    if not self.listCard or not self.frame then return end
+    self.listCard:SetWidth(UI.SideColumnWidth(self.frame:GetWidth()))
+end
+
+function Page:OnShow() self:OnLayout() self:Refresh() end
 
 --- The name other pages use when they hand an incident over. Kept distinct
 --- from Select so a rename here cannot silently break a cross-page jump.
