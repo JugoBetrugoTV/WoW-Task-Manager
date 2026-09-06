@@ -305,14 +305,19 @@ local BOTTOM_POINTS = { BOTTOM = true, BOTTOMLEFT = true, BOTTOMRIGHT = true }
 --- Absolute left and right edges, or nil where they cannot be worked out.
 --- Memoised per layout epoch; recursion through a cycle yields nil rather than
 --- hanging.
-local function resolveEdges(region, seen)
+--- Cycle detection marks the region itself rather than filling a set.
+---
+--- `seen = seen or {}` allocated a table on every top-level resolve, and a
+--- page refresh resolves thousands of times - 21 KB of garbage per dashboard
+--- refresh that the addon never asked for. A flag on the region costs nothing
+--- and says the same thing.
+local function resolveEdges(region)
     if not region then return nil, nil end
     if region._edgeEpoch == M.layoutEpoch then
         return region._edgeLeft, region._edgeRight
     end
-    seen = seen or {}
-    if seen[region] then return nil, nil end
-    seen[region] = true
+    if region._resolvingH then return nil, nil end
+    region._resolvingH = true
 
     local left, right, centre, fromText
     if region == _G.UIParent or region == _G.WorldFrame then
@@ -320,7 +325,7 @@ local function resolveEdges(region, seen)
     else
         for _, p in ipairs(region._points) do
             local rel = p.rel or region._parent
-            local rl, rr = resolveEdges(rel, seen)
+            local rl, rr = resolveEdges(rel)
             if rl and rr then
                 local anchor
                 if LEFT_POINTS[p.relPoint] then anchor = rl
@@ -338,7 +343,7 @@ local function resolveEdges(region, seen)
         -- Without this the chain stops dead here, and everything on a
         -- scrolling page - which is most of the addon - resolves to nothing.
         if not (left or right) and region._scrollParent then
-            local sl, sr = resolveEdges(region._scrollParent, seen)
+            local sl, sr = resolveEdges(region._scrollParent)
             if sl then
                 left = sl - (region._scrollParent._hScroll or 0)
                 if not region._explicitW and sr then right = sr end
@@ -368,7 +373,7 @@ local function resolveEdges(region, seen)
         end
     end
 
-    seen[region] = nil
+    region._resolvingH = false
     region._edgeEpoch = M.layoutEpoch
     region._edgeLeft, region._edgeRight = left, right
     region._edgeFromText = fromText or false
@@ -379,14 +384,13 @@ end
 --- The vertical twin of resolveEdges, with WoW's convention that y grows
 --- upward: a TOPLEFT anchor with y = -12 sits twelve pixels lower than the
 --- thing it is anchored to.
-local function resolveVertical(region, seen)
+local function resolveVertical(region)
     if not region then return nil, nil end
     if region._vEpoch == M.layoutEpoch then
         return region._vTop, region._vBottom
     end
-    seen = seen or {}
-    if seen[region] then return nil, nil end
-    seen[region] = true
+    if region._resolvingV then return nil, nil end
+    region._resolvingV = true
 
     local top, bottom, middle, fromText
     if region == _G.UIParent or region == _G.WorldFrame then
@@ -394,7 +398,7 @@ local function resolveVertical(region, seen)
     else
         for _, p in ipairs(region._points) do
             local rel = p.rel or region._parent
-            local rt, rb = resolveVertical(rel, seen)
+            local rt, rb = resolveVertical(rel)
             if rt and rb then
                 local anchorY
                 if TOP_POINTS[p.relPoint] then anchorY = rt
@@ -411,7 +415,7 @@ local function resolveVertical(region, seen)
         -- The vertical twin, and the one that matters: scrolling down moves
         -- the child up, so its top sits ABOVE the viewport's by the offset.
         if not (top or bottom) and region._scrollParent then
-            local st = resolveVertical(region._scrollParent, seen)
+            local st = resolveVertical(region._scrollParent)
             if st then top = st + (region._scrollParent._vScroll or 0) end
         end
 
@@ -433,7 +437,7 @@ local function resolveVertical(region, seen)
         end
     end
 
-    seen[region] = nil
+    region._resolvingV = false
     region._vEpoch = M.layoutEpoch
     region._vTop, region._vBottom = top, bottom
     region._vFromText = fromText or false

@@ -171,9 +171,22 @@ end
 
 --- Measured breakdown, newest first. Categories with no measurement yet are
 --- returned with `measured = false` rather than a zero.
+--- Rows are written into the caller's table and its row tables are reused.
+---
+--- The `out` parameter exists so this can be called twice a second without
+--- allocating, and it then built a fresh five-entry array of fresh tables
+--- anyway - 2.25 KB per call whether `out` was passed or not. Filling the
+--- rows in place keeps the promise the signature makes.
+local function row(out, index, key, label, ms, measured, note)
+    local entry = out[index]
+    if not entry then entry = {}; out[index] = entry end
+    entry.key, entry.label = key, label
+    entry.ms, entry.measured, entry.note = ms, measured, note
+    return index + 1
+end
+
 function Overhead:GetBreakdown(out)
     out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
     local cur = self.current
     local windowOpen = WTM.UI.MainWindow and WTM.UI.MainWindow:IsOpen()
     local miniOpen = WTM.UI.LiveMonitor and WTM.UI.LiveMonitor:IsShown()
@@ -183,32 +196,34 @@ function Overhead:GetBreakdown(out)
     local frameSamples = WTM.Scheduler:GetFrameCallbackSamples()
     local scanCost     = WTM.Memory:DescribeScanCost()
 
-    local rows = {
-        { key = "frame",   label = "Frame accounting", ms = cur.frameMsPerSec,
-          measured = cur.frameCostMs ~= nil,
-          -- The sample count is part of the claim: "averaged over 0 frames"
-          -- is not an average, and printing one made a stale reading look
-          -- like a fresh measurement.
-          note = (cur.frameCostMs and frameSamples > 0)
-              and ("%.4f ms per frame, averaged over %d timed frames")
-                  :format(cur.frameCostMs, frameSamples)
-              or "not yet sampled" },
-        { key = "sampler", label = "Sampling tasks", ms = cur.samplingMsPerSec, measured = true,
-          -- The per-addon memory scan dominates this line on a client with
-          -- many addons, so it is named here rather than left inside a total.
-          note = scanCost
-              and ("per-addon memory scan: %s"):format(scanCost)
-              or "frame time, CPU, memory, network, history, spike detection" },
-        { key = "events",  label = "Event monitoring", ms = cur.eventsMsPerSec, measured = true,
-          note = ("mode: %s"):format(WTM.Events:GetMode()) },
-        { key = "ui",      label = "UI updates", ms = cur.uiMsPerSec, measured = true,
-          -- Say what is actually on screen, and never describe measured time as
-          -- costing nothing. An earlier version printed "window closed - no
-          -- cost" beside a non-zero number, which is exactly the contradiction
-          -- this addon exists to avoid. A figure with nothing on screen is
-          -- residual from the last window that was, and it says so.
-          note = UICostNote(windowOpen, miniOpen, cur.uiMsPerSec) },
-    }
+    local n = 1
+
+    -- The sample count is part of the claim: "averaged over 0 frames" is not
+    -- an average, and printing one made a stale reading look like a fresh
+    -- measurement.
+    n = row(out, n, "frame", "Frame accounting", cur.frameMsPerSec,
+        cur.frameCostMs ~= nil,
+        (cur.frameCostMs and frameSamples > 0)
+            and ("%.4f ms per frame, averaged over %d timed frames")
+                :format(cur.frameCostMs, frameSamples)
+            or "not yet sampled")
+
+    -- The per-addon memory scan dominates this line on a client with many
+    -- addons, so it is named here rather than left inside a total.
+    n = row(out, n, "sampler", "Sampling tasks", cur.samplingMsPerSec, true,
+        scanCost and ("per-addon memory scan: %s"):format(scanCost)
+            or "frame time, CPU, memory, network, history, spike detection")
+
+    n = row(out, n, "events", "Event monitoring", cur.eventsMsPerSec, true,
+        ("mode: %s"):format(WTM.Events:GetMode()))
+
+    -- Say what is actually on screen, and never describe measured time as
+    -- costing nothing. An earlier version printed "window closed - no cost"
+    -- beside a non-zero number, which is exactly the contradiction this addon
+    -- exists to avoid. A figure with nothing on screen is residual from the
+    -- last window that was, and it says so.
+    n = row(out, n, "ui", "UI updates", cur.uiMsPerSec, true,
+        UICostNote(windowOpen, miniOpen, cur.uiMsPerSec))
 
     -- Everything the scheduler spent that no task accounts for: walking the
     -- task list every frame to see what is due, and the timing calls around
@@ -239,12 +254,10 @@ function Overhead:GetBreakdown(out)
         note = ("dispatch and timing around %d tasks, checked each frame"):format(taskCount)
     end
 
-    rows[#rows + 1] = {
-        key = "dispatch", label = "Scheduler / unattributed",
-        ms = remainder, measured = true, note = note,
-    }
+    n = row(out, n, "dispatch", "Scheduler / unattributed", remainder, true, note)
 
-    for i = 1, #rows do out[i] = rows[i] end
+    -- Anything the caller's table carried beyond what was written this time.
+    for i = #out, n, -1 do out[i] = nil end
     return out
 end
 

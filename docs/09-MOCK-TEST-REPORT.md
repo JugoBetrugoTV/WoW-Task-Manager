@@ -510,12 +510,17 @@ Im echten Client sind Anker überhaupt keine Lua-Tabellen. Nach dem Fix
 (Anker werden in place aktualisiert und in einem Pool wiederverwendet, die
 Farbprüfung vergleicht direkt):
 
+Dazu kam eine dritte Stelle: die Anker-Auflösung legte pro Aufruf eine
+`seen`-Tabelle für die Zyklenerkennung an. Ein Merker auf der Region selbst
+sagt dasselbe und kostet nichts.
+
 ```
 ein Listen-Refresh:   137,9 KB  ->   2,7 KB
-errors-Seite:         151,3 KB  ->   7,1 KB      2,02 ms -> 0,70 ms
-performance:          189,2 KB  ->  15,1 KB      1,83 ms -> 1,08 ms
-timeline:             132,5 KB  ->  17,6 KB
-dashboard:             77,0 KB  ->  43,5 KB
+errors-Seite:         151,3 KB  ->   2,8 KB      2,02 ms -> 0,55 ms
+performance:          189,2 KB  ->   4,5 KB      1,83 ms -> 0,85 ms
+timeline:             132,5 KB  ->   4,6 KB      1,87 ms -> 0,75 ms
+dashboard:            145,4 KB  ->  19,8 KB      1,71 ms -> 0,73 ms
+settings:              56,4 KB  ->   0,1 KB
 ```
 
 Rund **90 % der scheinbaren Addon-Allokation waren das Messgerät.** Das ist
@@ -524,8 +529,19 @@ jetzt als Assertion in `tools/test-ui.lua`: ein erneutes Anker-Setzen muss
 unter 8 Bytes pro Aufruf bleiben, und ein Seiten-Refresh unter 100 KB. Sonst
 versteckt sich die nächste echte Regression wieder hinter dem Rauschen.
 
-**Am Addon wurde daraufhin nichts optimiert.** Die Zahl, die das gefordert
-hätte, gab es nicht.
+**Am Addon wurde daraufhin fast nichts optimiert** — die Zahl, die das
+gefordert hätte, gab es nicht. Eine Stelle blieb übrig, nachdem die Messung
+ehrlich war: `Overhead:GetBreakdown(out)` nimmt eine Tabelle entgegen, damit
+es zweimal pro Sekunde ohne Allokation laufen kann, und baute intern trotzdem
+ein frisches fünfelementiges Array aus frischen Tabellen. Es füllt die Zeilen
+jetzt in place.
+
+Der Rest — Dashboard 19,8 KB, System 18,2 KB pro Refresh — verteilt sich auf
+zwanzig bis dreissig formatierte Zeilen ohne einzelnen Hebel. Dort wurde
+bewusst aufgehört: eine Zeile, die eine Zahl formatiert, allokiert einen
+String, und daran vorbei kommt man nur mit Cachestrukturen, die den Code
+schlechter lesbar machen als der Gewinn wert ist. Der Deckel steht als
+Assertion: **keine Seite über 60 KB pro Refresh.**
 
 Nebenbei wurde die UI-Suite dadurch schneller: 1 m 53 s bei 68 Assertions ->
 1 m 21 s bei 118.

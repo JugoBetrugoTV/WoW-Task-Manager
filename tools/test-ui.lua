@@ -450,12 +450,23 @@ do
     check("setting a colour allocates nothing",
         perCall(2000, function() a:SetAlpha(1) b:SetFrameLevel(2) end) < 8, "colour path")
 
-    -- And the thing those add up to: one page refresh.
-    MW:ShowPage("errors")
-    MW:RefreshCurrentPage()
-    local perRefresh = perCall(20, function() MW:RefreshCurrentPage() end) / 1024
-    check("a page refresh stays well under 100 KB of garbage",
-        perRefresh < 100, ("%.1f KB per refresh"):format(perRefresh))
+    -- And the thing those add up to: a refresh of every page.
+    --
+    -- The numbers below are the addon's own allocation now that the harness
+    -- has stopped adding its own. They were 151 KB on the errors page and
+    -- 189 KB on performance before that was found. The cap is generous enough
+    -- not to be flaky and tight enough that a return to those numbers fails.
+    local worstPage, worstKB = nil, 0
+    for _, key in ipairs(NS.UI.pageOrder) do
+        MW:ShowPage(key)
+        MW:RefreshCurrentPage()
+        local perRefresh = perCall(20, function() MW:RefreshCurrentPage() end) / 1024
+        if perRefresh > worstKB then worstPage, worstKB = key, perRefresh end
+    end
+    check("no page allocates more than 60 KB per refresh",
+        worstKB < 60, ("%s at %.1f KB"):format(tostring(worstPage), worstKB))
+    print(("      worst page: %s at %.1f KB per refresh"):format(
+        tostring(worstPage), worstKB))
 end
 
 --------------------------------------------------------------------------
