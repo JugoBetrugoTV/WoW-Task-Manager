@@ -1,0 +1,103 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <!--
+        Single source of truth for the file list.
+        Every .toc references only this file, so the four client flavors can never
+        drift apart.
+    -->
+
+    <!-- Optional Ace3 embeds. Safe to ship without: Core/Ace.lua falls back to an
+         internal, API-compatible implementation when LibStub/Ace3 is absent. -->
+    <Include file="Libs\embeds.xml"/>
+
+    <!-- Compatibility layer: the only code that is allowed to know the client -->
+    <Script file="Core\Compat.lua"/>
+    <Script file="Compatibility\Classic.lua"/>
+    <Script file="Compatibility\TBC.lua"/>
+    <Script file="Compatibility\Mists.lua"/>
+    <Script file="Compatibility\Retail.lua"/>
+
+    <Script file="Core\Constants.lua"/>
+
+    <!-- Utilities -->
+    <Script file="Utils\MathUtil.lua"/>
+    <Script file="Utils\Format.lua"/>
+    <Script file="Utils\Color.lua"/>
+    <Script file="Utils\RingBuffer.lua"/>
+    <Script file="Utils\Pool.lua"/>
+
+    <!-- Core -->
+    <Script file="Core\Ace.lua"/>
+    <Script file="Core\Core.lua"/>
+    <Script file="Core\Capabilities.lua"/>
+    <Script file="Core\Database.lua"/>
+    <Script file="Core\Scheduler.lua"/>
+    <Script file="Core\Dev.lua"/>
+    <Script file="Core\ErrorMonitor.lua"/>
+
+    <!-- Monitoring -->
+    <Script file="Monitoring\Context.lua"/>
+    <Script file="Monitoring\Suppression.lua"/>
+    <Script file="Monitoring\FrameTime.lua"/>
+    <Script file="Monitoring\Network.lua"/>
+    <Script file="Monitoring\Processes.lua"/>
+    <Script file="Monitoring\Memory.lua"/>
+    <Script file="Monitoring\CPU.lua"/>
+    <Script file="Monitoring\Events.lua"/>
+    <!-- The flight recorder is loaded before the spike detector because the
+         detector hands its captures straight to it. -->
+    <Script file="History\FlightRecorder.lua"/>
+    <Script file="Monitoring\SpikeDetector.lua"/>
+    <Script file="Monitoring\Overhead.lua"/>
+    <Script file="Monitoring\Alerts.lua"/>
+
+    <!-- History -->
+    <Script file="History\Recorder.lua"/>
+    <Script file="History\Sessions.lua"/>
+
+    <!-- Analysis -->
+    <Script file="Analysis\Correlation.lua"/>
+    <Script file="Analysis\Diagnostics.lua"/>
+    <Script file="Analysis\Impact.lua"/>
+    <Script file="Analysis\Observations.lua"/>
+    <Script file="Analysis\Reports.lua"/>
+
+    <!-- UI -->
+    <Script file="UI\Theme.lua"/>
+    <Script file="UI\Widgets\Base.lua"/>
+    <Script file="UI\Widgets\Layout.lua"/>
+    <Script file="UI\Widgets\ScrollList.lua"/>
+    <Script file="UI\Widgets\Tooltip.lua"/>
+    <Script file="UI\Widgets\MetricCard.lua"/>
+    <Script file="UI\Widgets\Graph.lua"/>
+    <Script file="UI\Widgets\Cards.lua"/>
+    <Script file="UI\Widgets\Table.lua"/>
+    <Script file="UI\MainWindow.lua"/>
+    <Script file="UI\Sidebar.lua"/>
+    <Script file="UI\Pages\Dashboard.lua"/>
+    <Script file="UI\Pages\Overview.lua"/>
+    <Script file="UI\Pages\Resources.lua"/>
+    <Script file="UI\Pages\FrameAnalysis.lua"/>
+    <Script file="UI\Pages\Network.lua"/>
+    <Script file="UI\Pages\Impact.lua"/>
+    <Script file="UI\Pages\Compare.lua"/>
+    <Script file="UI\Pages\Alerts.lua"/>
+    <Script file="UI\Pages\Recording.lua"/>
+    <Script file="UI\Pages\Errors.lua"/>
+    <Script file="UI\Pages\Reports.lua"/>
+    <Script file="UI\Pages\Processes.lua"/>
+    <Script file="UI\Pages\Performance.lua"/>
+    <Script file="UI\Pages\Incidents.lua"/>
+    <Script file="UI\Pages\Timeline.lua"/>
+    <Script file="UI\Pages\Events.lua"/>
+    <Script file="UI\Pages\Memory.lua"/>
+    <Script file="UI\Pages\Diagnostics.lua"/>
+    <Script file="UI\Pages\Sessions.lua"/>
+    <Script file="UI\Pages\System.lua"/>
+    <Script file="UI\Pages\Settings.lua"/>
+    <Script file="UI\LiveMonitor.lua"/>
+    <Script file="UI\AddonDetail.lua"/>
+    <Script file="UI\ErrorDetail.lua"/>
+    <Script file="UI\MinimapButton.lua"/>
+    <Script file="UI\Options.lua"/>
+    <Script file="UI\Onboarding.lua"/>
+</Ui>
