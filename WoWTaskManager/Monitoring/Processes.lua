@@ -137,8 +137,8 @@ end
 --- Which loaded addons declare `name` as a dependency.  Answers "what breaks
 --- if I disable this".
 function Processes:GetDependents(name, out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
+    if type(name) ~= "string" then return out end
     local lower = name:lower()
     for i = 1, #self.list do
         local record = self.list[i]
@@ -173,6 +173,7 @@ end
 --- worth listing separately).  Purely cosmetic grouping, never used to hide
 --- a real cost.
 function Processes:IsLibrary(record)
+    if type(record) ~= "table" or type(record.name) ~= "string" then return false end
     local name = record.name
     return name:find("^Lib") ~= nil or name == "Ace3" or (record.titleClean or ""):find("^Lib") ~= nil
 end
@@ -342,8 +343,7 @@ end
 --- Addons whose frames listen for `event`, best-effort.  Returns the list and
 --- whether a scan has ever run.
 function Processes:GetEventListeners(event, out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     local listeners = eventListeners[event]
     if not listeners then return out, self.attribution.lastScanAt > 0 end
     for name, count in pairs(listeners) do
@@ -514,8 +514,7 @@ Processes.SORT_KEYS = { "name", "status", "cpu", "cpuavg", "cpupeak",
 ---     minMemory  kilobytes
 ---     enabledOnly / loadedOnly / suspectedOnly / watchedOnly
 function Processes:BuildView(out, sortKey, ascending, filter, includeUnloaded, filters)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
 
     local needle = filter and filter ~= "" and filter:lower() or nil
     filters = filters or EMPTY_FILTERS

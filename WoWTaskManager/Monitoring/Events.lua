@@ -264,8 +264,7 @@ function Events:ExpireStorms()
 end
 
 function Events:GetActiveStorms(out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     for _, storm in pairs(activeStorms) do out[#out + 1] = storm end
     table.sort(out, function(a, b) return a.peakRate > b.peakRate end)
     return out
@@ -277,8 +276,7 @@ end
 
 --- Builds the event table view.  Reuses `out` between refreshes.
 function Events:BuildView(out, sortKey, ascending, filter)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     local needle = filter and filter ~= "" and filter:upper() or nil
     local now = GetTime()
 
@@ -321,14 +319,13 @@ local nameScratch = {}
 local topScratch  = {}
 
 function Events:GetTopEventNames(limit, out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     for i = #nameScratch, 1, -1 do nameScratch[i] = nil end
     for i = 1, distinctCount do
         nameScratch[i] = tracked[i]
     end
     table.sort(nameScratch, function(a, b) return (totals[a] or 0) > (totals[b] or 0) end)
-    for i = 1, math.min(limit or 20, #nameScratch) do out[i] = nameScratch[i] end
+    for i = 1, math.min(tonumber(limit) or 20, #nameScratch) do out[i] = nameScratch[i] end
     return out
 end
 
@@ -336,8 +333,7 @@ end
 --- Sorted by current rate rather than session total: "what is loud at this
 --- moment" is the question a live panel is answering.
 function Events:GetTopEvents(out, limit)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     -- Trim to the current count without discarding the entries we keep.
     for i = #topScratch, distinctCount + 1, -1 do topScratch[i] = nil end
 
@@ -368,8 +364,7 @@ end
 --- Snapshot of what fired recently, for a spike record.  Uses the per-window
 --- rates, which is the finest resolution available without storing every event.
 function Events:SnapshotTop(out, limit)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     for i = 1, distinctCount do
         local event = tracked[i]
         local rate = rates[event] or 0

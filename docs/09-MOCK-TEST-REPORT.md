@@ -1,6 +1,6 @@
 # Mock-Testbericht
 
-Erzeugt am 2026-09-06 gegen Addon-Version 0.7.3.
+Erzeugt am 2026-09-12 gegen Addon-Version 0.7.4.
 
 > **Alles hier ist MOCK VERIFIED, nichts ist REAL CLIENT VERIFIED.**
 > Der Mock verhält sich so, wie ich glaube, dass der Client sich verhält. Wo
@@ -49,38 +49,38 @@ Gestartet mit `./tools/run-tests.sh` bzw. `./tools/release-check.sh`.
 ## Matrix: 4 Clients x Profiling an/aus x volle/abgeräumte API x Ace3 an/aus
 
 ```
-  PASS  Retail-12.1.0      profiling=on  api=normal   no-ace3    448 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=normal   ace3       448 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=degraded no-ace3    458 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=on  api=degraded ace3       458 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=normal   no-ace3    449 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=normal   ace3       449 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=degraded no-ace3    459 passed, 0 failed, 0 lua errors
-  PASS  Retail-12.1.0      profiling=off api=degraded ace3       459 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=normal   no-ace3    448 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=normal   ace3       448 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=degraded no-ace3    458 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=on  api=degraded ace3       458 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=normal   no-ace3    449 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=normal   ace3       449 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=degraded no-ace3    459 passed, 0 failed, 0 lua errors
-  PASS  MoP-5.5.4          profiling=off api=degraded ace3       459 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=normal   no-ace3    448 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=normal   ace3       448 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=degraded no-ace3    458 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=on  api=degraded ace3       458 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=normal   no-ace3    449 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=normal   ace3       449 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=degraded no-ace3    459 passed, 0 failed, 0 lua errors
-  PASS  TBC-2.5.6          profiling=off api=degraded ace3       459 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=normal   no-ace3    448 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=normal   ace3       448 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=degraded no-ace3    458 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=on  api=degraded ace3       458 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=normal   no-ace3    449 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=normal   ace3       449 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=degraded no-ace3    459 passed, 0 failed, 0 lua errors
-  PASS  Classic-1.15.9     profiling=off api=degraded ace3       459 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=normal   no-ace3    453 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=normal   ace3       453 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=degraded no-ace3    463 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=on  api=degraded ace3       463 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=normal   no-ace3    454 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=normal   ace3       454 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=degraded no-ace3    464 passed, 0 failed, 0 lua errors
+  PASS  Retail-12.1.0      profiling=off api=degraded ace3       464 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=normal   no-ace3    453 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=normal   ace3       453 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=degraded no-ace3    463 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=on  api=degraded ace3       463 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=normal   no-ace3    454 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=normal   ace3       454 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=degraded no-ace3    464 passed, 0 failed, 0 lua errors
+  PASS  MoP-5.5.4          profiling=off api=degraded ace3       464 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=normal   no-ace3    453 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=normal   ace3       453 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=degraded no-ace3    463 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=on  api=degraded ace3       463 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=normal   no-ace3    454 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=normal   ace3       454 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=degraded no-ace3    464 passed, 0 failed, 0 lua errors
+  PASS  TBC-2.5.6          profiling=off api=degraded ace3       464 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=normal   no-ace3    453 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=normal   ace3       453 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=degraded no-ace3    463 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=on  api=degraded ace3       463 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=normal   no-ace3    454 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=normal   ace3       454 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=degraded no-ace3    464 passed, 0 failed, 0 lua errors
+  PASS  Classic-1.15.9     profiling=off api=degraded ace3       464 passed, 0 failed, 0 lua errors
 syntax check:
   all 75 files parse
 ```
@@ -545,6 +545,61 @@ Assertion: **keine Seite über 60 KB pro Refresh.**
 
 Nebenbei wurde die UI-Suite dadurch schneller: 1 m 53 s bei 68 Assertions ->
 1 m 21 s bei 118.
+
+## 0.7.4: 273 Würfe, die keiner gesehen hat
+
+Eine Methode, deren Name eine Antwort verspricht, muss eine liefern — nicht
+werfen. Das ist nicht akademisch: der Aufrufer, der mit einem veralteten Index
+oder einem verworfenen Datensatz bei einer Abfrage landet, ist ein Bug, und ein
+Wurf macht daraus eine kaputte Seite **plus** einen Lua-Fehler — ausgerechnet
+in dem Addon, dessen Aufgabe es ist, fremde Lua-Fehler anzuzeigen.
+
+Der Fuzz-Durchgang über jede abfrageförmige Methode (`Get*`, `Describe*`,
+`Count*`, `Is*`, `Has*`, `Top*`, `Most*`, `Worst*`, `Estimate*`, `Rate*`,
+`Find*`, `Percentile*`) mit zwölf feindseligen Argumenten:
+
+```
+1212 Aufrufe, 273 Würfe
+```
+
+### Ein Idiom, 30 Mal wiederholt, eine Fehlerklasse
+
+Der grösste Anteil war **eine einzige kopierte Zeile**. Dreissig Methoden
+nehmen eine optionale Scratch-Tabelle entgegen, damit sie zweimal pro Sekunde
+ohne Allokation laufen können, und jede begann so:
+
+```lua
+out = out or {}
+for i = #out, 1, -1 do out[i] = nil end
+```
+
+`out or {}` akzeptiert alles Wahrheitswertige. Ein String kam durch den Guard
+und warf erst in der Leerschleife. `WTM.Scratch(out)` schreibt das Idiom
+einmal auf — und macht den Code dabei **kürzer**, nicht länger: 38 Fundstellen
+verlieren je eine Zeile.
+
+### Der Rest
+
+| Muster | Beispiel | Antwort |
+|---|---|---|
+| Zeitfenster als Zahl | `CountSince("abc")` | `tonumber(x) or default` |
+| Bereichsgrenzen | `GetInRange("a", "b")` | keine Zahl → leeres Ergebnis |
+| Objekt-Argument | `Sessions:Describe(1e12)`, `IsIgnored(1e12)` | keine Tabelle → `"-"` bzw. `false` |
+| Name als String | `Compat.GetCVar({})`, `IsLibrary(…)` | kein String → `nil` bzw. `false` |
+| Feld fehlt im Datensatz | `Describe({})` — kein `label`, keine Latenz | benannter Ersatz statt Wurf |
+
+Der letzte Fall ist der interessanteste: ein Spike-Datensatz aus einer
+Datenbank einer älteren Version kann ein Feld nicht haben. Statt im Tooltip zu
+werfen, steht dort jetzt „World latency: not recorded for this spike".
+
+```
+1212 Aufrufe, 0 Würfe
+```
+
+Der Fuzz-Durchgang steht als Assertion in `tools/test.lua` und läuft in allen
+32 Szenarien mit. Baut man `WTM.Scratch` auf das alte `out or {}` zurück,
+meldet er sofort wieder **109 Würfe** — die Prüfung ist also keine, die immer
+grün ist.
 
 ## Was der Mock nicht kann
 

@@ -34,8 +34,7 @@ end
 --- Ordered by how much a reader would want to see it first, not by severity
 --- alone: a stable session should say so rather than showing an empty panel.
 function Observations:Build(out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
 
     local stats    = WTM.FrameTime:GetSessionStats()
     local duration = GetTime() - (WTM.state.sessionStart or GetTime())
@@ -248,8 +247,7 @@ Observations.COMPARE_METRICS = {
 --- one side has no value for that metric, so the UI can leave the cell blank
 --- instead of pretending the missing side was zero.
 function Observations:Compare(a, b, out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     if not (a and b) then return out end
 
     for _, metric in ipairs(self.COMPARE_METRICS) do
@@ -280,6 +278,7 @@ end
 
 --- One-line summary of a comparison, for the top of the Compare page.
 function Observations:DescribeComparison(rows)
+    if type(rows) ~= "table" then return "" end
     local improved, worsened = 0, 0
     for _, row in ipairs(rows) do
         if row.deltaValue and row.betterIsHigher ~= nil then

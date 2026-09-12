@@ -220,12 +220,9 @@ end
 --- Reads a stored session's buckets back into the array shape the graph
 --- widget expects.
 function Sessions:GetStoredSeries(session, fieldName, outValues, outTimes)
-    outValues = outValues or {}
-    outTimes  = outTimes or {}
-    for i = #outValues, 1, -1 do outValues[i] = nil end
-    for i = #outTimes, 1, -1 do outTimes[i] = nil end
+    outValues, outTimes = WTM.Scratch(outValues), WTM.Scratch(outTimes)
 
-    local buckets = session and session.buckets
+    local buckets = type(session) == "table" and session.buckets
     if not buckets or #buckets == 0 then return outValues, outTimes, false end
 
     local field = WTM.Recorder.FIELDS[fieldName]
@@ -241,7 +238,7 @@ end
 
 function Sessions:Describe(session)
     local Fmt = WTM.Format
-    if not session then return "-" end
+    if type(session) ~= "table" then return "-" end
     return ("%s  %s-%s  %s  avg %s FPS, 1%% low %s, %d spikes")
         :format(Fmt.DateTime(session.startedAt),
                 session.character or "?", session.realm or "?",

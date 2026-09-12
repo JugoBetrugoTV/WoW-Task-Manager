@@ -109,8 +109,7 @@ WTM.state = {
 --- reads the installed list instead, so the answer to "do I have two of these?"
 --- comes from the client rather than from the player going through Explorer.
 function WTM:FindOtherCopies(out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
 
     local total = Compat.GetNumAddOns()
     for i = 1, total do

@@ -686,8 +686,7 @@ end
 --- overwritten in place, and the view says so rather than implying the list is
 --- the whole history.
 function ErrorMonitor:Occurrences(group, out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     if not group or not group.timeRing then return out end
 
     local ring, filled = group.timeRing, group.timeFilled or 0
@@ -752,10 +751,7 @@ end
 --- costs a walk over at most RECENT_WINDOW seconds of timestamps and allocates
 --- nothing: both output tables are supplied by the caller and reused.
 function ErrorMonitor:RateSeries(values, times)
-    values = values or {}
-    times  = times or {}
-    for i = #values, 1, -1 do values[i] = nil end
-    for i = #times, 1, -1 do times[i] = nil end
+    values, times = WTM.Scratch(values), WTM.Scratch(times)
 
     local now = GetTime()
     local buckets = C.ERROR_RATE_BUCKETS
@@ -791,6 +787,7 @@ end
 --- Bounded by the window, not by how many errors arrived: a fixed walk over
 --- RECENT_WINDOW counters, whether that covers ten errors or ten thousand.
 function ErrorMonitor:CountSince(seconds)
+    seconds = tonumber(seconds) or RECENT_WINDOW
     local newest = math.floor(GetTime())
     local oldest = newest - math.min(seconds, RECENT_WINDOW)
     local n = 0
@@ -920,7 +917,7 @@ end
 -- performance diagnosis that pretends otherwise is wrong.
 
 function ErrorMonitor:IsIgnored(group)
-    if not group then return false end
+    if type(group) ~= "table" then return false end
     local ignored = settings().ignored
     if ignored.fingerprints[group.fingerprint] then return true end
     if group.addon and ignored.addons[group.addon] then return true end
@@ -958,8 +955,7 @@ end
 
 --- Errors attributed to one addon.
 function ErrorMonitor:ForAddon(name, out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     if not name then return out end
     for _, group in ipairs(self.groups) do
         if group.addon == name then out[#out + 1] = group end
@@ -1006,8 +1002,7 @@ end
 --- so: an error and a stutter arriving together is a place to look, not a
 --- demonstration that one produced the other.
 function ErrorMonitor:RelatedIncidents(group, out, slack)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     if not group then return out end
     slack = slack or C.ERROR_INCIDENT_SLACK_SEC
 
@@ -1122,8 +1117,7 @@ end
 
 --- Every error saved from previous sessions, newest session first.
 function ErrorMonitor:SavedGroups(out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     local sessions = WTM.db.global.errorSessions
     if not sessions then return out end
     for i = #sessions, 1, -1 do

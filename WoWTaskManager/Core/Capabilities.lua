@@ -372,8 +372,7 @@ Caps.HEADLINE = {
 
 --- Returns an array of { label, state, stateText, note } for the headline set.
 function Caps:GetHeadlineReport(out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     for _, key in ipairs(self.HEADLINE) do
         local state, note = self:Get(key)
         out[#out + 1] = {

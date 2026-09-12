@@ -191,8 +191,7 @@ end
 --- coarse bucket is used only for the stretch of time no finer tier covers.
 local cutoffs = {}
 function Recorder:GetRange(fromTime, toTime, out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
 
     local earliestFiner = math.huge
     for tierIndex = 1, #self.tiers do

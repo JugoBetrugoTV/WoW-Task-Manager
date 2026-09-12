@@ -383,8 +383,7 @@ function Page:FocusAddon(name)
 end
 
 function Page:PickTrackedAddons(out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     if not WTM.CPU.available then return out end
 
     -- An addon handed over from another page leads, whether or not it is

@@ -324,8 +324,7 @@ function SpikeDetector:GetOpenCluster() return openCluster end
 
 --- Clusters newest first, including the one still open.
 function SpikeDetector:GetClusters(out, limit)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     if openCluster then
         openCluster.duration = openCluster.endedAt - openCluster.startedAt
         out[1] = openCluster
@@ -351,8 +350,7 @@ end
 --------------------------------------------------------------------------
 
 function SpikeDetector:GetRecent(out, limit)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     local spikes = self.spikes
     local first = math.max(1, #spikes - (limit or 20) + 1)
     for i = #spikes, first, -1 do out[#out + 1] = spikes[i] end
@@ -360,8 +358,12 @@ function SpikeDetector:GetRecent(out, limit)
 end
 
 function SpikeDetector:GetInRange(fromTime, toTime, out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
+    -- A range whose bounds are not numbers selects nothing rather than
+    -- throwing on the comparison.
+    fromTime, toTime = tonumber(fromTime), tonumber(toTime)
+    if not fromTime or not toTime then return out end
+
     for i = 1, #self.spikes do
         local spike = self.spikes[i]
         if spike.t >= fromTime and spike.t <= toTime then out[#out + 1] = spike end
@@ -376,7 +378,7 @@ end
 --- as soon as it leaves the window, so it stays cheap enough to call on every
 --- dashboard refresh.
 function SpikeDetector:CountSince(seconds, minSeverity)
-    local cutoff = GetTime() - (seconds or 60)
+    local cutoff = GetTime() - (tonumber(seconds) or 60)
     local count = 0
     for i = #self.spikes, 1, -1 do
         local spike = self.spikes[i]
@@ -400,17 +402,24 @@ function SpikeDetector:WorstSpike()
 end
 
 function SpikeDetector:Describe(spike)
+    if type(spike) ~= "table" then return "" end
     local Fmt = WTM.Format
     local lines = {}
+    -- A record restored from a database written by an older version may be
+    -- missing a field. Describing it as unknown beats throwing inside a
+    -- tooltip.
     lines[#lines + 1] = ("%s   Frame time %s   (equivalent to %s FPS)")
-        :format(spike.label, Fmt.Ms(spike.frameMs), Fmt.FPS(spike.fps))
+        :format(spike.label or "Spike", Fmt.Ms(spike.frameMs), Fmt.FPS(spike.fps))
     lines[#lines + 1] = ("Rolling baseline at the time: %s"):format(Fmt.Ms(spike.baselineMs))
 
-    if spike.latStale then
+    local world, home = tonumber(spike.latWorld), tonumber(spike.latHome)
+    if not world or not home then
+        lines[#lines + 1] = "World latency: not recorded for this spike"
+    elseif spike.latStale then
         lines[#lines + 1] = ("World latency %d ms, home %d ms (reading was %s old - the client refreshes it about every 30 s)")
-            :format(spike.latWorld, spike.latHome, Fmt.Duration(spike.latAgeSec or 0))
+            :format(world, home, Fmt.Duration(spike.latAgeSec or 0))
     else
-        lines[#lines + 1] = ("World latency %d ms, home %d ms"):format(spike.latWorld, spike.latHome)
+        lines[#lines + 1] = ("World latency %d ms, home %d ms"):format(world, home)
     end
 
     if spike.cpuUnavailable then

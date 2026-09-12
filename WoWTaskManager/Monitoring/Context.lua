@@ -53,8 +53,11 @@ end
 Context.AddMarker = function(_, kind, label, ref) AddMarker(kind, label, ref) end
 
 function Context:GetMarkersInRange(fromTime, toTime, out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
+    -- A range whose bounds are not numbers selects nothing rather than
+    -- throwing on the comparison.
+    fromTime, toTime = tonumber(fromTime), tonumber(toTime)
+    if not fromTime or not toTime then return out end
     for i = 1, #self.markers do
         local m = self.markers[i]
         if m.t >= fromTime and m.t <= toTime then out[#out + 1] = m end
@@ -80,7 +83,7 @@ end
 
 --- Copies the current context into `out` for a snapshot record.
 function Context:Capture(out)
-    out = out or {}
+    out = WTM.Scratch(out)
     local s = self.state
     out.combat       = s.combat
     out.instanceType = s.instanceType

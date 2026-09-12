@@ -231,8 +231,7 @@ end
 --- "who is getting bigger", which is as close to leak detection as the API
 --- allows.  The UI says "Potential sustained memory growth", never "leak".
 function Memory:GetGrowthRanking(out, limit)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
 
     local list = WTM.Processes.list
     for i = 1, #list do
@@ -261,8 +260,7 @@ function Memory:GetGrowthRanking(out, limit)
 end
 
 function Memory:GetTopConsumers(out, limit)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     local list = WTM.Processes.list
     for i = 1, #list do
         local record = list[i]
@@ -306,6 +304,7 @@ end
 --- measures the corresponding globals.  Returns bytes and the variable names
 --- it could actually find.
 function Memory:EstimateSavedVariables(record)
+    if type(record) ~= "table" then return 0, nil end
     local names = {}
     for _, field in ipairs({ "SavedVariables", "SavedVariablesPerCharacter" }) do
         local declared = Compat.GetAddOnMetadata(record.index, field)

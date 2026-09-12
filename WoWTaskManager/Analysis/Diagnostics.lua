@@ -141,7 +141,7 @@ function Diagnostics:Build(out)
        and cache.spikeCount == WTM.SpikeDetector.total
        and cache.aggressiveness == WTM.db.profile.diagnostics.aggressiveness then
         if out and out ~= cache.entries then
-            for i = #out, 1, -1 do out[i] = nil end
+            out = WTM.Scratch(out)
             for i = 1, #cache.entries do out[i] = cache.entries[i] end
             return out
         end
@@ -154,7 +154,7 @@ function Diagnostics:Build(out)
     self:Compute(cache.entries)
 
     if out and out ~= cache.entries then
-        for i = #out, 1, -1 do out[i] = nil end
+        out = WTM.Scratch(out)
         for i = 1, #cache.entries do out[i] = cache.entries[i] end
         return out
     end
@@ -165,7 +165,7 @@ end
 local errorAddonScratch = {}
 
 function Diagnostics:Compute(out)
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
 
     local Fmt = WTM.Format
     local counts = WTM.SpikeDetector.counts

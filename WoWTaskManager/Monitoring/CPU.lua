@@ -170,8 +170,7 @@ end
 --------------------------------------------------------------------------
 
 function CPU:GetTopConsumers(out, limit)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     if not self.available then return out end
 
     local list = WTM.Processes.list
@@ -195,7 +194,8 @@ function CPU:GetTopConsumers(out, limit)
 end
 
 function CPU:GetAverage(record)
-    if record.cpuSamples == 0 then return 0 end
+    if type(record) ~= "table" then return 0 end
+    if not record.cpuSamples or record.cpuSamples == 0 then return 0 end
     return record.cpuSumPct / record.cpuSamples
 end
 
@@ -224,8 +224,7 @@ end
 -- a verdict; Analysis/Correlation.lua decides how strongly to word it.
 
 function CPU:GetWindowDeltas(out, limit, minMs)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     if not self.available then return out end
 
     minMs = minMs or 0.5

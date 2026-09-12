@@ -94,7 +94,7 @@ function Correlation:Analyze(out)
     if cache.at >= 0 and (now - cache.at) < CACHE_TTL
        and cache.spikeCount == #WTM.SpikeDetector.spikes then
         if out and out ~= cache.entries then
-            for i = #out, 1, -1 do out[i] = nil end
+            out = WTM.Scratch(out)
             for i = 1, #cache.entries do out[i] = cache.entries[i] end
             return out, cache.samples, cache.unavailable
         end
@@ -124,7 +124,7 @@ function Correlation:Analyze(out)
     end
 
     if out and out ~= computed then
-        for i = #out, 1, -1 do out[i] = nil end
+        out = WTM.Scratch(out)
         for i = 1, #computed do out[i] = computed[i] end
         return out, samples, unavailable
     end
@@ -133,7 +133,7 @@ end
 
 --- The actual computation.  Always writes into `out`.
 function Correlation:Compute(out)
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
 
     local spikes = WTM.SpikeDetector.spikes
     local spikeCount = #spikes
@@ -221,8 +221,7 @@ end
 --- caution applies: an event storm and a frame spike sharing a second is a
 --- coincidence until it repeats.
 function Correlation:AnalyzeEvents(out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
 
     local spikes = WTM.SpikeDetector.spikes
     if #spikes == 0 then return out, 0 end
@@ -270,8 +269,7 @@ end
 --- incident view.  With only one observation nothing can be called correlated,
 --- so the wording caps out at "Possible contributor" here.
 function Correlation:ForSpike(spike, out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     if not spike or not spike.cpu then return out end
 
     -- Session-wide numbers give a single spike some context.

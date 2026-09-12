@@ -133,8 +133,7 @@ end
 --------------------------------------------------------------------------
 
 function Overhead:GetTaskBreakdown(out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     for _, task in WTM.Scheduler:IterateTasks() do
         local stats = WTM.Scheduler.cost.perTask[task.name]
         if stats and stats.calls > 0 then
@@ -186,7 +185,7 @@ local function row(out, index, key, label, ms, measured, note)
 end
 
 function Overhead:GetBreakdown(out)
-    out = out or {}
+    out = WTM.Scratch(out)
     local cur = self.current
     local windowOpen = WTM.UI.MainWindow and WTM.UI.MainWindow:IsOpen()
     local miniOpen = WTM.UI.LiveMonitor and WTM.UI.LiveMonitor:IsShown()

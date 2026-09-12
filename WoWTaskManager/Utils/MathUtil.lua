@@ -12,6 +12,24 @@ WTM.Math = M
 local floor, ceil, sqrt, abs, log = math.floor, math.ceil, math.sqrt, math.abs, math.log
 local huge, min, max = math.huge, math.min, math.max
 
+--- Prepares a caller-supplied scratch table: emptied if it is one, replaced if
+--- it is not.
+---
+--- Thirty query methods take an optional `out` so they can be called twice a
+--- second without allocating, and every one of them opened with the same two
+--- lines - `out = out or {}` and a loop clearing it. That idiom accepts
+--- anything truthy, so handing one of them a string got past the guard and
+--- threw on the clearing loop instead. A query that answers a question must
+--- not take a page down because the question was malformed.
+---
+--- One helper, so the idiom is written once and the whole class of throw is
+--- gone with it.
+function WTM.Scratch(out)
+    if type(out) ~= "table" then return {} end
+    for i = #out, 1, -1 do out[i] = nil end
+    return out
+end
+
 function M.Clamp(v, lo, hi)
     if v < lo then return lo elseif v > hi then return hi end
     return v
@@ -60,7 +78,7 @@ function M.HistogramValue(index)
 end
 
 function M.NewHistogram(out)
-    out = out or {}
+    out = WTM.Scratch(out)
     for i = 1, HIST_N do out[i] = 0 end
     out.count = 0
     return out

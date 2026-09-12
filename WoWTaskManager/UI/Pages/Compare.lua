@@ -41,7 +41,7 @@ end
 --- newest first. The live session is included deliberately - "how does today
 --- compare with last night" is the common question.
 local function BuildChoices(out)
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     out[1] = { live = true, session = WTM.Sessions:LiveSnapshot() }
     local stored = WTM.Sessions:GetStored()
     for i = #stored, 1, -1 do

@@ -57,8 +57,7 @@ end
 --- Builds the ranking. Returns the list plus a table of what was available,
 --- so the UI can say which components actually contributed.
 function Impact:Compute(out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
 
     local cpuAvailable = WTM.CPU.available and true or false
     local memAvailable = WTM.Caps:Has("addonMemory")

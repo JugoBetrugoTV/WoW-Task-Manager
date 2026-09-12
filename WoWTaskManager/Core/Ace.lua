@@ -286,8 +286,7 @@ dbProto.__index = dbProto
 function dbProto:GetCurrentProfile() return self.keys.profile end
 
 function dbProto:GetProfiles(out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     for name in pairs(self.sv.profiles) do out[#out + 1] = name end
     table.sort(out)
     return out

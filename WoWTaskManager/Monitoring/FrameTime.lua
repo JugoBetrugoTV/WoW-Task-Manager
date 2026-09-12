@@ -228,7 +228,7 @@ function FrameTime:GetBaselineSamples() return baselineSamples end
 
 --- Distribution of frames across the stutter classes, for the analyzer page.
 function FrameTime:GetStutterDistribution(out)
-    out = out or {}
+    out = WTM.Scratch(out)
     local spikes = WTM.db.profile.spikes
     local bounds = {
         { key = "smooth",  label = "Smooth",        maxMs = spikes.minor.absMs },
@@ -237,7 +237,7 @@ function FrameTime:GetStutterDistribution(out)
         { key = "heavy",   label = "Heavy Stutter", maxMs = spikes.freeze.absMs },
         { key = "freeze",  label = "Freeze",        maxMs = math.huge },
     }
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
 
     local total = sessionHist.count
     local counts = {}

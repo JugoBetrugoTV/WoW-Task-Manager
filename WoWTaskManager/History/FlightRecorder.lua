@@ -328,8 +328,7 @@ function FlightRecorder:GetIncident(id)
 end
 
 function FlightRecorder:GetRecent(out, limit)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     local incidents = self.incidents
     local first = math.max(1, #incidents - (limit or 10) + 1)
     for i = #incidents, first, -1 do out[#out + 1] = incidents[i] end
@@ -338,8 +337,7 @@ end
 
 --- Reads the live ring into a plain array for graphing, oldest first.
 function FlightRecorder:ReadRange(fromTime, toTime, out)
-    out = out or {}
-    for i = #out, 1, -1 do out[i] = nil end
+    out = WTM.Scratch(out)
     local ring = self.ring
     if not ring then return out end
     for i = 1, ring.count do
@@ -423,7 +421,7 @@ end
 --- Human-readable coverage note for one incident, so a truncated capture is
 --- never mistaken for a quiet run-up.
 function FlightRecorder:DescribeCoverage(incident)
-    if not incident then return "" end
+    if type(incident) ~= "table" or type(incident.samples) ~= "table" then return "" end
     local parts = {}
     parts[#parts + 1] = ("%d samples covering -%.0fs to +%.0fs around the spike")
         :format(#incident.samples, incident.actualPreSec or 0, incident.actualPostSec or 0)

@@ -2218,6 +2218,84 @@ do
 end
 
 --------------------------------------------------------------------------
+-- Query methods, handed things they were not meant to be handed
+--------------------------------------------------------------------------
+-- A method whose name promises an answer must return one, not throw. This is
+-- not academic: the caller that reaches a query with a stale index or a
+-- discarded record is a bug, and a throw turns that bug into a broken page
+-- with a Lua error on top of it - from inside the addon whose job is to show
+-- other addons' Lua errors.
+--
+-- Fuzzing every query-shaped method found 273 throws over 1212 calls. Most
+-- were one shared idiom: thirty methods take an optional scratch table and
+-- all opened with `out = out or {}` followed by a clearing loop, so anything
+-- truthy got past the guard and threw on the loop. WTM.Scratch is that idiom
+-- written once.
+do
+    local ADVERSARIAL = {
+        { "nothing" },
+        { "nil", nil },
+        { "zero", 0 },
+        { "negative", -1 },
+        { "huge", 1e12 },
+        { "NaN", 0/0 },
+        { "infinity", 1/0 },
+        { "an empty string", "" },
+        { "a string", "nope" },
+        { "a boolean", true },
+        { "an empty table", {} },
+        { "an array", { 1, 2, 3 } },
+    }
+
+    local function isQuery(name)
+        return name:match("^Get%u") or name:match("^Describe") or name:match("^Count")
+            or name:match("^Is%u") or name:match("^Has%u") or name:match("^Top%u")
+            or name:match("^Most%u") or name:match("^Worst%u") or name:match("^Estimate")
+            or name:match("^Rate") or name:match("^Find%u") or name:match("^Short%u")
+            or name:match("^Reconcile") or name:match("^Percentile") or name:match("^Summar")
+    end
+
+    -- Dev and Database are excluded: their "Get" methods are wired to
+    -- destructive machinery that a fuzz pass has no business driving.
+    local SKIP = { Dev = true, Database = true, db = true, C = true, UI = true }
+
+    local threw, calls = {}, 0
+    for moduleName, module in pairs(NS) do
+        if type(module) == "table" and not SKIP[moduleName] then
+            for name, fn in pairs(module) do
+                if type(fn) == "function" and isQuery(name) then
+                    for _, case in ipairs(ADVERSARIAL) do
+                        calls = calls + 1
+                        local ok, err
+                        if case[1] == "nothing" then ok, err = pcall(fn, module)
+                        else ok, err = pcall(fn, module, case[2]) end
+                        if not ok then
+                            threw[#threw + 1] = ("%s:%s(%s) -> %s")
+                                :format(moduleName, name, case[1], tostring(err):sub(1, 70))
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    check("the fuzz pass actually reached the query methods", calls > 500, calls)
+    check("no query method throws on an argument it did not expect",
+        #threw == 0, ("%d of %d, first: %s"):format(#threw, calls, threw[1] or "-"))
+    for i = 2, math.min(#threw, 6) do print("      " .. threw[i]) end
+
+    -- And the helper that closed most of that class, directly.
+    check("Scratch empties a table it is given", (function()
+        local t = { 1, 2, 3 }
+        return NS.Scratch(t) == t and #t == 0
+    end)())
+    check("Scratch replaces anything that is not a table",
+        type(NS.Scratch("nope")) == "table" and #NS.Scratch("nope") == 0)
+    check("Scratch given nothing still returns a table",
+        type(NS.Scratch()) == "table")
+end
+
+--------------------------------------------------------------------------
 -- Formatters: what reaches the screen when the number is not a number
 --------------------------------------------------------------------------
 -- Every formatter already answers "-" for nil. It did not answer anything

@@ -272,7 +272,7 @@ end
 --- Returns an array of dependency names (never nil).  Called on demand only,
 --- never from a sampling task, so the temporary table is acceptable here.
 function Compat.GetAddOnDependencies(indexOrName, optional, out)
-    out = out or {}
+    out = WTM.Scratch(out)
     wipe(out)
     local fn = optional and api.GetAddOnOptionalDependencies or api.GetAddOnDependencies
     if not fn then return out end
@@ -293,6 +293,9 @@ end
 --------------------------------------------------------------------------
 
 function Compat.GetCVar(name)
+    -- A CVar name is a string. Anything else used to be concatenated into the
+    -- SafeCall label and threw there instead of answering "no such CVar".
+    if type(name) ~= "string" then return nil end
     if not api.GetCVar then return nil end
     return SafeCall("GetCVar:" .. name, api.GetCVar, name)
 end
