@@ -1004,6 +1004,146 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n== design overhaul: Addon Detail hero header ==")
+--------------------------------------------------------------------------
+-- The hero row (CPU/Memory/Errors/Spikes tiles) sits beside a "SCORE" number
+-- pinned to the header's own right edge. Nothing clips either against the
+-- page-bounds walk above, because this overlay is not a page.
+
+do
+    local record = NS.Processes:Get("WeakAuras")
+    local openErrors = #mock.errors
+    check("the addon detail overlay opens without throwing",
+        pcall(function() NS.UI.AddonDetail:Open(record) end))
+    check("opening it does not throw", #mock.errors == openErrors,
+        (#mock.errors - openErrors) .. " errors")
+
+    local header = NS.UI.AddonDetail.header
+    local rightmost = 0
+    for _, key in ipairs({ "cpu", "memory", "errors", "spikes" }) do
+        local cell = header.hero[key]
+        rightmost = math.max(rightmost, cell:GetRight() or 0)
+    end
+    check("the hero tile row stays clear of the SCORE number",
+        rightmost < (header.score:GetLeft() or math.huge),
+        ("hero right %.0f vs score left %.0f"):format(rightmost, header.score:GetLeft() or -1))
+
+    local tabErrors = #mock.errors
+    for _, tab in ipairs({ "overview", "cpu", "memory", "history", "events",
+                           "dependencies", "errors", "diagnostics", "metadata" }) do
+        pcall(function() NS.UI.AddonDetail:ShowTab(tab) end)
+    end
+    check("switching through every tab never throws",
+        #mock.errors == tabErrors, (#mock.errors - tabErrors) .. " errors")
+
+    NS.UI.AddonDetail:Close()
+end
+
+--------------------------------------------------------------------------
+print("\n== design overhaul: Processes table pills ==")
+--------------------------------------------------------------------------
+-- Status/Errors/Spikes render as UI.Badge pills now instead of plain
+-- coloured text. A pill column has no `.text` cell any more, so any code
+-- still reading `cell.text` on one of these three columns would throw.
+
+do
+    MW.frame:SetSize(1280, 800)
+    MW:ShowPage("processes")
+
+    -- Earlier sweeps in this file fire OnClick on every frame on every page,
+    -- which includes this page's filter toggle buttons - by this point in
+    -- the file they may have left every addon filtered out. Reset them
+    -- explicitly rather than assume whatever state they were clicked into.
+    local page = NS.UI.Pages.processes
+    page.filter, page.filters = nil, {}
+    for key, button in pairs(page.filterButtons) do
+        button.active = false
+        button:SetSelected(false)
+    end
+    page:Rebuild(true)
+    mock.Tick(0.1)
+
+    local pillColumns, textColumns = 0, 0
+    for _, column in ipairs(page.table.columns) do
+        if column.pill then pillColumns = pillColumns + 1 else textColumns = textColumns + 1 end
+    end
+    check("the table declares the three pill columns", pillColumns == 3, pillColumns)
+    check("and still has plain-text columns beside them", textColumns > 0, textColumns)
+
+    local pillErrors = #mock.errors
+    local sawPill = false
+    for _, row in ipairs(page.table.list.rows or {}) do
+        if row.data then
+            for i, column in ipairs(page.table.columns) do
+                local cell = row.cells[i]
+                if column.pill and cell.pill and cell.pill:IsShown() then sawPill = true end
+            end
+        end
+    end
+    check("at least one visible row shows a pill (every addon has a Status)", sawPill)
+
+    -- The stress the pill rendering actually needs: many rows, both window
+    -- sizes, and the resort/resize paths a plain-text cell already survived.
+    for _, size in ipairs(SIZES) do
+        MW.frame:SetSize(size.w, size.h)
+        MW:LayoutAllPages()
+        MW:RefreshCurrentPage()
+        mock.FireScriptOnAll("OnMouseWheel", -1)
+    end
+    MW.frame:SetSize(1280, 800)
+    MW:LayoutAllPages()
+    check("pill columns survive resizing and rescrolling the table without throwing",
+        #mock.errors == pillErrors, (#mock.errors - pillErrors) .. " errors")
+end
+
+--------------------------------------------------------------------------
+print("\n== design overhaul: incident timeline strip ==")
+--------------------------------------------------------------------------
+-- One clickable tick per cluster, positioned by time and sized by severity,
+-- above the STUTTER CLUSTERS list. Built from a RegionPool of buttons, not
+-- plain textures, specifically so a spotted cluster can be clicked open.
+
+do
+    MW.frame:SetSize(1280, 800)
+    MW:ShowPage("incidents")
+    MW:RefreshCurrentPage()
+    mock.Tick(0.1)
+
+    local page = NS.UI.Pages.incidents
+    check("the strip sits clear above the cluster list, not overlapping it",
+        (page.timelineStrip:GetBottom() or 0) > (page.listCard:GetTop() or math.huge) - 1,
+        ("strip bottom %.0f vs list top %.0f")
+            :format(page.timelineStrip:GetBottom() or -1, page.listCard:GetTop() or -1))
+
+    local clusterCount = #page.list.data
+    if clusterCount > 0 then
+        check("one tick is drawn per cluster",
+            page.timelinePool.nActive == clusterCount,
+            ("%d ticks for %d clusters"):format(page.timelinePool.nActive, clusterCount))
+
+        local heights = {}
+        for _, tick in ipairs(page.timelinePool.active) do
+            heights[#heights + 1] = tick:GetHeight()
+        end
+        local allSame = true
+        for i = 2, #heights do if heights[i] ~= heights[1] then allSame = false end end
+        check("severity actually changes the tick height when clusters differ in kind",
+            not allSame or clusterCount < 2, table.concat(heights, ","))
+
+        -- Clicking a tick selects its cluster, same as clicking its row.
+        local tick = page.timelinePool.active[1]
+        local clickErrors = #mock.errors
+        local ok = pcall(function() tick:GetScript("OnClick")(tick) end)
+        check("clicking a timeline tick does not throw", ok and #mock.errors == clickErrors)
+        check("clicking a timeline tick selects its cluster",
+            page.selected == tick.cluster)
+    else
+        check("with no clusters the strip says so instead of drawing nothing unexplained",
+            page.timelineEmpty:IsShown())
+    end
+end
+
+--------------------------------------------------------------------------
 print(("\n   %d passed, %d failed, %d lua errors"):format(passed, failed, #mock.errors))
 for i = 1, math.min(6, #mock.errors) do print("   error: " .. mock.errors[i]) end
 os.exit((failed == 0 and #mock.errors == 0) and 0 or 1)

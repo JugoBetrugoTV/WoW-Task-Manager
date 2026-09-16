@@ -42,11 +42,66 @@ function Page:Build(frame)
     local pad = M.padding
 
     ------------------------------------------------------------------
+    -- Top: a visual strip across every recorded cluster, so a run of bad
+    -- ones reads as a run at a glance, before scrolling the list below.
+    -- Severity sets both the tick's colour and its height, the same
+    -- encoding the graph engine's own incident markers use.
+    ------------------------------------------------------------------
+    self.timelineStrip = UI.Panel(frame, {})
+    self.timelineStrip:SetHeight(56)
+    self.timelineStrip:SetPoint("TOPLEFT", pad, -pad)
+    self.timelineStrip:SetPoint("TOPRIGHT", -pad, -pad)
+
+    self.timelineTitle = UI.Text(self.timelineStrip, "heading", "textSecondary")
+    self.timelineTitle:SetPoint("TOPLEFT", 10, -6)
+    self.timelineTitle:SetText("INCIDENT TIMELINE")
+
+    self.timelineRange = UI.Text(self.timelineStrip, "tiny", "textMuted", "RIGHT")
+    self.timelineRange:SetPoint("TOPRIGHT", -8, -7)
+
+    local timelinePlot = CreateFrame("Frame", nil, self.timelineStrip)
+    timelinePlot:SetPoint("TOPLEFT", 10, -22)
+    timelinePlot:SetPoint("BOTTOMRIGHT", -10, 8)
+    timelinePlot:SetClipsChildren(true)
+    self.timelinePlot = timelinePlot
+
+    self.timelineBase = timelinePlot:CreateTexture(nil, "BACKGROUND")
+    self.timelineBase:SetPoint("BOTTOMLEFT")
+    self.timelineBase:SetPoint("BOTTOMRIGHT")
+    self.timelineBase:SetHeight(1)
+    self.timelineBase:SetColorTexture(T("borderSubtle"))
+
+    -- One small clickable button per cluster, not a plain texture: the strip
+    -- is only useful if a spotted cluster can be jumped to and hovered for
+    -- its summary, same as clicking the row it stands in for below.
+    self.timelinePool = WTM.RegionPool.New(timelinePlot,
+        function(p)
+            local btn = CreateFrame("Button", nil, p)
+            btn:SetWidth(4)
+            btn.tex = btn:CreateTexture(nil, "ARTWORK")
+            btn.tex:SetAllPoints()
+            btn:SetScript("OnEnter", function(self)
+                if self.cluster then Page:ShowClusterTooltip(self, self.cluster) end
+            end)
+            btn:SetScript("OnLeave", UI.HideTooltip)
+            btn:SetScript("OnClick", function(self)
+                if self.cluster then Page:Select(self.cluster) end
+            end)
+            return btn
+        end,
+        function(btn) btn:ClearAllPoints() btn.cluster = nil end)
+
+    self.timelineEmpty = UI.Text(timelinePlot, "tiny", "textMuted")
+    self.timelineEmpty:SetPoint("LEFT")
+    self.timelineEmpty:SetText("No stutter recorded yet.")
+    self.timelineEmpty:Hide()
+
+    ------------------------------------------------------------------
     -- Left: cluster list
     ------------------------------------------------------------------
     self.listCard = UI.Card(frame, "STUTTER CLUSTERS", {})
     self.listCard:SetWidth(UI.SideColumnWidth(frame:GetWidth()))
-    self.listCard:SetPoint("TOPLEFT", pad, -pad)
+    self.listCard:SetPoint("TOPLEFT", self.timelineStrip, "BOTTOMLEFT", 0, -M.cardGap)
     self.listCard:SetPoint("BOTTOMLEFT", pad, pad)
 
     self.list = UI.ScrollList(self.listCard.content, 50,
@@ -275,6 +330,54 @@ function Page:ShowClusterTooltip(anchor, cluster)
     UI.TooltipShow(anchor)
 end
 
+--- Redraws the strip of clickable ticks above the list. One tick per cluster
+--- in `clusterList`, positioned by time and sized/coloured by severity - the
+--- same encoding the graph engine's own incident markers use, so a reader
+--- who has seen one already knows how to read the other.
+function Page:RefreshTimelineStrip()
+    local plot = self.timelinePlot
+    if not plot then return end
+    self.timelinePool:ReleaseAll()
+
+    local count = #clusterList
+    if count == 0 then
+        self.timelineEmpty:Show()
+        self.timelineRange:SetText("")
+        return
+    end
+    self.timelineEmpty:Hide()
+
+    local width = plot:GetWidth() or 0
+    if width < 8 then return end
+
+    local now = GetTime()
+    local oldest = now
+    for i = 1, count do
+        local startedAt = clusterList[i].startedAt
+        if startedAt and startedAt < oldest then oldest = startedAt end
+    end
+    local span = math.max(1, now - oldest)
+
+    for i = 1, count do
+        local cluster = clusterList[i]
+        if cluster.startedAt then
+            local fraction = (cluster.startedAt - oldest) / span
+            fraction = math.max(0, math.min(1, fraction))
+            local order = C.SPIKE_ORDER[cluster.kind] or 1
+            local tone = (cluster.kind == "freeze" or cluster.kind == "heavy") and "crit" or "warn"
+
+            local tick = self.timelinePool:Acquire()
+            tick:SetHeight(10 + order * 6)
+            tick.tex:SetColorTexture(Theme:Tone(tone, cluster.closed and 0.85 or 1))
+            tick:ClearAllPoints()
+            tick:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", fraction * math.max(0, width - 4), 0)
+            tick.cluster = cluster
+        end
+    end
+
+    self.timelineRange:SetText(("%s ago  -  now"):format(Fmt.Duration(span)))
+end
+
 --------------------------------------------------------------------------
 
 function Page:Refresh()
@@ -282,6 +385,7 @@ function Page:Refresh()
 
     WTM.SpikeDetector:GetClusters(clusterList, 60)
     self.list:SetData(clusterList)
+    self:RefreshTimelineStrip()
 
     local empty = #clusterList == 0
     self.listEmpty:SetShown(empty)

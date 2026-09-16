@@ -1,6 +1,6 @@
 # Mock-Testbericht
 
-Erzeugt am 2026-09-12 gegen Addon-Version 0.7.4, aktualisiert am 2026-09-16 gegen 0.8.0.
+Erzeugt am 2026-09-12 gegen Addon-Version 0.7.4, aktualisiert am 2026-09-16 gegen 0.8.0 und 0.8.1.
 
 > **Alles hier ist MOCK VERIFIED, nichts ist REAL CLIENT VERIFIED.**
 > Der Mock verhält sich so, wie ich glaube, dass der Client sich verhält. Wo
@@ -644,6 +644,32 @@ gut aussieht.
 * **Der einmalige Badge-Pulse als Bewegung.** Der Test beweist, dass er synchron
   auflöst, wenn Motion aus ist; wie er sich anfühlt, wenn Motion an ist, ist keine
   Assertion, sondern ein Seherlebnis.
+
+## 0.8.1: drei weitere Brief-Punkte, drei neue Testblöcke
+
+Fortsetzung der 0.8.0-Design-Runde: Addon-Detail-Hero-Header, Status/Errors/Spikes
+als Pills in der Processes-Tabelle, eine visuelle Incident-Timeline-Leiste. Bei allen
+drei stellte sich vorher heraus, dass ein Teil des jeweiligen Punkts aus dem
+Original-Briefing bereits existierte (CPU/Memory-Balken in der Processes-Tabelle,
+Akzentbalken in `UI.ObservationList` und der Diagnostics-Findings-Liste) — dokumentiert,
+statt stillschweigend neu gebaut.
+
+| Block | Prüft |
+|---|---|
+| Addon-Detail-Hero | Öffnet das Overlay ohne Wurf, die vier Hero-Kacheln (CPU/Memory/Errors/Spikes) bleiben klar von der SCORE-Zahl getrennt, und alle neun Tabs lassen sich wurf-frei durchklicken. |
+| Processes-Pills | Die Tabelle deklariert genau drei Pill-Spalten und behält ihre restlichen Text-Spalten; mindestens eine sichtbare Zeile zeigt einen Pill (Status ist nie leer); Resize und Rescroll mit Pill-Spalten werfen nicht. Musste zuerst gegen eine falsche Annahme repariert werden: ein früherer "Click everything"-Sweep hinterlässt die Filter-Buttons der Seite in einem beliebigen Ein/Aus-Zustand, und ein aktiver "Flagged"-Filter ohne geflaggte Addons leert die Tabelle vollständig — der Test setzt die Filter jetzt explizit zurück, statt einen Default anzunehmen. |
+| Incident-Timeline-Leiste | Die Leiste sitzt nachweisbar oberhalb der Cluster-Liste, ohne sie zu überlappen; es wird genau ein Tick pro Cluster gezeichnet; unterschiedliche Schwere-Klassen führen zu unterschiedlichen Tick-Höhen; ein Klick auf einen Tick wirft nicht und wählt den richtigen Cluster aus — geprüft über den tatsächlichen `OnClick`-Handler, nicht über eine Attrappe. |
+
+```
+tools/test-ui.lua   153 Assertions (0.8.0: 140)
+```
+
+### Was weiterhin nur im Retail-Client zu beurteilen ist
+
+Dieselben Einschränkungen wie bei 0.8.0 gelten unverändert: ob die vier Hero-Kacheln,
+die Pills und die Timeline-Ticks tatsächlich gut aussehen, ob 12 px hohe Ticks am
+Bildschirm noch treffbar sind, und ob die Pill-Farben bei den vier Theme-Presets
+weiterhin lesbar bleiben.
 
 ## Was der Mock nicht kann
 

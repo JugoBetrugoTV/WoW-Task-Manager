@@ -70,8 +70,13 @@ function Detail:Build()
     ------------------------------------------------------------------
     -- Header
     ------------------------------------------------------------------
+    -- A "hero": name and status at a glance, then the four numbers a reader
+    -- opens this dialog to find - CPU, memory, errors, spikes - before any
+    -- tab is even chosen. The old header only had the name and a score; the
+    -- score is a compressed presentation aid, and reaching for it first means
+    -- reading the plain numbers behind it second, through a tab click.
     local header = CreateFrame("Frame", nil, frame)
-    header:SetHeight(64)
+    header:SetHeight(100)
     header:SetPoint("TOPLEFT")
     header:SetPoint("TOPRIGHT")
     UI.Fill(header, "panelBg")
@@ -97,10 +102,51 @@ function Detail:Build()
     close:SetPoint("TOPRIGHT", -10, -10)
 
     header.score = UI.Text(header, "metric", "textPrimary", "RIGHT")
-    header.score:SetPoint("BOTTOMRIGHT", -16, 10)
+    header.score:SetPoint("TOPRIGHT", -16, -40)
     header.scoreLabel = UI.Text(header, "tiny", "textMuted", "RIGHT")
     header.scoreLabel:SetPoint("BOTTOMRIGHT", header.score, "BOTTOMLEFT", -6, 3)
     header.scoreLabel:SetText("SCORE")
+
+    -- Four compact tiles, CPU and memory each with a trend sparkline pulled
+    -- from the same ring buffers the CPU/Memory tabs already draw a full
+    -- graph from - the trend here is a smaller read of a number this dialog
+    -- already owns, not a second measurement of it.
+    local HERO_CELLS = {
+        { key = "cpu",     label = "CPU" },
+        { key = "memory",  label = "MEMORY" },
+        { key = "errors",  label = "ERRORS" },
+        { key = "spikes",  label = "SPIKES" },
+    }
+    header.hero = {}
+    local heroPrev
+    for _, spec in ipairs(HERO_CELLS) do
+        local cell = CreateFrame("Frame", nil, header)
+        cell:SetWidth(120)
+        cell:SetPoint("TOP", 0, -52)
+        cell:SetPoint("BOTTOM", 0, 8)
+        if heroPrev then
+            cell:SetPoint("LEFT", heroPrev, "RIGHT", 18, 0)
+        else
+            cell:SetPoint("LEFT", 18, 0)
+        end
+        heroPrev = cell
+
+        cell.label = UI.Text(cell, "tiny", "textMuted")
+        cell.label:SetPoint("TOPLEFT")
+        cell.label:SetText(spec.label)
+
+        cell.value = UI.Text(cell, "numeric", "textPrimary")
+        cell.value:SetPoint("TOPLEFT", cell.label, "BOTTOMLEFT", 0, -1)
+
+        if spec.key == "cpu" or spec.key == "memory" then
+            cell.spark = UI.Sparkline(cell, spec.key == "cpu" and 5 or 4)
+            cell.spark:SetPoint("BOTTOMLEFT")
+            cell.spark:SetPoint("BOTTOMRIGHT")
+            cell.spark:SetHeight(12)
+        end
+
+        header.hero[spec.key] = cell
+    end
 
     UI.MakeMovable(frame, header)
 
@@ -644,6 +690,35 @@ function Detail:Refresh()
     header.score:SetText(tostring(record.score or 100))
     header.score:SetTextColor(Theme:Tone(
         (record.score or 100) >= 80 and "ok" or ((record.score or 100) >= 50 and "warn" or "crit")))
+
+    ------------------------------------------------------------------
+    -- Hero tiles: CPU, memory, errors, spikes at a glance
+    ------------------------------------------------------------------
+    local hero = header.hero
+    if WTM.CPU.available then
+        hero.cpu.value:SetText(("%.1f%%"):format(record.cpuEma or 0))
+        hero.cpu.value:SetTextColor(Theme:Tone(
+            (record.cpuEma or 0) >= C.HIGH_CPU_PCT and "crit"
+            or ((record.cpuEma or 0) >= C.ELEVATED_CPU_PCT and "warn" or "ok")))
+        hero.cpu.spark:SetRing(record.cpuRing)
+        hero.cpu.spark:Draw()
+    else
+        hero.cpu.value:SetText("n/a")
+        hero.cpu.value:SetTextColor(T("textMuted"))
+    end
+
+    hero.memory.value:SetText(Fmt.Memory(record.memKB))
+    hero.memory.value:SetTextColor(T("textPrimary"))
+    hero.memory.spark:SetRing(record.memRing)
+    hero.memory.spark:Draw()
+
+    local errorTotal = WTM.Errors:CountForAddon(record.name)
+    hero.errors.value:SetText(tostring(errorTotal))
+    hero.errors.value:SetTextColor(Theme:Tone(errorTotal > 0 and "warn" or "ok"))
+
+    local spikes = record.spikes or 0
+    hero.spikes.value:SetText(tostring(spikes))
+    hero.spikes.value:SetTextColor(Theme:Tone(spikes > 0 and "warn" or "ok"))
 
     ------------------------------------------------------------------
     -- Control bar

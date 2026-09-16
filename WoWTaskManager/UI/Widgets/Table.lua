@@ -131,14 +131,24 @@ function UI.Table(parent, columns, opts)
             local cell = CreateFrame("Frame", nil, row)
             cell:SetPoint("TOP")
             cell:SetPoint("BOTTOM")
-            cell.text = UI.Text(cell, column.font or (column.justify == "RIGHT" and "numeric" or "body"),
-                                "textPrimary", column.justify or "LEFT")
-            cell.text:SetPoint("LEFT", column.justify == "RIGHT" and 0 or 6, 0)
-            cell.text:SetPoint("RIGHT", column.justify == "RIGHT" and -8 or 0, 0)
-            if column.bar then
-                cell.bar = UI.MiniBar(cell, 2)
-                cell.bar:SetPoint("BOTTOMLEFT", 6, 3)
-                cell.bar:SetPoint("BOTTOMRIGHT", -8, 3)
+            if column.pill then
+                -- A rounded-looking badge instead of plain coloured text -
+                -- Status, Errors and Spikes are the columns a reader scans
+                -- for first, and a pill reads as a state rather than as one
+                -- more number among many in the row.
+                cell.pill = UI.Badge(cell, "", "muted")
+                cell.pill:SetPoint(column.justify == "RIGHT" and "RIGHT" or "LEFT",
+                    column.justify == "RIGHT" and -8 or 6, 0)
+            else
+                cell.text = UI.Text(cell, column.font or (column.justify == "RIGHT" and "numeric" or "body"),
+                                    "textPrimary", column.justify or "LEFT")
+                cell.text:SetPoint("LEFT", column.justify == "RIGHT" and 0 or 6, 0)
+                cell.text:SetPoint("RIGHT", column.justify == "RIGHT" and -8 or 0, 0)
+                if column.bar then
+                    cell.bar = UI.MiniBar(cell, 2)
+                    cell.bar:SetPoint("BOTTOMLEFT", 6, 3)
+                    cell.bar:SetPoint("BOTTOMRIGHT", -8, 3)
+                end
             end
             row.cells[i] = cell
         end
@@ -154,14 +164,27 @@ function UI.Table(parent, columns, opts)
             cell:SetWidth(column._w or 80)
 
             local ok, value = pcall(column.value, data, index)
-            cell.text:SetText(ok and value or "")
+            value = ok and value or ""
 
+            local tone
             if column.tone then
-                local okTone, tone = pcall(column.tone, data, index)
-                cell.text:SetTextColor(Theme:Tone(okTone and tone or "muted"))
-                if not okTone or not tone then cell.text:SetTextColor(T("textPrimary")) end
+                local okTone, t = pcall(column.tone, data, index)
+                tone = okTone and t or nil
+            end
+
+            if cell.pill then
+                -- An empty value (the common "nothing to report" case for
+                -- Errors/Spikes) hides the pill rather than showing an empty
+                -- rounded box, which would read as a rendering glitch.
+                cell.pill:SetShown(value ~= "")
+                if value ~= "" then cell.pill:Set(value, tone or "muted") end
             else
-                cell.text:SetTextColor(T("textPrimary"))
+                cell.text:SetText(value)
+                if tone then
+                    cell.text:SetTextColor(Theme:Tone(tone))
+                else
+                    cell.text:SetTextColor(T("textPrimary"))
+                end
             end
 
             if cell.bar then

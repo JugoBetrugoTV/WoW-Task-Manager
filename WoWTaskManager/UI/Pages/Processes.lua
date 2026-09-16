@@ -66,7 +66,7 @@ local COLUMNS = {
         tooltip = "Every installed addon. Unloaded and disabled ones are greyed out; use \"Show unloaded\" to include them. Right click a row to flag it for diagnostics.",
     },
     {
-        key = "status", title = "Status", width = 104, sort = "status",
+        key = "status", title = "Status", width = 104, sort = "status", pill = true,
         value = function(record) return record.status and record.status.text or "" end,
         tone = function(record) return record.status and record.status.tone or "muted" end,
         tooltip = "Derived from smoothed CPU, sustained memory growth and how often this addon was above its own average during a frame spike.",
@@ -129,7 +129,7 @@ local COLUMNS = {
         tooltip = "HEURISTIC. How many of the busiest observed events this addon's named frames listen for. No API maps a frame to its addon, so this is a name-prefix match and anonymous frames are invisible to it. The ~ in the header is there to keep that visible. Use \"Scan frames\" to populate it.",
     },
     {
-        key = "spikes", title = "Spikes", width = 58, justify = "RIGHT", sort = "spikes",
+        key = "spikes", title = "Spikes", width = 58, justify = "RIGHT", sort = "spikes", pill = true,
         value = function(record) return (record.spikes or 0) > 0 and tostring(record.spikes) or "" end,
         tone = function(record) return (record.spikes or 0) >= 3 and "warn" or nil end,
         tooltip = "How often this addon was above its own average CPU during a frame time spike. An association, not a demonstrated cause.",
@@ -214,7 +214,7 @@ local COLUMNS = {
         tooltip = "A presentation aid, not a measurement: it compresses smoothed CPU, sustained memory growth and spike involvement into one sortable number so the list can lead with what is worth looking at.",
     },
     {
-        key = "errors", title = "Errors", width = 58, justify = "RIGHT", sort = "errors",
+        key = "errors", title = "Errors", width = 58, justify = "RIGHT", sort = "errors", pill = true,
         value = function(record)
             local count = WTM.Errors:CountForAddon(record.name)
             return count > 0 and tostring(count) or ""

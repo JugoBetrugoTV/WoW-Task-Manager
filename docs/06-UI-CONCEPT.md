@@ -105,9 +105,10 @@ Style, Threshold-Zonen, Graph Quality, Reduce Motion.
 | Seite | Kern |
 |---|---|
 | **Dashboard** | 6 Metric-Cards (FPS, Frametime, Latenz, Lua-Speicher, Addon-CPU, Events/s), Health-Badge GOOD/WARNING/CRITICAL, Top-3-CPU- und Top-3-Memory-Liste, letzte 3 Incidents, eigener Overhead |
-| **Processes** | Sortierbare, durchsuchbare Tabelle aller Addons. Spalten: Addon, CPU, CPU %, Memory, Δ Memory, Events/s, Spikes, Status. Klick öffnet Detail-Overlay mit Tabs Overview / Performance / Memory / Events / Dependencies / History / Diagnostics |
+| **Processes** | Sortierbare, durchsuchbare Tabelle aller Addons. Spalten: Addon, CPU, CPU %, Memory, Δ Memory, Events/s, Spikes, Status. Status, Errors und Spikes sind seit 0.8.1 Pills (`UI.Badge`) statt reiner Farbtext, mit eingebetteten CPU/Memory-Balken (`UI.MiniBar`) hinter den Zahlen. Klick öffnet Detail-Overlay mit Tabs Overview / Performance / Memory / Events / Dependencies / History / Diagnostics |
 | **Performance** | Große Live-Graphen mit Zeitbereichswahl 60 s / 5 m / 15 m / 30 m / 1 h / Session. Frametime-Analyzer mit Stutter-Klassifikation und Perzentilen (avg, 1 % low, 0.1 % low, max) |
 | **Timeline** | Profiler-artige Spuren (FPS, Frametime, Latenz, CPU, Events, Memory) auf gemeinsamer Zeitachse + Marker-Leiste. Klick auf Marker öffnet den Incident |
+| **Incidents** | Liste der Stutter-Cluster links, volles Diagnosebild rechts. Seit 0.8.1 mit einer visuellen Timeline-Leiste über der Liste: ein anklickbarer Tick pro Cluster, positioniert nach Zeit, Höhe und Farbe nach Schweregrad (`C.SPIKE_ORDER`) — Cluster-Häufungen sind damit vor dem Scrollen sichtbar |
 | **Events** | Tabelle Event / Calls per s / Total / Peak per s / Last / CPU-Anteil. Storm-Detektor-Banner. Optionale heuristische Addon-Zuordnung |
 | **Memory** | Lua-Heap-Kurve mit erkannten GC-Abfällen, Tabelle Start / Current / Growth / Growth per min, Badge `Potential sustained memory growth` |
 | **Diagnostics** | Automatischer Session-Report: Health, Findings mit Korrelationsgrad, Empfehlungen |
@@ -174,6 +175,23 @@ Bewusst **nicht** umgesetzt in dieser Runde: Page-Transitions, Number-Transition
 Card-Highlight-Fades. Die Infrastruktur (`UI.Animate`) trägt sie, aber ein Rollout über
 17 Seiten hinweg ist eine eigene Aufgabe mit eigenem Visual-Audit, nicht ein Nebenprodukt
 dieser Änderung.
+
+## Addon-Detail-Header (seit 0.8.1)
+
+Der Header des Addon-Detail-Overlays (`UI/AddonDetail.lua`) ist jetzt ein "Hero": Name, Status-Pill
+und Akzentbalken oben, darunter vier kompakte Kacheln — CPU, Memory (je mit einer Trend-Sparkline
+aus demselben Ringpuffer, aus dem der CPU-/Memory-Tab seinen vollen Graphen zeichnet), Errors und
+Spikes — bevor überhaupt ein Tab gewählt ist. Die zusammengefasste Score-Zahl bleibt daneben stehen,
+jetzt als zweite, nicht als einzige Kennzahl. Der Header wuchs dafür von 64 auf 100 px; alles darunter
+(Tab-Leiste, Inhalt) folgt automatisch, weil es relativ zum Header verankert ist.
+
+## Table-Pills (seit 0.8.1)
+
+`UI/Widgets/Table.lua` unterstützt jetzt `column.pill = true`: die Zelle rendert einen `UI.Badge`
+statt einfachen Farbtext, versteckt sich selbst, wenn der Wert leer ist (kein leerer Pill für
+"0 Fehler"), und lässt Balken-Spalten (`column.bar`) unverändert daneben bestehen. Auf der
+Processes-Seite tragen Status, Errors und Spikes diese Pills; jede andere Tabelle (Events, Memory,
+Errors, Impact) verhält sich unverändert, weil das Flag rein additiv ist.
 
 ## Combat-Verhalten
 
