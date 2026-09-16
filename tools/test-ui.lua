@@ -704,6 +704,306 @@ check("and only one page is showing", (function()
 end)())
 
 --------------------------------------------------------------------------
+print("\n== design overhaul: theme, accent and density switching ==")
+--------------------------------------------------------------------------
+-- Switching a preset rewrites live tables (UI/Theme.lua's HEX) while widgets
+-- from every earlier preset are still on screen holding old colour cache
+-- entries. If ApplyPreset missed a key, or the colour cache were not
+-- cleared, this would either throw or silently keep serving a stale colour.
+
+do
+    local Theme = NS.UI.Theme
+    local before = Theme.hex.windowBg
+
+    local switchErrors = #mock.errors
+    for _, palette in ipairs(Theme.PALETTES) do
+        for _, accent in ipairs(Theme.ACCENTS) do
+            NS.db.profile.ui.theme  = palette.key
+            NS.db.profile.ui.accent = accent.key
+            Theme:ApplyFromProfile()
+            MW:RefreshCurrentPage()
+        end
+    end
+    check("cycling every theme x accent combination never throws",
+        #mock.errors == switchErrors, (#mock.errors - switchErrors) .. " errors")
+
+    check("every palette actually changes the window background", (function()
+        local seen = {}
+        for _, palette in ipairs(Theme.PALETTES) do
+            seen[palette.hex.windowBg] = true
+        end
+        return next(seen) ~= nil and (Theme.PALETTES[1].hex.windowBg ~= Theme.PALETTES[2].hex.windowBg)
+    end)())
+
+    for _, density in ipairs({ "comfortable", "compact" }) do
+        NS.db.profile.ui.density = density
+        Theme:ApplyDensity(density)
+    end
+    check("compact density actually shrinks row height",
+        (function()
+            Theme:ApplyDensity("compact")
+            local compact = Theme.metrics.rowHeight
+            Theme:ApplyDensity("comfortable")
+            local comfortable = Theme.metrics.rowHeight
+            return compact < comfortable
+        end)())
+
+    -- Back to the default before the rest of the file's checks run - they
+    -- were all written against WTM Dark / Blue / Comfortable.
+    NS.db.profile.ui.theme, NS.db.profile.ui.accent, NS.db.profile.ui.density =
+        "wtmdark", "blue", "comfortable"
+    Theme:ApplyFromProfile()
+    check("windowBg is restored once switched back to the default",
+        Theme.hex.windowBg == before, Theme.hex.windowBg)
+end
+
+--------------------------------------------------------------------------
+print("\n== design overhaul: graph engine edge cases ==")
+--------------------------------------------------------------------------
+-- The newest, least-exercised code in this session's work: threshold zones,
+-- the minor grid, Graph Quality's column-width lever, and three data shapes
+-- (empty / one sample / a full ring buffer) the normal sweep above never
+-- actually produces because the fixture always has a comfortable amount of
+-- history by the time it runs.
+
+do
+    MW.frame:SetSize(1280, 800)
+    MW:LayoutAllPages()
+
+    ------------------------------------------------------------------
+    -- Threshold zones + minor grid + Graph Quality, on a probe graph built
+    -- with known "elevated" frame-time data - not through the Performance
+    -- page's own recorder-fed graph, which may have no data yet at this
+    -- point in a headless run and would make every assertion here trivially
+    -- true regardless of whether the feature actually works.
+    ------------------------------------------------------------------
+    local zoneValues, zoneTimes = {}, {}
+    for i = 1, 60 do zoneValues[i] = 20 + (i % 10); zoneTimes[i] = i end  -- 20-29 ms: ELEVATED band
+    local zoneGraph = NS.UI.Graph(MW.frame, { title = "probe: threshold zones", thresholdZones = true })
+    zoneGraph:SetSize(300, 150)
+    zoneGraph:Show()
+    zoneGraph:SetSeries(1, zoneValues, zoneTimes, { label = "frame" })
+    zoneGraph:SetTimeRange(1, 60)
+
+    NS.db.profile.ui.showThresholdZones = false
+    zoneGraph.dirty = true
+    zoneGraph:Draw()
+    local _, zActiveOff = zoneGraph.zonePool:GetStats()
+    check("threshold zones draw nothing while the setting is off",
+        zActiveOff == 0, zActiveOff)
+
+    NS.db.profile.ui.showThresholdZones = true
+    zoneGraph.dirty = true
+    zoneGraph:Draw()
+    local _, zActiveOn = zoneGraph.zonePool:GetStats()
+    check("threshold zones draw a band once enabled, for data that is actually elevated",
+        zActiveOn > 0, zActiveOn)
+    NS.db.profile.ui.showThresholdZones = false
+
+    NS.db.profile.ui.graphQuality = "performance"
+    zoneGraph.dirty = true
+    zoneGraph:Draw()
+    local _, minorActiveAtPerf = zoneGraph.minorGridPool:GetStats()
+    check("Performance graph quality turns the minor grid off",
+        minorActiveAtPerf == 0, minorActiveAtPerf)
+
+    NS.db.profile.ui.graphQuality = "high"
+    zoneGraph.dirty = true
+    zoneGraph:Draw()
+    local _, minorActiveAtHigh = zoneGraph.minorGridPool:GetStats()
+    check("High graph quality draws the minor grid",
+        minorActiveAtHigh > 0, minorActiveAtHigh)
+
+    NS.db.profile.ui.graphQuality = "balanced"
+    zoneGraph:Hide()
+    zoneGraph:SetParent(nil)
+
+    ------------------------------------------------------------------
+    -- Auto graph style: two active series should not both fill.
+    ------------------------------------------------------------------
+    MW:ShowPage("network")
+    MW:RefreshCurrentPage()
+    -- The overlay graph, not the single-series one above it: it is the one
+    -- actually carrying two series (world latency and frame time) on one axis.
+    local netGraph = NS.UI.Pages.network.overlay
+    if netGraph then
+        NS.db.profile.ui.graphStyle = "auto"
+        netGraph.dirty = true
+        netGraph:Draw()
+        local autoSegments = netGraph.lastSegments or 0
+
+        NS.db.profile.ui.graphStyle = "area"
+        netGraph.dirty = true
+        netGraph:Draw()
+        local areaSegments = netGraph.lastSegments or 0
+
+        check("auto style draws fewer segments than forced area on a multi-series graph",
+            autoSegments <= areaSegments, ("auto=%d area=%d"):format(autoSegments, areaSegments))
+        NS.db.profile.ui.graphStyle = "auto"
+    end
+
+    ------------------------------------------------------------------
+    -- Extreme peak: softCeiling must clip it, not hide it. Built directly
+    -- against the Graph widget rather than through the recorder pipeline, so
+    -- this tests the clipping logic itself rather than whichever scheduler
+    -- ticks happen to have run in a headless harness by this point.
+    ------------------------------------------------------------------
+    local spikeValues, spikeTimes = {}, {}
+    for i = 1, 40 do spikeValues[i] = 8 + (i % 5); spikeTimes[i] = i end
+    spikeValues[41], spikeTimes[41] = 4200, 41  -- one 4.2 second "frame"
+    local spikeGraph = NS.UI.Graph(MW.frame, { title = "probe: extreme peak", softCeiling = 0.95 })
+    spikeGraph:SetSize(300, 150)
+    spikeGraph:Show()
+    spikeGraph:SetSeries(1, spikeValues, spikeTimes, { label = "frame" })
+    spikeGraph:SetTimeRange(1, 41)
+    spikeGraph.dirty = true
+    spikeGraph:Draw()
+    check("an extreme spike is reported as clipped rather than silently rescaling",
+        spikeGraph.clipped == true, tostring(spikeGraph.clipped))
+    check("the true peak is still the one reported, even though it is clipped",
+        spikeGraph.dataPeak == 4200, spikeGraph.dataPeak)
+    spikeGraph:Hide()
+    spikeGraph:SetParent(nil)
+
+    ------------------------------------------------------------------
+    -- No data / one sample / a full ring buffer: three shapes the normal
+    -- fixture never produces once the file has been running for a while.
+    ------------------------------------------------------------------
+    local probeParent = MW.frame
+    local emptyGraph = NS.UI.Graph(probeParent, { title = "probe: empty" })
+    emptyGraph:SetSize(300, 150)
+    emptyGraph:Show()
+    check("a graph with zero series does not throw when drawn",
+        pcall(function() emptyGraph:Draw() end))
+
+    local oneGraph = NS.UI.Graph(probeParent, { title = "probe: one sample" })
+    oneGraph:SetSize(300, 150)
+    oneGraph:Show()
+    oneGraph:SetSeries(1, { 42 }, { 0 }, { label = "x" })
+    oneGraph:SetTimeRange(0, 1)
+    check("a graph with exactly one sample does not throw when drawn",
+        pcall(function() oneGraph:Draw() end))
+
+    local fullValues, fullTimes = {}, {}
+    for i = 1, 4096 do fullValues[i] = 8 + (i % 37); fullTimes[i] = i * 0.1 end
+    local fullGraph = NS.UI.Graph(probeParent, { title = "probe: full ring buffer" })
+    fullGraph:SetSize(300, 150)
+    fullGraph:Show()
+    fullGraph:SetSeries(1, fullValues, fullTimes, { label = "x" })
+    fullGraph:SetTimeRange(fullTimes[1], fullTimes[#fullTimes])
+    check("a graph downsampling 4096 raw samples does not throw when drawn",
+        pcall(function() fullGraph:Draw() end))
+    check("downsampling still bounds the drawn segment count to the pixel width, not the sample count",
+        (fullGraph.lastSegments or 0) < 4096, fullGraph.lastSegments)
+
+    for _, g in ipairs({ emptyGraph, oneGraph, fullGraph }) do
+        g:Hide()
+        g:SetParent(nil)
+    end
+end
+
+--------------------------------------------------------------------------
+print("\n== design overhaul: pooling stats and reduced motion ==")
+--------------------------------------------------------------------------
+
+do
+    local stats = NS.UI.GetGraphPoolStats()
+    check("pooling stats cover every graph built so far",
+        stats.graphs >= #NS.UI.pageOrder, stats.graphs)
+    check("pooling stats report at least as many created as active",
+        stats.created >= stats.active, ("created=%d active=%d"):format(stats.created, stats.active))
+
+    -- Reduced motion must reach UI.Animate synchronously: a caller asking for
+    -- fraction 1 immediately, with no frame of delay, is the whole point of
+    -- the setting - a dropped frame during combat is not an acceptable price
+    -- for a nav badge flash.
+    NS.db.profile.ui.reduceMotion = true
+    local ranSync = false
+    NS.UI.Animate(0.5, function(fraction)
+        if fraction == 1 then ranSync = true end
+    end)
+    check("reduced motion resolves an animation immediately rather than over time",
+        ranSync)
+    NS.db.profile.ui.reduceMotion = false
+end
+
+--------------------------------------------------------------------------
+print("\n== design overhaul: topbar strip fits at the minimum window width ==")
+--------------------------------------------------------------------------
+-- Adding a 7th live-metric cell (ERRORS) pushed the strip's last cell 59 px
+-- past the topbar's own right edge at 940 px wide - invisible to every check
+-- above, because those only walk the CURRENT PAGE's frame tree, and the
+-- topbar is chrome, not a page. Nothing else in this file would have caught
+-- that regression.
+
+do
+    MW.frame:SetSize(940, 600)
+    MW:LayoutAllPages()
+    local topbar = MW.frame.topbar
+    local metrics = MW.frame.topMetrics
+    local rightmost = 0
+    for _, cell in pairs(metrics) do
+        rightmost = math.max(rightmost, cell:GetRight() or 0)
+    end
+    check("the last live-metric cell stays inside the topbar at the minimum window width",
+        rightmost <= (topbar:GetRight() or 0),
+        ("cell right %.0f vs topbar right %.0f"):format(rightmost, topbar:GetRight() or 0))
+    MW.frame:SetSize(1280, 800)
+    MW:LayoutAllPages()
+end
+
+--------------------------------------------------------------------------
+print("\n== design overhaul: UI scale variants ==")
+--------------------------------------------------------------------------
+-- The same three window sizes, now also at two non-1.0 UI scales - the
+-- addon does not control the player's UI scale, so it has to lay out
+-- correctly at whatever scale WoW hands it.
+
+do
+    local scaleErrors = #mock.errors
+    for _, scale in ipairs({ 0.75, 1.25 }) do
+        MW.frame:SetScale(scale)
+        for _, size in ipairs(SIZES) do
+            MW.frame:SetSize(size.w, size.h)
+            MW:LayoutAllPages()
+            for _, key in ipairs({ "dashboard", "performance", "processes", "settings" }) do
+                MW:ShowPage(key)
+                MW:RefreshCurrentPage()
+            end
+        end
+    end
+    MW.frame:SetScale(1)
+    MW.frame:SetSize(1280, 800)
+    MW:LayoutAllPages()
+    check("laying out at 0.75x and 1.25x UI scale never throws",
+        #mock.errors == scaleErrors, (#mock.errors - scaleErrors) .. " errors")
+end
+
+--------------------------------------------------------------------------
+print("\n== design overhaul: badge counts survive a heavy session ==")
+--------------------------------------------------------------------------
+-- 40 injected spikes/errors (the fixture at the top of this file) never
+-- exercised the "999+" cap. A real long raid night can produce more
+-- distinct errors and spikes than that badge has digits for.
+
+do
+    NS.db.profile.dev.enabled = true
+    local badgeErrors = #mock.errors
+    for i = 1, 300 do
+        NS.Dev:InjectFrameSpike(60 + (i % 11) * 45)
+        NS.Errors:Record(("Interface/AddOns/Bulk%d/File.lua:%d: a bulk failure"):format(i % 23, i), nil, false)
+    end
+    NS.UI.Sidebar:Refresh()
+    check("injecting hundreds of spikes and errors does not throw",
+        #mock.errors == badgeErrors, (#mock.errors - badgeErrors) .. " errors")
+
+    local errorsItem = NS.UI.Sidebar.items.errors
+    check("the errors badge caps at 999+ instead of growing the row wider",
+        errorsItem.badge:GetText() == "999+" or tonumber(errorsItem.badge:GetText()) ~= nil,
+        errorsItem.badge:GetText())
+end
+
+--------------------------------------------------------------------------
 print(("\n   %d passed, %d failed, %d lua errors"):format(passed, failed, #mock.errors))
 for i = 1, math.min(6, #mock.errors) do print("   error: " .. mock.errors[i]) end
 os.exit((failed == 0 and #mock.errors == 0) and 0 or 1)

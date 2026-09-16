@@ -202,6 +202,20 @@ local defaults = {
             processSortAsc = false,
             hiddenAddons   = {},   -- name -> true, excluded from graphs
             watchedAddons  = {},   -- name -> true, flagged for diagnostics
+
+            -- Appearance. Palette and accent are two independent axes (see
+            -- UI/Theme.lua); density and graph quality only change sizing and
+            -- draw cost, never data. All four are baked into widgets at
+            -- Build() time, so a change here takes effect after /reload -
+            -- the same rule this addon already applies to the CPU-profiling
+            -- CVar toggle.
+            theme          = "wtmdark",
+            accent         = "blue",
+            density        = "comfortable",
+            graphStyle     = "auto",       -- line | area | auto
+            showThresholdZones = false,
+            graphQuality   = "balanced",   -- performance | balanced | high
+            reduceMotion   = false,
         },
     },
 

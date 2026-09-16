@@ -58,6 +58,16 @@ function UI.MetricCard(parent, opts)
     card.spark:SetPoint("BOTTOMRIGHT", -1, 1)
     card.spark:SetHeight(opts.sparkHeight or 22)
 
+    -- A one-word status caption ("Stable", "Elevated", ...), overlaid on the
+    -- sparkline rather than given its own row - the card is already tight on
+    -- height, and a shadow is what keeps three letters readable over a moving
+    -- line of any colour.
+    card.status = UI.Text(card, "tiny", "textSecondary", "RIGHT")
+    card.status:SetPoint("BOTTOMRIGHT", card.spark, "BOTTOMRIGHT", -4, 3)
+    card.status:SetShadowOffset(1, -1)
+    card.status:SetShadowColor(0, 0, 0, 0.9)
+    card.status:Hide()
+
     -- The reason a measurement is unavailable can be a sentence, and a card is
     -- ~150 px wide. Two lines, then it clips: the full text is in the tooltip.
     card.notice = UI.Text(card, "tiny", "textMuted")
@@ -115,6 +125,7 @@ function UI.MetricCard(parent, opts)
         self.sub:Hide()
         self.spark:Hide()
         self.dot:Hide()
+        self.status:Hide()
         self.notice:SetText(reason or WTM.C.TXT_UNAVAILABLE_CLIENT)
         self.notice:Show()
         self.unavailable = true
@@ -128,10 +139,26 @@ function UI.MetricCard(parent, opts)
         self.spark:Show()
         self.notice:Hide()
         self.unavailable = false
+        -- Status stays hidden until the next SetStatus call: whatever it said
+        -- before going unavailable is stale, and re-showing it here would be
+        -- the card claiming to know something it has not measured yet.
     end
 
     function card:SetRing(ring)
         self.spark:SetRing(ring)
+    end
+
+    --- Sets or clears the bottom-right status caption. `nil`/"" hides it -
+    --- most cards have nothing worth saying here, and an empty caption over
+    --- a sparkline reads as a rendering glitch, not as "no status".
+    function card:SetStatus(text, tone)
+        if text and text ~= "" then
+            self.status:SetText(text)
+            self.status:SetTextColor(Theme:Tone(tone or "muted"))
+            self.status:Show()
+        else
+            self.status:Hide()
+        end
     end
 
     function card:Refresh()

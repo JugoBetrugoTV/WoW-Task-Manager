@@ -42,6 +42,11 @@ local OVERHEAD_ROW_HEIGHT = 15
 --
 -- Twelve of them, compact. Six across on a wide window, three on a narrow one.
 
+-- The one-word caption under a KPI card's sparkline. Shares the tone a card
+-- is already coloured by, so this is never a second judgement about the
+-- number - only a second way of reading the same one.
+local STATUS_WORD = { ok = "Stable", warn = "Elevated", crit = "Degraded" }
+
 local CARDS = {
     { key = "fps", label = "FPS", unit = "", colorIndex = 1, worstIsLow = true,
       tooltip = "Frames per second, computed from the real per-frame delta rather than the client's smoothed GetFramerate value." },
@@ -289,6 +294,7 @@ function Page:Build(frame)
                 { value = 60,  label = "60 fps" },
                 { value = 144, label = "144 fps" },
             } or nil,
+            thresholdZones = (spec.key == "frame") or nil,
         })
         graph.spec = spec
         self.graphs[i] = graph
@@ -465,10 +471,11 @@ function Page:Refresh()
     -- KPI tiles
     ------------------------------------------------------------------
     if not isHidden(WIDGETS[1]) then
-        cards.fps:SetValue(Fmt.FPS(ft.fps), "",
-            ft.fps >= 55 and "ok" or (ft.fps >= 30 and "warn" or "crit"))
+        local fpsTone = ft.fps >= 55 and "ok" or (ft.fps >= 30 and "warn" or "crit")
+        cards.fps:SetValue(Fmt.FPS(ft.fps), "", fpsTone)
         cards.fps:SetSub(("now"))
         cards.fps:SetRing(WTM.FrameTime.history.fps)
+        cards.fps:SetStatus(STATUS_WORD[fpsTone], fpsTone)
 
         cards.fpsAvg:SetValue(Fmt.FPS(stats.avgFPS), "")
         cards.fpsAvg:SetSub(("min %s"):format(Fmt.FPS(stats.minFPS)))
@@ -482,10 +489,11 @@ function Page:Refresh()
         cards.low01:SetValue(Fmt.FPS(stats.low01), "fps")
         cards.low01:SetSub("worst 0.1% of frames")
 
-        cards.frame:SetValue(("%.1f"):format(ft.avgMs), "ms",
-            ft.avgMs <= 20 and "ok" or (ft.avgMs <= 40 and "warn" or "crit"))
+        local frameTone = ft.avgMs <= 20 and "ok" or (ft.avgMs <= 40 and "warn" or "crit")
+        cards.frame:SetValue(("%.1f"):format(ft.avgMs), "ms", frameTone)
         cards.frame:SetSub("now")
         cards.frame:SetRing(WTM.FrameTime.history.frameMs)
+        cards.frame:SetStatus(STATUS_WORD[frameTone], frameTone)
 
         cards.frameAvg:SetValue(("%.1f"):format(stats.avgMs or 0), "ms")
         cards.frameAvg:SetSub(("median %s"):format(Fmt.Ms(stats.medianMs or 0)))

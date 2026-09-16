@@ -1,6 +1,6 @@
 # Mock-Testbericht
 
-Erzeugt am 2026-09-12 gegen Addon-Version 0.7.4.
+Erzeugt am 2026-09-12 gegen Addon-Version 0.7.4, aktualisiert am 2026-09-16 gegen 0.8.0.
 
 > **Alles hier ist MOCK VERIFIED, nichts ist REAL CLIENT VERIFIED.**
 > Der Mock verhält sich so, wie ich glaube, dass der Client sich verhält. Wo
@@ -600,6 +600,50 @@ Der Fuzz-Durchgang steht als Assertion in `tools/test.lua` und läuft in allen
 32 Szenarien mit. Baut man `WTM.Scratch` auf das alte `out or {}` zurück,
 meldet er sofort wieder **109 Würfe** — die Prüfung ist also keine, die immer
 grün ist.
+
+## 0.8.0: Design/UI/Graphics Overhaul — was die neue Fläche prüft und was nicht
+
+Der grösste Teil dieser Version ist Optik: Theme-Presets, ein Accent-Picker,
+Density, ein erweiterter Graph-Engine-Funktionsumfang (Nebenlinien,
+Threshold-Zonen, schweregestufte Marker, Graph Style, Graph Quality), ein
+Icon-System und eine zentral geschedulte Animation. Genau dafür gilt die
+Warnung am Kopf dieser Datei am unmittelbarsten: **der Mock zeichnet nichts.**
+Was hier grün ist, beweist Layout, Struktur und Absturzfreiheit — nie, ob es
+gut aussieht.
+
+### Was neu geprüft wird (`tools/test-ui.lua`, sechs neue Blöcke)
+
+| Block | Prüft |
+|---|---|
+| Theme/Accent/Density-Wechsel | Jede Kombination aus 4 Paletten × 5 Accents wird durchgeschaltet, dazwischen wird die aktuelle Seite neu gezeichnet. Kein Wurf, `windowBg` ändert sich pro Palette wirklich, Compact-Density senkt `rowHeight` wirklich, und nach dem Zurückschalten steht wieder exakt der Ausgangswert. |
+| Graph-Engine-Randfälle | Threshold-Zonen zeichnen nachweisbar nichts, solange die Einstellung aus ist, und nachweisbar etwas, sobald sie an ist und die Daten tatsächlich im ELEVATED-Bereich liegen (eigens gebauter Graph mit bekannten Werten, nicht der Recorder-gespeiste Seiten-Graph — der hat in einem headless Lauf nicht zuverlässig genug Daten für eine echte Aussage). Performance-Qualität schaltet die Nebenlinien nachweisbar ab, High schaltet sie nachweisbar an. Auto-Fill zeichnet auf einem Zwei-Serien-Graphen nachweisbar weniger Segmente als erzwungenes Area. Ein extremer Ausreisser (4200 ms in einer Reihe von ~10 ms) wird als `clipped` markiert, der wahre Peak bleibt im Report erhalten. Drei Datenformen, die der normale Fixture-Lauf nie erzeugt — kein Sample, ein Sample, 4096 rohe Samples — werfen beim Zeichnen nicht, und der letzte Fall beweist, dass die Segmentzahl weiter an die Pixelbreite gebunden bleibt, nicht an die Samplezahl. |
+| Pooling-Statistik | `UI.GetGraphPoolStats()` sieht mindestens so viele Graphen wie es Seiten gibt, und `created >= active` gilt (die Kennzahl kann nicht weniger erschaffen haben, als gerade aktiv ist). |
+| Reduced Motion | `UI.Animate` löst bei aktivem „Reduce motion" **synchron**, ohne einen Frame Verzögerung, auf Fraction 1 auf — das ist die ganze Zusicherung, die die Einstellung macht. |
+| UI-Scale-Varianten | Dieselben drei Fenstergrössen zusätzlich bei 0.75× und 1.25× UI-Scale, auf vier repräsentativen Seiten. Nur eine Wurf-Prüfung — Layout-Kollisionen bei Nicht-1.0-Skalierung sind (noch) keine eigene geometrische Prüfung, siehe unten. |
+| Badges unter Last | 300 zusätzliche simulierte Spikes und Fehler (zusätzlich zu den 40 der Standard-Fixture) dürfen nicht werfen, und das Error-Badge in der Sidebar bleibt bei „999+" lesbar statt beliebig breit zu werden. |
+
+### Was weiterhin nur im Retail-Client zu beurteilen ist
+
+* **Ob es tatsächlich hochwertiger aussieht.** Die Prüfungen oben zeigen "zeichnet
+  etwas" bzw. "zeichnet nichts" und "wirft nicht" — nie "sieht gut aus".
+* **Die vier Theme-Presets und fünf Accents als Bild.** Der Mock kann beweisen,
+  dass sich `windowBg` ändert; ob Graphite neben Midnight tatsächlich wie zwei
+  unterscheidbare, professionelle Paletten aussieht statt wie zwei sehr ähnliche
+  Grautöne, ist eine visuelle Frage.
+* **Die elf Icon-Silhouetten bei 12 px.** Ob „bars" wirklich als „hier gibt es
+  einen Graphen" gelesen wird und nicht als undefinierter Klecks, lässt sich nur
+  am Bildschirm beurteilen.
+* **Threshold-Zonen und Nebenlinien als Bildeindruck.** „Subtil, nicht aufdringlich"
+  ist die Vorgabe aus dem Briefing; der Mock kann nur zeigen, dass die Bänder mit
+  welcher Alpha-Stufe gezeichnet werden, nicht, ob sie am Bildschirm subtil wirken.
+* **UI-Scale jenseits von 1.0× als Bildeindruck.** Der neue Block oben beweist nur
+  Wurf-Freiheit bei 0.75×/1.25×; ob dabei irgendwo Text oder eine Graph-Linie
+  sichtbar kollidiert, prüft (noch) keine geometrische Assertion bei
+  Nicht-Standard-Skalierung — nur der bestehende `AuditText`/`AuditTextOverlap`/
+  `AuditVertical`-Dreiklang bei Scale 1.0 tut das systematisch.
+* **Der einmalige Badge-Pulse als Bewegung.** Der Test beweist, dass er synchron
+  auflöst, wenn Motion aus ist; wie er sich anfühlt, wenn Motion an ist, ist keine
+  Assertion, sondern ein Seherlebnis.
 
 ## Was der Mock nicht kann
 

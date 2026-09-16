@@ -49,6 +49,11 @@ local TOPBAR_METRICS = {
     { key = "memory",  label = "LUA MEM",   colorIndex = 4 },
     { key = "cpu",     label = "ADDON CPU", colorIndex = 5 },
     { key = "events",  label = "EVENTS",    colorIndex = 6 },
+    -- No sparkline: there is no per-second error-rate ring buffer anywhere
+    -- else in the addon, and building one for a topbar cell alone would be a
+    -- new always-on counter for a number that is usually zero. The count on
+    -- its own, coloured by severity, is what item 26 actually asked for.
+    { key = "errors",  label = "ERRORS",    colorIndex = 2, noSpark = true },
 }
 
 local function BuildTopbar(window)
@@ -97,11 +102,16 @@ local function BuildTopbar(window)
     local previous
     for i, spec in ipairs(TOPBAR_METRICS) do
         local cell = CreateFrame("Frame", nil, strip)
-        cell:SetWidth(96)
+        -- A cell with no sparkline only ever holds a label and a short count,
+        -- so it does not need the width the other six reserve for a 40 px
+        -- sparkline. Narrowing it (and the gap slightly) is what made room
+        -- for a 7th cell without the strip running into the reload button at
+        -- the minimum window width - it did not have 96 px of slack to spare.
+        cell:SetWidth(spec.noSpark and 60 or 88)
         cell:SetPoint("TOP", 0, -8)
         cell:SetPoint("BOTTOM", 0, 6)
         if previous then
-            cell:SetPoint("LEFT", previous, "RIGHT", 12, 0)
+            cell:SetPoint("LEFT", previous, "RIGHT", 10, 0)
         else
             cell:SetPoint("LEFT")
         end
@@ -114,10 +124,12 @@ local function BuildTopbar(window)
         cell.value = UI.Text(cell, "numeric", "textPrimary")
         cell.value:SetPoint("TOPLEFT", cell.label, "BOTTOMLEFT", 0, -1)
 
-        cell.spark = UI.Sparkline(cell, spec.colorIndex, spec.worstIsLow)
-        cell.spark:SetPoint("BOTTOMLEFT")
-        cell.spark:SetPoint("BOTTOMRIGHT")
-        cell.spark:SetHeight(10)
+        if not spec.noSpark then
+            cell.spark = UI.Sparkline(cell, spec.colorIndex, spec.worstIsLow)
+            cell.spark:SetPoint("BOTTOMLEFT")
+            cell.spark:SetPoint("BOTTOMRIGHT")
+            cell.spark:SetHeight(10)
+        end
 
         cell.spec = spec
         window.topMetrics[spec.key] = cell
@@ -151,6 +163,11 @@ local function RefreshTopbar(window)
 
     metrics.events.value:SetText(Fmt.Rate(WTM.Events.current.perSecond))
 
+    local errorCount = WTM.Errors:CountVisible()
+    metrics.errors.value:SetText(tostring(errorCount))
+    metrics.errors.value:SetTextColor(Theme:Tone(
+        WTM.Errors.stats.internal > 0 and "crit" or (errorCount > 0 and "warn" or "ok")))
+
     -- Sparklines are attached once, then just redrawn.
     if not window.sparksBound then
         metrics.fps.spark:SetRing(WTM.FrameTime.history.fps)
@@ -161,7 +178,7 @@ local function RefreshTopbar(window)
         window.sparksBound = true
     end
     for _, cell in pairs(metrics) do
-        cell.spark:Draw()
+        if cell.spark then cell.spark:Draw() end
     end
 end
 
@@ -428,11 +445,12 @@ MainWindow.redrawStats = {
     totalMs   = 0,
     maxMs     = 0,
     passes    = 0,
+    segments  = 0,   -- column/line textures acquired across every draw
 }
 
 function MainWindow:ResetRedrawStats()
     local r = self.redrawStats
-    r.draws, r.deferred, r.totalMs, r.maxMs, r.passes = 0, 0, 0, 0, 0
+    r.draws, r.deferred, r.totalMs, r.maxMs, r.passes, r.segments = 0, 0, 0, 0, 0, 0
 end
 
 local function TakeSlot(budget, index, total)

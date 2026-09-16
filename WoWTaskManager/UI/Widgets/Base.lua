@@ -64,9 +64,87 @@ function UI.Border(frame, edges, colorKey, alpha, inset)
     return out
 end
 
+--------------------------------------------------------------------------
+-- Animation
+--------------------------------------------------------------------------
+-- One driver frame for every animation in the addon, not one OnUpdate per
+-- animated widget - the performance rule this whole UI is built around
+-- applies to motion exactly as it applies to graphs. Turning "Reduce motion"
+-- on, or measured overhead running above budget, skips the tween and jumps
+-- straight to the end state, so nothing here can be the reason a frame drops.
+local animDriver = CreateFrame("Frame")
+local animActive = {}
+animDriver:Hide()
+
+local function AnimationsAllowed()
+    if WTM.db and WTM.db.profile.ui.reduceMotion then return false end
+    local overhead = WTM.Overhead and WTM.Overhead.current
+    if overhead and overhead.totalMsPerSec then
+        local budget = (WTM.db and WTM.db.profile.sampling.overheadBudgetMs)
+            or WTM.C.OVERHEAD_BUDGET_MS_PER_SEC
+        if overhead.totalMsPerSec >= budget then return false end
+    end
+    return true
+end
+
+animDriver:SetScript("OnUpdate", function(self, elapsed)
+    local n = #animActive
+    for i = n, 1, -1 do
+        local anim = animActive[i]
+        anim.t = anim.t + elapsed
+        local fraction = math.min(1, anim.t / anim.duration)
+        anim.onUpdate(fraction)
+        if fraction >= 1 then
+            table.remove(animActive, i)
+            if anim.onComplete then anim.onComplete() end
+        end
+    end
+    if #animActive == 0 then self:Hide() end
+end)
+
+--- Runs `onUpdate(fraction)` from 0 to 1 over `duration` seconds, then calls
+--- `onComplete` once. If motion is off (by setting or by measured overhead),
+--- `onUpdate(1)` and `onComplete` run immediately instead - every caller's end
+--- state is reached either way, only the path there differs.
+function UI.Animate(duration, onUpdate, onComplete)
+    if not AnimationsAllowed() then
+        onUpdate(1)
+        if onComplete then onComplete() end
+        return
+    end
+    animActive[#animActive + 1] = { t = 0, duration = duration, onUpdate = onUpdate, onComplete = onComplete }
+    animDriver:Show()
+end
+
+--- The one alert animation the brief allows: a single pulse, never a loop.
+--- Used where a number just got worse and the reader's eye is elsewhere -
+--- a badge count going up, a status dot changing tone - not as decoration.
+--- `region` is expected to be a texture dedicated to the pulse (an overlay
+--- created for exactly this, starting hidden) rather than a widget's normal
+--- background - the animation owns this texture's colour and visibility for
+--- its half second, and hides it again when done.
+function UI.PulseOnce(region, tone)
+    if not region.SetColorTexture then return end
+    local r, g, b = Theme:Tone(tone or "warn")
+    region:Show()
+    UI.Animate(0.5, function(fraction)
+        -- Out and back: 0 -> 1 -> 0, so the pulse reads as one flash rather
+        -- than a fade the reader might mistake for the region appearing.
+        local phase = fraction < 0.5 and (fraction * 2) or (2 - fraction * 2)
+        region:SetColorTexture(r, g, b, phase * 0.9)
+    end, function()
+        region:Hide()
+    end)
+end
+
 --- A panel: flat fill, hairline border, and a barely-there highlight along the
 --- top edge that gives it the sense of being lit from above.  That one-pixel
 --- highlight is what stops a flat dark rectangle from reading as a hole.
+---
+--- `opts.accent`, when given a tone name, adds a 2px bar down the left edge.
+--- This is the addon's one lever for "this card matters more/differently
+--- than that one" without a second background colour or a border that
+--- competes with every other border on the page.
 function UI.Panel(parent, opts)
     opts = opts or {}
     local frame = CreateFrame("Frame", nil, parent)
@@ -82,6 +160,27 @@ function UI.Panel(parent, opts)
         highlight:SetColorTexture(1, 1, 1, 0.025)
         frame.topHighlight = highlight
     end
+
+    frame.accentBar = frame:CreateTexture(nil, "ARTWORK", nil, 1)
+    frame.accentBar:SetWidth(2)
+    frame.accentBar:SetPoint("TOPLEFT", 0, 0)
+    frame.accentBar:SetPoint("BOTTOMLEFT", 0, 0)
+    frame.accentBar:Hide()
+
+    --- Shows or hides the left-edge accent bar. `nil` hides it; any tone name
+    --- (as used everywhere else - "ok"/"warn"/"crit"/"accent"/...) shows it in
+    --- that colour. A severity-coded card says what it is before its text is
+    --- even read, the way a coloured folder tab does on a real desk.
+    function frame:SetAccent(tone)
+        if tone then
+            self.accentBar:SetColorTexture(Theme:Tone(tone, 0.9))
+            self.accentBar:Show()
+        else
+            self.accentBar:Hide()
+        end
+    end
+
+    if opts.accent then frame:SetAccent(opts.accent) end
     return frame
 end
 

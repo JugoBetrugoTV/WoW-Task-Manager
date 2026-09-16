@@ -319,9 +319,27 @@ function Dev:FinishBenchmark()
     out(("  %-16s %d   |cff5d6675redraws the round-robin budget refused this window; they happen on a later pass, they are not lost|r")
         :format("deferred", r.deferred))
     out(("  %-16s %d"):format("budget passes", r.passes))
+    if r.draws > 0 then
+        out(("  %-16s %d across %d draw%s  =  %.1f/draw")
+            :format("segments drawn", r.segments, r.draws, r.draws == 1 and "" or "s",
+                    r.segments / r.draws))
+    end
     out(("  %-18s %6.3f %%  of the frame budget at the current %s FPS")
         :format("frame budget", WTM.Overhead:GetFrameBudgetPercent(),
                 Fmt.FPS(WTM.FrameTime.current.fps)))
+
+    ------------------------------------------------------------------
+    -- Pooling: how many textures/lines this addon has ever needed at once.
+    ------------------------------------------------------------------
+    header("graph pooling")
+    local pool = WTM.UI.GetGraphPoolStats()
+    out(("  %-16s %d graphs built this session")
+        :format("graphs", pool.graphs))
+    out(("  %-16s %d created (high-water mark)   %d active   %d free")
+        :format("textures+lines", pool.created, pool.active, pool.free))
+    out(("  %-16s %d of the %d created are lines")
+        :format("lines", pool.lines, pool.created))
+    out("  |cff5d6675'created' only grows when a graph draws wider than it ever has before; it is not the redraw count|r")
 
     local frameSamples = WTM.Scheduler:GetFrameCallbackSamples()
     if cur.frameCostMs and frameSamples > 0 then

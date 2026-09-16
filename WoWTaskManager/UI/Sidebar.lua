@@ -26,35 +26,35 @@ UI.Sidebar = Sidebar
 -- they want by the kind of question they are asking rather than by name.
 local NAV = {
     { heading = "Overview" },
-    { key = "dashboard",   label = "Dashboard" },
-    { key = "overview",    label = "Session overview" },
+    { key = "dashboard",   label = "Dashboard",         icon = "grid" },
+    { key = "overview",    label = "Session overview",  icon = "grid" },
 
     { heading = "Live" },
-    { key = "processes",   label = "Processes" },
-    { key = "resources",   label = "Live resources" },
-    { key = "performance", label = "Performance" },
-    { key = "frames",      label = "Frame analysis" },
-    { key = "network",     label = "Network" },
-    { key = "events",      label = "Events" },
-    { key = "memory",      label = "Memory" },
+    { key = "processes",   label = "Processes",         icon = "bars" },
+    { key = "resources",   label = "Live resources",    icon = "bars" },
+    { key = "performance", label = "Performance",       icon = "bars" },
+    { key = "frames",      label = "Frame analysis",    icon = "bars" },
+    { key = "network",     label = "Network",           icon = "network" },
+    { key = "events",      label = "Events",            icon = "pulse" },
+    { key = "memory",      label = "Memory",            icon = "stack" },
 
     { heading = "Analysis" },
-    { key = "incidents",   label = "Incidents" },
-    { key = "timeline",    label = "Timeline" },
-    { key = "diagnostics", label = "Diagnostics" },
-    { key = "impact",      label = "Addon impact" },
-    { key = "compare",     label = "Compare" },
-    { key = "errors",      label = "Lua errors" },
-    { key = "reports",     label = "Reports" },
+    { key = "incidents",   label = "Incidents",         icon = "diamond" },
+    { key = "timeline",    label = "Timeline",          icon = "timeline" },
+    { key = "diagnostics", label = "Diagnostics",       icon = "target" },
+    { key = "impact",      label = "Addon impact",      icon = "target" },
+    { key = "compare",     label = "Compare",           icon = "target" },
+    { key = "errors",      label = "Lua errors",        icon = "document" },
+    { key = "reports",     label = "Reports",           icon = "document" },
 
     { heading = "History" },
-    { key = "sessions",    label = "Sessions" },
-    { key = "recording",   label = "Recording" },
+    { key = "sessions",    label = "Sessions",          icon = "history" },
+    { key = "recording",   label = "Recording",         icon = "history" },
 
     { heading = "System" },
-    { key = "system",      label = "System" },
-    { key = "alerts",      label = "Alerts" },
-    { key = "settings",    label = "Settings" },
+    { key = "system",      label = "System",            icon = "cog" },
+    { key = "alerts",      label = "Alerts",            icon = "diamond" },
+    { key = "settings",    label = "Settings",          icon = "cog" },
 }
 
 Sidebar.items = {}
@@ -119,13 +119,23 @@ function Sidebar:Build(parent)
             item.rule:SetColorTexture(T("accent"))
             item.rule:Hide()
 
+            item.icon = UI.Icons.Build(item, entry.icon or "dot", 12, "textMuted")
+            item.icon:SetPoint("LEFT", 18, 0)
+
             item.text = UI.Text(item, "body", "textSecondary")
-            item.text:SetPoint("LEFT", 18, 0)
+            item.text:SetPoint("LEFT", item.icon, "RIGHT", 8, 0)
             item.text:SetText(entry.label)
 
             -- Right-aligned count badge (spike count, storm count, ...)
             item.badge = UI.Text(item, "numericSm", "textMuted", "RIGHT")
             item.badge:SetPoint("RIGHT", -14, 0)
+
+            -- The one allowed "alert pulse" animation: flashes once, behind
+            -- the row, when its badge count goes UP - never on every refresh,
+            -- never looping. See UI.PulseOnce in Widgets/Base.lua.
+            item.pulseOverlay = item:CreateTexture(nil, "ARTWORK", nil, -1)
+            item.pulseOverlay:SetAllPoints()
+            item.pulseOverlay:Hide()
 
             item.key = entry.key
             item:SetScript("OnEnter", function(self)
@@ -209,6 +219,7 @@ function Sidebar:SetActive(key)
         item.active = active
         item.rule:SetShown(active)
         item.text:SetTextColor(T(active and "textPrimary" or "textSecondary"))
+        item.icon:SetColor(active and "accent" or "textMuted")
     end
 end
 
@@ -221,12 +232,20 @@ function Sidebar:Refresh()
     local function badge(key, count, tone)
         local item = self.items[key]
         if not item then return end
-        if count and count > 0 then
+        count = count or 0
+        if count > 0 then
             item.badge:SetText(count > 999 and "999+" or tostring(count))
             item.badge:SetTextColor(Theme:Tone(tone or "muted"))
         else
             item.badge:SetText("")
         end
+        -- Only a rising count pulses. The FIRST refresh has no previous count
+        -- to compare against, so it never pulses on login - a badge that is
+        -- merely showing what already happened is not new information.
+        if item.lastBadgeCount and count > item.lastBadgeCount then
+            UI.PulseOnce(item.pulseOverlay, tone or "warn")
+        end
+        item.lastBadgeCount = count
     end
 
     badge("incidents", #WTM.SpikeDetector.clusters + (WTM.SpikeDetector:GetOpenCluster() and 1 or 0),

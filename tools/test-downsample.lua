@@ -200,9 +200,14 @@ for key, card in pairs(dash.cards or {}) do
 end
 
 for key, cell in pairs(NS.UI.MainWindow.frame.topMetrics or {}) do
-    check(("topbar sparkline '%s' downsamples the right way"):format(key),
-        cell.spark.worstIsLow == ExpectedWorstIsLow(key),
-        ("key=%s worstIsLow=%s"):format(key, tostring(cell.spark.worstIsLow)))
+    -- Not every cell has a sparkline (the ERRORS cell deliberately does not -
+    -- there is no per-second error-rate ring buffer to downsample), so there
+    -- is nothing to check on those.
+    if cell.spark then
+        check(("topbar sparkline '%s' downsamples the right way"):format(key),
+            cell.spark.worstIsLow == ExpectedWorstIsLow(key),
+            ("key=%s worstIsLow=%s"):format(key, tostring(cell.spark.worstIsLow)))
+    end
 end
 NS.UI.MainWindow:Close()
 

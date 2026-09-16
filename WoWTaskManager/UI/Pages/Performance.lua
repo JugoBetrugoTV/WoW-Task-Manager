@@ -166,6 +166,11 @@ function Page:Build(frame)
                 { value = 60,  label = "60 fps" },
                 { value = 144, label = "144 fps" },
             } or nil,
+            -- GOOD/ELEVATED/POOR/STUTTER background bands, off by default
+            -- (Settings > Appearance): frame time is the one metric this
+            -- addon already classifies by real thresholds, so it is the one
+            -- graph where a zone means something rather than being decoration.
+            thresholdZones = (spec.key == "frame") or nil,
         })
         graph.spec = spec
         self.graphs[i] = graph

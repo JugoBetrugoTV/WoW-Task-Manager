@@ -64,6 +64,7 @@
     <!-- UI -->
     <Script file="UI\Theme.lua"/>
     <Script file="UI\Widgets\Base.lua"/>
+    <Script file="UI\Widgets\Icons.lua"/>
     <Script file="UI\Widgets\Layout.lua"/>
     <Script file="UI\Widgets\ScrollList.lua"/>
     <Script file="UI\Widgets\Tooltip.lua"/>

@@ -50,9 +50,39 @@ local MIN_HEADROOM   = 1.15  -- keep the peak off the ceiling
 local MARKER_TICK_HEIGHT = 9
 local MAX_MARKERS_DRAWN  = 40
 
+-- Graph Quality trades column width for draw cost: fewer, wider columns is
+-- fewer pooled textures acquired per redraw, which is the actual cost this
+-- setting controls. It also turns off the minor grid and forces area fill
+-- off, since a fill is one extra texture per column.
+local QUALITY_COLUMN_WIDTH = { performance = 9, balanced = COLUMN_WIDTH, high = 3 }
+
+local function CurrentQuality()
+    local ui = WTM.db and WTM.db.profile and WTM.db.profile.ui
+    return (ui and ui.graphQuality) or "balanced"
+end
+
+-- Real severity thresholds (33/50/100/250 ms), the same ones the spike
+-- detector itself classifies against - never a second, invented set of
+-- numbers for the graph to disagree with.
+local ZONE_BANDS = {
+    { from = 0,   to = 16.7,                         kind = "good" },
+    { from = 16.7, to = WTM.C.SPIKE_DEFAULTS.minor.absMs, kind = "elevated" },
+    { from = WTM.C.SPIKE_DEFAULTS.minor.absMs, to = WTM.C.SPIKE_DEFAULTS.stutter.absMs, kind = "poor" },
+    { from = WTM.C.SPIKE_DEFAULTS.stutter.absMs, to = math.huge, kind = "stutter" },
+}
+
 --------------------------------------------------------------------------
 -- Construction
 --------------------------------------------------------------------------
+
+-- Every graph ever built, so a benchmark can total up pool usage across the
+-- whole addon without every page having to hand its graphs to something.
+-- Graphs are never destroyed once built (same as every other widget here),
+-- so a plain growing array costs nothing worth pooling itself.
+--
+-- This is a table separate from UI.Graph itself: UI.Graph is a function, and
+-- a function value has no fields of its own to hang a registry on.
+UI.GraphInstances = UI.GraphInstances or {}
 
 function UI.Graph(parent, opts)
     opts = opts or {}
@@ -76,6 +106,10 @@ function UI.Graph(parent, opts)
     -- Horizontal guides at values that mean something, e.g. 16.67 ms (60 FPS).
     -- They make "is this good" answerable at a glance without reading the axis.
     graph.referenceLines = opts.referenceLines
+    -- Frame-time threshold zones: subtle GOOD/ELEVATED/POOR/STUTTER background
+    -- bands. Opt-in per graph (only the metric is frame time in ms) and
+    -- gated by the settings toggle at draw time.
+    graph.thresholdZones = opts.thresholdZones
     graph.dirty = true
 
     ------------------------------------------------------------------
@@ -110,6 +144,24 @@ function UI.Graph(parent, opts)
         function(p)
             local texture = p:CreateTexture(nil, "BACKGROUND")
             texture:SetHeight(1)
+            return texture
+        end,
+        function(texture) texture:ClearAllPoints() end)
+
+    -- Minor grid lines sit a sub-level behind the majors so they never win a
+    -- pixel fight with them, and threshold zones a further sub-level behind
+    -- that so they never win one with either.
+    graph.minorGridPool = RegionPool.New(plot,
+        function(p)
+            local texture = p:CreateTexture(nil, "BACKGROUND", nil, -1)
+            texture:SetHeight(1)
+            return texture
+        end,
+        function(texture) texture:ClearAllPoints() end)
+
+    graph.zonePool = RegionPool.New(plot,
+        function(p)
+            local texture = p:CreateTexture(nil, "BACKGROUND", nil, -2)
             return texture
         end,
         function(texture) texture:ClearAllPoints() end)
@@ -225,7 +277,9 @@ function UI.Graph(parent, opts)
         series.times  = times
         series.label  = opts2.label
         series.colorIndex = opts2.colorIndex or index
-        series.fill   = opts2.fill ~= false
+        -- nil (not requested) lets the Graph Style setting decide at draw
+        -- time; true/false is an explicit per-series override of it.
+        series.fillRequested = opts2.fill
         series.hidden = opts2.hidden
         series.unit   = opts2.unit
         self.dirty = true
@@ -374,8 +428,12 @@ function UI.Graph(parent, opts)
         -- measurement on the benchmark rather than a claim in a comment.
         local drawStart = WTM.Compat.Now()
 
+        local quality = CurrentQuality()
+
         self.columnPool:ReleaseAll()
         self.gridPool:ReleaseAll()
+        self.minorGridPool:ReleaseAll()
+        self.zonePool:ReleaseAll()
         self.markerPool:ReleaseAll()
         self.referencePool:ReleaseAll()
         for i = 1, #self.referenceLabels do self.referenceLabels[i]:Hide() end
@@ -385,9 +443,41 @@ function UI.Graph(parent, opts)
         local range = math.max(self.minRange, maxValue - minValue)
 
         ------------------------------------------------------------
+        -- Threshold zones (frame-time graphs only, opt in + settings gated)
+        ------------------------------------------------------------
+        if self.thresholdZones and WTM.db.profile.ui.showThresholdZones then
+            for i = 1, #ZONE_BANDS do
+                local band = ZONE_BANDS[i]
+                local lowFraction  = math.max(0, (band.from - minValue) / range)
+                local highFraction = math.min(1, (band.to - minValue) / range)
+                if band.kind ~= "good" and highFraction > lowFraction and lowFraction < 1 then
+                    local zone = self.zonePool:Acquire()
+                    zone:SetColorTexture(Theme:Zone(band.kind))
+                    zone:ClearAllPoints()
+                    zone:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", 0, height * lowFraction)
+                    zone:SetPoint("BOTTOMRIGHT", plot, "BOTTOMRIGHT", 0, height * lowFraction)
+                    zone:SetHeight(math.max(1, height * (highFraction - lowFraction)))
+                end
+            end
+        end
+
+        ------------------------------------------------------------
         -- Grid + axis
         ------------------------------------------------------------
         if self.showGrid then
+            -- Minor lines at the midpoint of each major interval. Skipped
+            -- entirely at Performance quality: they are pure texture, and
+            -- that setting exists to remove exactly this kind of thing.
+            if quality ~= "performance" then
+                for i = 0, GRID_LINES - 1 do
+                    local fraction = (i + 0.5) / GRID_LINES
+                    local line = self.minorGridPool:Acquire()
+                    line:SetColorTexture(T("gridMinor", 0.5))
+                    line:SetPoint("LEFT", plot, "BOTTOMLEFT", 0, height * fraction)
+                    line:SetPoint("RIGHT", plot, "BOTTOMRIGHT", 0, height * fraction)
+                end
+            end
+
             for i = 0, GRID_LINES do
                 local fraction = i / GRID_LINES
                 local line = self.gridPool:Acquire()
@@ -435,8 +525,21 @@ function UI.Graph(parent, opts)
         ------------------------------------------------------------
         -- Series
         ------------------------------------------------------------
-        local columns = math.max(2, math.floor(width / COLUMN_WIDTH))
+        local columns = math.max(2, math.floor(width / (QUALITY_COLUMN_WIDTH[quality] or COLUMN_WIDTH)))
         local drewAnything = false
+        local segmentsDrawn = 0
+
+        -- Auto fill only applies when a single series is on screen: two
+        -- overlapping fills read as mud, which is the actual complaint a
+        -- flat "always fill" behaviour ran into on dual-series graphs.
+        local activeSeriesCount = 0
+        for s = 1, #self.series do
+            local sr = self.series[s]
+            if sr.values and #sr.values > 0 and not sr.hidden then
+                activeSeriesCount = activeSeriesCount + 1
+            end
+        end
+        local graphStyle = (quality == "performance") and "line" or (WTM.db.profile.ui.graphStyle or "auto")
 
         for s = 1, #self.series do
             local series = self.series[s]
@@ -447,6 +550,12 @@ function UI.Graph(parent, opts)
                 local count = #values
                 local r, g, b = Theme:Series(series.colorIndex)
                 local columnWidth = width / math.max(1, count - 1)
+
+                local doFill
+                if series.fillRequested ~= nil then doFill = series.fillRequested
+                elseif graphStyle == "line" then doFill = false
+                elseif graphStyle == "area" then doFill = true
+                else doFill = (activeSeriesCount <= 1) end
 
                 series.renderValues = series.renderValues or {}
                 series.renderTimes  = series.renderTimes or {}
@@ -466,7 +575,7 @@ function UI.Graph(parent, opts)
                     local y = fraction * height
 
                     -- Area fill: one column texture per sample, pooled.
-                    if series.fill then
+                    if doFill then
                         local column = self.columnPool:Acquire()
                         if over then
                             -- Clamped at the ceiling: coloured as an alert so a
@@ -479,6 +588,7 @@ function UI.Graph(parent, opts)
                         column:SetWidth(math.max(1, columnWidth + 0.5))
                         column:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", x - columnWidth / 2, 0)
                         column:SetHeight(math.max(1, y))
+                        segmentsDrawn = segmentsDrawn + 1
                     end
 
                     -- Line segment on top.
@@ -487,6 +597,7 @@ function UI.Graph(parent, opts)
                         line:SetColorTexture(r, g, b, 0.95)
                         line:SetStartPoint("BOTTOMLEFT", plot, previousX, previousY)
                         line:SetEndPoint("BOTTOMLEFT", plot, x, y)
+                        segmentsDrawn = segmentsDrawn + 1
                     elseif not self.linePool then
                         -- Column fallback: a bright cap on the fill reads as a
                         -- line without needing CreateLine at all.
@@ -496,6 +607,7 @@ function UI.Graph(parent, opts)
                         cap:SetWidth(math.max(1, columnWidth + 0.5))
                         cap:SetHeight(1.5)
                         cap:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", x - columnWidth / 2, y)
+                        segmentsDrawn = segmentsDrawn + 1
                     end
 
                     previousX, previousY = x, y
@@ -539,11 +651,18 @@ function UI.Graph(parent, opts)
                     if fraction >= 0 and fraction <= 1 then
                         local def = WTM.C.MARKERS[marker.kind]
                         local tick = self.markerPool:Acquire()
+                        -- A spike marker's ref carries its severity kind
+                        -- (minor/stutter/heavy/freeze); a heavier spike gets a
+                        -- taller, more opaque tick so it stands out from the
+                        -- run-of-the-mill ones without needing a second glyph.
+                        local order = WTM.C.SPIKE_ORDER[marker.ref]
+                        local height2 = order and (MARKER_TICK_HEIGHT + order * 3) or MARKER_TICK_HEIGHT
+                        local alpha   = order and math.min(1, 0.55 + order * 0.12) or 0.8
                         -- A short tick along the bottom, not a full-height rule:
                         -- twenty-odd full-height rules turned the plot into a
                         -- barcode and buried the line they annotate.
-                        tick:SetSize(2, MARKER_TICK_HEIGHT)
-                        tick:SetColorTexture(Theme:Tone(def and def.tone or "muted", 0.8))
+                        tick:SetSize(order and (2 + order * 0.5) or 2, height2)
+                        tick:SetColorTexture(Theme:Tone(def and def.tone or "muted", alpha))
                         tick:ClearAllPoints()
                         tick:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", fraction * width, 0)
                         drawn = drawn + 1
@@ -564,9 +683,13 @@ function UI.Graph(parent, opts)
                 if v > hi then hi = v end
                 sum = sum + v
             end
-            local text = ("min %s   avg %s   max %s")
-                :format(self.valueFormat(lo), self.valueFormat(sum / #primary.values),
-                        self.valueFormat(hi))
+            -- "Current" is free: the last sample is already in hand from the
+            -- loop above. Answers "what is it doing right now" without the
+            -- reader having to find the rightmost edge of the line.
+            local current = primary.values[#primary.values]
+            local text = ("now %s   min %s   avg %s   max %s")
+                :format(self.valueFormat(current), self.valueFormat(lo),
+                        self.valueFormat(sum / #primary.values), self.valueFormat(hi))
             if self.clipped then
                 -- Say so, rather than letting a clamped point look like a
                 -- point that reached exactly the ceiling.
@@ -619,10 +742,12 @@ function UI.Graph(parent, opts)
         local stats = UI.MainWindow and UI.MainWindow.redrawStats
         if stats then
             local spent = WTM.Compat.Now() - drawStart
-            stats.draws   = stats.draws + 1
-            stats.totalMs = stats.totalMs + spent
+            stats.draws    = stats.draws + 1
+            stats.totalMs  = stats.totalMs + spent
+            stats.segments = stats.segments + segmentsDrawn
             if spent > stats.maxMs then stats.maxMs = spent end
         end
+        self.lastSegments = segmentsDrawn
     end
 
     --- Sets the time window the graph represents, used for the axis and markers.
@@ -687,7 +812,37 @@ function UI.Graph(parent, opts)
     graph:SetScript("OnSizeChanged", function(self) self.dirty = true end)
     graph:SetScript("OnShow", function(self) self.dirty = true end)
 
+    UI.GraphInstances[#UI.GraphInstances + 1] = graph
     return graph
+end
+
+--- Sums created/active/free across every pool of every graph ever built.
+--- `created` is the number that matters: it is the high-water mark of
+--- textures and lines this addon has ever needed at once, and it stops
+--- growing once every graph has been drawn at its widest.
+function UI.GetGraphPoolStats()
+    local totals = { created = 0, active = 0, free = 0, lines = 0, graphs = #UI.GraphInstances }
+    local POOL_FIELDS = { "columnPool", "gridPool", "minorGridPool", "zonePool", "referencePool", "markerPool" }
+    for i = 1, #UI.GraphInstances do
+        local graph = UI.GraphInstances[i]
+        for _, field in ipairs(POOL_FIELDS) do
+            local pool = graph[field]
+            if pool then
+                local created, active, free = pool:GetStats()
+                totals.created = totals.created + created
+                totals.active  = totals.active + active
+                totals.free    = totals.free + free
+            end
+        end
+        if graph.linePool then
+            local created, active, free = graph.linePool:GetStats()
+            totals.lines = totals.lines + created
+            totals.created = totals.created + created
+            totals.active  = totals.active + active
+            totals.free    = totals.free + free
+        end
+    end
+    return totals
 end
 
 --------------------------------------------------------------------------

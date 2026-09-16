@@ -532,6 +532,72 @@ function Page:Build(frame)
     Add(capsButton, 28)
 
     ------------------------------------------------------------------
+    AddSection("APPEARANCE")
+
+    local appearanceNote = UI.Text(host, "small", "textMuted", "LEFT")
+    appearanceNote:SetHeight(30)
+    UI.Wrap(appearanceNote, 2)
+    appearanceNote:SetText("Colours and sizes here are baked into widgets when they are built, not re-read every frame, so a change here takes effect after a reload rather than instantly.")
+    Add(appearanceNote, 34)
+
+    Add(Segmented(host, "Theme", {
+        { key = "wtmdark",      label = "WTM Dark" },
+        { key = "graphite",     label = "Graphite" },
+        { key = "midnight",     label = "Midnight" },
+        { key = "highcontrast", label = "High Contrast" },
+    },
+    function() return profile.ui.theme end,
+    function(v) profile.ui.theme = v end,
+    "Palette only - no setting here changes where anything is on screen. Takes effect after a reload."), 48)
+
+    Add(Segmented(host, "Accent", {
+        { key = "blue",   label = "Blue" },
+        { key = "cyan",   label = "Cyan" },
+        { key = "green",  label = "Green" },
+        { key = "orange", label = "Orange" },
+        { key = "purple", label = "Purple" },
+    },
+    function() return profile.ui.accent end,
+    function(v) profile.ui.accent = v end,
+    "Independent of the theme above: any accent works with any palette. Takes effect after a reload."), 48)
+
+    Add(Segmented(host, "Density", {
+        { key = "comfortable", label = "Comfortable" },
+        { key = "compact",     label = "Compact" },
+    },
+    function() return profile.ui.density end,
+    function(v) profile.ui.density = v end,
+    "Compact tightens row heights and padding - felt most on Processes, Events, Errors and Sessions, which are lists. Takes effect after a reload."), 48)
+
+    Add(Segmented(host, "Graph style", {
+        { key = "line", label = "Line" },
+        { key = "area", label = "Area" },
+        { key = "auto", label = "Auto" },
+    },
+    function() return profile.ui.graphStyle end,
+    function(v) profile.ui.graphStyle = v end,
+    "Area fills the space under the line. Auto (the default) fills only a graph showing a single series - two overlapping fills read as mud, so a multi-series graph stays line-only regardless of this setting."), 48)
+
+    Add(Checkbox(host, "Threshold zones on frame time graphs",
+        function() return profile.ui.showThresholdZones end,
+        function(v) profile.ui.showThresholdZones = v end,
+        "Subtle GOOD / ELEVATED / POOR / STUTTER background bands at the same thresholds the spike detector itself classifies against (33 / 50 / 100 ms), on the graphs that show frame time."))
+
+    Add(Segmented(host, "Graph quality", {
+        { key = "performance", label = "Performance", detail = "widest columns, no minor grid, no fill" },
+        { key = "balanced",    label = "Balanced",     detail = "the default" },
+        { key = "high",        label = "High",         detail = "narrowest columns, every graph detail" },
+    },
+    function() return profile.ui.graphQuality end,
+    function(v) profile.ui.graphQuality = v end,
+    "Trades graph detail for redraw cost by changing how many columns a graph draws - the same downsampling the graph already does, just to a coarser or finer grid. If WTM's own overhead is running high, dropping this to Performance is the first lever to try."), 48)
+
+    Add(Checkbox(host, "Reduce motion",
+        function() return profile.ui.reduceMotion end,
+        function(v) profile.ui.reduceMotion = v end,
+        "Turns off the small hover and highlight transitions. Nothing in this addon animates a measurement - this only affects UI chrome - so turning it off never changes what a number says, only how the chrome around it moves."))
+
+    ------------------------------------------------------------------
     AddSection("INTERFACE")
     local minimapCheck = Checkbox(host, "Show the minimap button",
         function() return WTM.UI.MinimapButton:IsShown() end,

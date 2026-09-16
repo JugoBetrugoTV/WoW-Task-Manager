@@ -207,7 +207,10 @@ function SpikeDetector:Record(kind, frameMs, at, baselineMs, simulated)
 
     self:AddToCluster(spike)
 
-    WTM.Context:AddMarker("fpsdrop", ("%s  %.0f ms"):format(spike.label, frameMs))
+    -- ref carries the spike severity kind (minor/stutter/heavy/freeze), so a
+    -- graph rendering this marker can size and colour the tick by how bad the
+    -- spike actually was instead of drawing every fpsdrop identically.
+    WTM.Context:AddMarker("fpsdrop", ("%s  %.0f ms"):format(spike.label, frameMs), kind)
 
     -- Dense sampling around the event, then back down.
     WTM.Scheduler:TriggerBurst()

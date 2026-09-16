@@ -62,6 +62,7 @@ function Page:Build(frame)
     self.graph = UI.Graph(canvas, {
         title = "FRAME TIME (worst frame per bucket)",
         unit = "ms", showReferenceLines = true,
+        thresholdZones = true,
     })
     grid:Add(self.graph, { span = 4, height = 220, key = "graph" })
 

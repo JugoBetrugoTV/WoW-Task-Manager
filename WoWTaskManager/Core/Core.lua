@@ -149,6 +149,7 @@ local function Initialize()
     Compat.ApplyFlavorModule()
 
     WTM.Database:Initialize()
+    WTM.UI.Theme:ApplyFromProfile()
     WTM.Caps:Detect()
 
     for name, module in WTM:IterateModules() do
