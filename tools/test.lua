@@ -36,7 +36,7 @@ end
 local mock = require("wowmock")
 
 function GetBuildInfo()
-    local map = { [120100] = "12.1.0", [50504] = "5.5.4", [20506] = "2.5.6", [11509] = "1.15.9" }
+    local map = { [120100] = "12.1.0", [50504] = "5.5.4", [20506] = "2.5.6", [11509] = "1.15.9", [16001] = "1.60.1" }
     return map[INTERFACE] or "0.0.0", "60000", "Feb 10 2026", INTERFACE
 end
 WOW_PROJECT_ID = (INTERFACE >= 100000) and 1 or 2
@@ -242,7 +242,8 @@ print(("== %s, scriptProfile=%s%s%s =="):format(GetBuildInfo(), cvars.scriptProf
 -- Compatibility
 --------------------------------------------------------------------------
 local expectedFlavor = ({ [120100] = "retail", [50504] = "mop",
-                          [20506] = "tbc", [11509] = "classic" })[INTERFACE]
+                          [20506] = "tbc", [11509] = "classic",
+                          [16001] = "forever" })[INTERFACE]
 check("flavor detection", NS.Compat.flavor == expectedFlavor, NS.Compat.flavor)
 check("interface recorded", NS.Compat.tocVersion == INTERFACE)
 

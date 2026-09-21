@@ -8,7 +8,7 @@
 # Run from the repository root:  ./tools/run-tests.sh
 set -u
 
-FLAVORS="120100:Retail-12.1.0 50504:MoP-5.5.4 20506:TBC-2.5.6 11509:Classic-1.15.9"
+FLAVORS="120100:Retail-12.1.0 50504:MoP-5.5.4 20506:TBC-2.5.6 11509:Classic-1.15.9 16001:Forever-1.60.1"
 fails=0
 total=0
 

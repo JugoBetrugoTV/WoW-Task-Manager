@@ -1,4 +1,4 @@
-# Die vier Ziel-Clients als getrennte Plattformen
+# Die fünf Ziel-Clients als getrennte Plattformen
 
 ## Identifikation
 
@@ -13,11 +13,34 @@ Client teilweise gar nicht definiert sind.
 | MoP Classic | 5.5.4 | `50504` | `mop` | `_Mists` |
 | TBC Anniversary | 2.5.6 | `20506` | `tbc` | `_TBC` |
 | Classic Era | 1.15.9 | `11509` | `classic` | `_Vanilla` |
+| WoW Forever (Community-Server, inoffiziell) | 1.60.1 | `16001` | `forever` | `_Forever` |
 
 Interface-Nummer = `major * 10000 + minor * 100 + patch`.
 
 Die Erkennung ist bewusst **bereichsbasiert** (`>= 110000` → retail,
 `50000..59999` → mop, …), damit ein Patch auf 12.1.1 oder 5.5.5 das Addon nicht bricht.
+
+### WoW Forever ist kein Blizzard-Client
+
+`16001` ist keine Zahl, die Blizzard je vergeben hat — echtes Vanilla endete bei
+`11200` (Patch 1.12.1), und die modernen Classic-Neuauflagen fangen deutlich höher an.
+Der Wert kommt vom Nutzer selbst (recherchiert, nicht am Client verifiziert) und passt
+zur Formel oben für Patch „1.60.1". Weil unbekannt ist, ob der Server-Client technisch
+näher an Classic Era oder an etwas ganz Eigenem liegt, bekommt er einen eigenen
+Flavor-Key (`forever`) statt in den `classic`-Eimer gemischt zu werden — eine falsche
+Zuordnung wäre schlimmer als eine ehrliche "wissen wir nicht"-Markierung.
+
+Es gibt **bewusst keine eigene `Compatibility/Forever.lua`**: alles, was diese Datei
+enthalten könnte (welche CVars existieren, welche Events fehlen, was `unsupported`
+ist), wäre für einen Client erfunden, den niemand hier je gestartet hat. Genau dasselbe
+Muster wie bei Wrath und Cata, die ebenfalls im Erkennungscode stehen, aber keine
+eigene Datei haben — "Flavor ohne eigene Datei" ist ein bereits existierender,
+funktionierender Fall, kein Provisorium.
+
+`isModernEngine = (tocVersion >= 11300)` behandelt `16001` wie Classic Era: als
+moderne Engine mit `C_Timer`, `C_AddOns` usw. Das ist eine begründete Vermutung
+(die Zahl liegt weit über allem, was Blizzard je für die alte 1.12-Engine vergeben
+hat), keine verifizierte Tatsache — siehe [`07-API-VERIFICATION.md`](07-API-VERIFICATION.md).
 
 ## Lua-Sprachstand
 

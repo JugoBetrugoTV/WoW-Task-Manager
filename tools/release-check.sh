@@ -28,6 +28,7 @@ declare -A EXPECTED_INTERFACE=(
     ["_Mists"]="50504"       # MoP Classic 5.5.4
     ["_TBC"]="20506"         # TBC Anniversary 2.5.6
     ["_Vanilla"]="11509"     # Classic Era 1.15.9
+    ["_Forever"]="16001"     # WoW Forever 1.60.1 (unofficial community server)
 )
 
 for suffix in "${!EXPECTED_INTERFACE[@]}"; do
@@ -314,7 +315,7 @@ fi
 # The end-to-end simulated session. It is not an assertion suite, but it is the
 # only thing that drives a full login-to-logout run - and it had rotted against
 # a renamed field without anything noticing, because nothing ran it.
-for iface in 120100 50504 20506 11509; do
+for iface in 120100 50504 20506 11509 16001; do
     if lua5.1 tools/run.lua "$iface" >/tmp/wtm-run-$iface.log 2>&1 \
         && grep -q "== OK ==" /tmp/wtm-run-$iface.log; then
         pass "simulated session runs clean on $iface"
