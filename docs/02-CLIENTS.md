@@ -9,42 +9,44 @@ Client teilweise gar nicht definiert sind.
 
 | Client | Version | Interface | Flavor-Key | TOC-Suffix |
 |---|---|---|---|---|
-| Retail / Midnight | 12.1.0 | `120100` | `retail` | `_Mainline` |
+| Retail / Midnight | 12.1.0 / 12.1.5 | `120100`, `120105` | `retail` | `_Mainline` |
 | MoP Classic | 5.5.4 | `50504` | `mop` | `_Mists` |
 | TBC Anniversary | 2.5.6 | `20506` | `tbc` | `_TBC` |
 | Classic Era | 1.15.9 | `11509` | `classic` | `_Vanilla` |
-| WoW Forever (Community-Server, inoffiziell) | 1.60.1 | `16001` | `forever` | `_Forever` |
+| World of Warcraft: Forever (Beta) | 1.60.1 | `16001` | `forever` | `_Camelot` (Fallback `_Mainline`) |
 
 Interface-Nummer = `major * 10000 + minor * 100 + patch`.
 
 Die Erkennung ist bewusst **bereichsbasiert** (`>= 110000` → retail,
 `50000..59999` → mop, …), damit ein Patch auf 12.1.1 oder 5.5.5 das Addon nicht bricht.
 
-### WoW Forever ist kein Blizzard-Client
+Eine TOC-Datei kann mehrere Interface-Nummern kommagetrennt tragen
+(`## Interface: 120100, 120105, 16001`). `_Mainline.toc` nutzt das für Retail 12.1.0
+und 12.1.5 sowie für Forever, das `_Mainline` als Fallback liest.
 
-`16001` ist keine Zahl, die Blizzard je vergeben hat — echtes Vanilla endete bei
-`11200` (Patch 1.12.1), und die modernen Classic-Neuauflagen fangen deutlich höher an.
-Der Wert kommt vom Nutzer selbst (recherchiert, nicht am Client verifiziert) und passt
-zur Formel oben für Patch „1.60.1". Weil unbekannt ist, ob der Server-Client technisch
-näher an Classic Era oder an etwas ganz Eigenem liegt, bekommt er einen eigenen
-Flavor-Key (`forever`) statt in den `classic`-Eimer gemischt zu werden — eine falsche
-Zuordnung wäre schlimmer als eine ehrliche "wissen wir nicht"-Markierung.
+**TOC-Endungen sind die Game Types des Clients, nicht frei wählbar.** Eine Endung,
+die kein Client kennt, wird still ignoriert. Gültig sind laut
+[warcraft.wiki.gg/wiki/TOC_format](https://warcraft.wiki.gg/wiki/TOC_format):
+`_Standard`, `_Mainline`, `_Mists`, `_Cata`, `_Wrath`, `_TBC`, `_Camelot`, `_Vanilla`,
+`_Classic`, `_Plunderstorm`. `release-check.sh` prüft das.
+
+### World of Warcraft: Forever
+
+Offizielle Blizzard-Beta (Battle.net-Launcher: "World of Warcraft: Forever – Beta",
+`1.60.1.70009`), Game Type `camelot`. Patch 1.60.x läuft auf der Classic-Linie, bringt
+aber die Mainline-UI/API mit. Deshalb bekommt Forever einen eigenen Flavor-Key
+(`forever`, Bereich `16000..16099`, vor dem generischen 1.x-Bereich geprüft) statt als
+"Classic Era" erkannt zu werden.
 
 Es gibt **bewusst keine eigene `Compatibility/Forever.lua`**: alles, was diese Datei
-enthalten könnte (welche CVars existieren, welche Events fehlen, was `unsupported`
-ist), wäre für einen Client erfunden, den niemand hier je gestartet hat. Genau dasselbe
-Muster wie bei Wrath und Cata, die ebenfalls im Erkennungscode stehen, aber keine
-eigene Datei haben — "Flavor ohne eigene Datei" ist ein bereits existierender,
-funktionierender Fall, kein Provisorium.
-
-`isModernEngine = (tocVersion >= 11300)` behandelt `16001` wie Classic Era: als
-moderne Engine mit `C_Timer`, `C_AddOns` usw. Das ist eine begründete Vermutung
-(die Zahl liegt weit über allem, was Blizzard je für die alte 1.12-Engine vergeben
-hat), keine verifizierte Tatsache — siehe [`07-API-VERIFICATION.md`](07-API-VERIFICATION.md).
+enthalten könnte (welche CVars existieren, welche Events fehlen), wäre erfunden, bis
+jemand im echten Client nachgesehen hat. Dasselbe Muster wie bei Wrath und Cata —
+"Flavor ohne eigene Datei" ist ein bestehender, funktionierender Fall.
+Details und offene Punkte: [`07-API-VERIFICATION.md`](07-API-VERIFICATION.md).
 
 ## Lua-Sprachstand
 
-Alle vier Clients laufen auf **Lua 5.1** mit Blizzard-Erweiterungen. Es gibt keinen
+Alle fünf Clients laufen auf **Lua 5.1** mit Blizzard-Erweiterungen. Es gibt keinen
 Unterschied im Sprachkern. Konsequenzen für den Code:
 
 * Kein `goto`, kein `::label::` (Lua 5.2).

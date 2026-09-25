@@ -24,10 +24,11 @@ Alles darüber fragt ausschließlich `WTM.Compat.*` und `WTM.Caps.*`.
 ```
 WoWTaskManager/
   WoWTaskManager.toc            Fallback-TOC
-  WoWTaskManager_Mainline.toc   Retail   12.1.0  (Interface 120100)
+  WoWTaskManager_Mainline.toc   Retail   12.1.0/12.1.5  (Interface 120100, 120105; + 16001 als Forever-Fallback)
   WoWTaskManager_Mists.toc      MoP      5.5.4   (Interface 50504)
   WoWTaskManager_TBC.toc        TBC      2.5.6   (Interface 20506)
   WoWTaskManager_Vanilla.toc    Classic  1.15.9  (Interface 11509)
+  WoWTaskManager_Camelot.toc    Forever  1.60.1  (Interface 16001, Game Type camelot)
   Includes.xml                  einzige Dateiliste, von allen TOCs referenziert
 
   Libs/                         Ace3 (optional, siehe docs/05-LIBRARIES.md)

@@ -6,8 +6,8 @@ Think Windows Task Manager plus Resource Monitor plus a profiler's timeline - bu
 for the WoW client, and built only out of things the addon API can actually
 measure.
 
-![status](https://img.shields.io/badge/status-v0.7.1-blue)
-![mock](https://img.shields.io/badge/mock-32%2F32%20scenarios-brightgreen)
+![status](https://img.shields.io/badge/status-v0.8.3-blue)
+![mock](https://img.shields.io/badge/mock-40%2F40%20scenarios-brightgreen)
 ![real client](https://img.shields.io/badge/real%20client-Retail%20verified-brightgreen)
 
 ---
@@ -16,12 +16,13 @@ measure.
 
 | Client | Version | Interface | TOC |
 |---|---|---|---|
-| Retail / Midnight | 12.1.0 | `120100` | `WoWTaskManager_Mainline.toc` |
+| Retail / Midnight | 12.1.0, 12.1.5 | `120100`, `120105` | `WoWTaskManager_Mainline.toc` |
 | Mists of Pandaria Classic | 5.5.4 | `50504` | `WoWTaskManager_Mists.toc` |
 | Burning Crusade Anniversary | 2.5.6 | `20506` | `WoWTaskManager_TBC.toc` |
 | Classic Era | 1.15.9 | `11509` | `WoWTaskManager_Vanilla.toc` |
+| World of Warcraft: Forever (Beta) | 1.60.1 | `16001` | `WoWTaskManager_Camelot.toc` |
 
-These are treated as four different platforms. Every optional API is probed at
+These are treated as five different platforms. Every optional API is probed at
 runtime rather than assumed from the version number, and anything the client does
 not support is shown as **Unavailable on this client** with the reason - never as a
 zero, and never as an estimate.
@@ -34,6 +35,7 @@ zero, and never as an estimate.
 | MoP Classic 5.5.4 | MOCK VERIFIED | **NOT TESTED** |
 | TBC Anniversary 2.5.6 | MOCK VERIFIED | **NOT TESTED** |
 | Classic Era 1.15.9 | MOCK VERIFIED | **NOT TESTED** |
+| WoW: Forever 1.60.1 (Beta) | MOCK VERIFIED | **NOT TESTED** |
 
 **A passing mock suite is not client support.** `tools/wowmock.lua` behaves the
 way the author believes the client behaves; where that assumption is wrong the

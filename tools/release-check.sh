@@ -22,37 +22,49 @@ section() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 section "TOC files"
 #---------------------------------------------------------------------------
 
-# Flavour suffix -> the Interface number that flavour must declare.
+# TOC suffix -> every Interface number that file must list (comma-separated
+# lists are allowed by the client). Suffixes are the client's own game types,
+# not our names for them: a suffix no client recognises is silently ignored,
+# which is exactly how WoW Forever ended up reading _Mainline (120100) and
+# flagging the addon out of date while _Forever.toc sat unused.
 declare -A EXPECTED_INTERFACE=(
-    ["_Mainline"]="120100"   # Retail / Midnight 12.1.0
-    ["_Mists"]="50504"       # MoP Classic 5.5.4
-    ["_TBC"]="20506"         # TBC Anniversary 2.5.6
-    ["_Vanilla"]="11509"     # Classic Era 1.15.9
-    ["_Forever"]="16001"     # WoW Forever 1.60.1 (unofficial community server)
+    ["_Mainline"]="120100 120105 16001"  # Retail 12.1.0 / 12.1.5; Forever also reads _Mainline
+    ["_Mists"]="50504"                   # MoP Classic 5.5.4
+    ["_TBC"]="20506"                     # TBC Anniversary 2.5.6
+    ["_Vanilla"]="11509"                 # Classic Era 1.15.9
+    ["_Camelot"]="16001"                 # World of Warcraft: Forever 1.60.1 (game type camelot)
+    ["-"]="120100 120105 50504 20506 11509 16001" # fallback WoWTaskManager.toc (bash has no empty keys)
 )
 
 for suffix in "${!EXPECTED_INTERFACE[@]}"; do
     toc="$ADDON_DIR/WoWTaskManager${suffix}.toc"
-    expected="${EXPECTED_INTERFACE[$suffix]}"
-
+    [ "$suffix" = "-" ] && toc="$ADDON_DIR/WoWTaskManager.toc"
     if [ ! -f "$toc" ]; then
         fail "$toc is missing"
         continue
     fi
 
-    actual=$(grep -m1 '^## Interface:' "$toc" | tr -d '\r' | awk '{print $3}')
-    if [ "$actual" = "$expected" ]; then
-        pass "$(basename "$toc") declares Interface $expected"
+    listed=" $(grep -m1 '^## Interface:' "$toc" | tr -d '\r' | sed 's/^## Interface://; s/,/ /g' | xargs) "
+    missing=""
+    for want in ${EXPECTED_INTERFACE[$suffix]}; do
+        case "$listed" in *" $want "*) ;; *) missing="$missing $want" ;; esac
+    done
+    if [ -z "$missing" ]; then
+        pass "$(basename "$toc") declares Interface${listed% }"
     else
-        fail "$(basename "$toc") declares Interface '$actual', expected '$expected'"
+        fail "$(basename "$toc") declares Interface${listed% }- missing:$missing"
     fi
 done
 
-if [ -f "$ADDON_DIR/WoWTaskManager.toc" ]; then
-    pass "fallback WoWTaskManager.toc present"
-else
-    fail "fallback WoWTaskManager.toc is missing"
-fi
+# Only suffixes the client actually recognises (warcraft.wiki.gg TOC_format).
+for toc in "$ADDON_DIR"/WoWTaskManager_*.toc; do
+    suffix=$(basename "$toc" .toc | sed 's/^WoWTaskManager_//')
+    case "$suffix" in
+        Standard|Mainline|Mists|Cata|Wrath|TBC|Camelot|Vanilla|Classic|Plunderstorm)
+            pass "$(basename "$toc") uses a suffix the client recognises" ;;
+        *)  fail "$(basename "$toc"): '_$suffix' is not a client game type - no client will ever read it" ;;
+    esac
+done
 
 #---------------------------------------------------------------------------
 section "SavedVariables"
@@ -189,7 +201,9 @@ fi
 # Absolute local paths. Deliberately narrow: a drive-letter pattern also
 # matches escape sequences in ordinary prose ("generated:\n\n" looks like
 # "d:\"), so this looks for real home directories and real install roots.
-paths=$(grep -rn -e "/home/" -e "/Users/" -e "World of Warcraft" \
+# The install root is matched with its path separator: "World of Warcraft" on
+# its own is also a product name ("World of Warcraft: Forever").
+paths=$(grep -rn -e "/home/" -e "/Users/" -e 'World of Warcraft[/\\]' \
         "$ADDON_DIR" --include=*.lua || true)
 if [ -n "$paths" ]; then
     fail "absolute local paths in addon source:"
@@ -315,7 +329,7 @@ fi
 # The end-to-end simulated session. It is not an assertion suite, but it is the
 # only thing that drives a full login-to-logout run - and it had rotted against
 # a renamed field without anything noticing, because nothing ran it.
-for iface in 120100 50504 20506 11509 16001; do
+for iface in 120100 120105 50504 20506 11509 16001; do
     if lua5.1 tools/run.lua "$iface" >/tmp/wtm-run-$iface.log 2>&1 \
         && grep -q "== OK ==" /tmp/wtm-run-$iface.log; then
         pass "simulated session runs clean on $iface"

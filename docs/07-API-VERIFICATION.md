@@ -36,37 +36,39 @@ Die drei Classic-Clients sind weiterhin ausschliesslich MOCK VERIFIED.
 | MoP Classic | 5.5.4 | `50504` | ✅ MOCK VERIFIED | ⬜ **NOT TESTED** |
 | TBC Anniversary | 2.5.6 | `20506` | ✅ MOCK VERIFIED | ⬜ **NOT TESTED** |
 | Classic Era | 1.15.9 | `11509` | ✅ MOCK VERIFIED | ⬜ **NOT TESTED** |
-| WoW Forever (Community-Server) | 1.60.1 | `16001` | ✅ MOCK VERIFIED | ⬜ **NOT TESTED** |
+| Retail / Midnight | 12.1.5 | `120105` | ✅ MOCK VERIFIED | ⬜ **NOT TESTED** (nur zusätzlich im `## Interface:` gelistet) |
+| World of Warcraft: Forever (Beta) | 1.60.1 (Build 70009) | `16001` | ✅ MOCK VERIFIED | ⬜ **NOT TESTED** |
 
-### WoW Forever — Sonderfall unter den fünf Clients
+### World of Warcraft: Forever — Sonderfall unter den fünf Clients
 
-Kein Blizzard-Client, kein Zugriff meinerseits auf den Server. Alles hier beruht auf
-einer einzigen, vom Nutzer recherchierten Angabe (Interface `16001`, nicht am
-laufenden Client mit `/run print(select(4, GetBuildInfo()))` bestätigt) und
-Vermutung, nicht auf einer echten Session:
+**Korrektur zu 0.8.2:** Forever ist kein Community-Server, sondern eine offizielle
+Blizzard-Beta im Battle.net-Launcher ("World of Warcraft: Forever – Beta",
+Version `1.60.1.70009`, Screenshot des Nutzers). Laut
+[warcraft.wiki.gg/wiki/TOC_format](https://warcraft.wiki.gg/wiki/TOC_format) ist der
+Game Type `camelot`, die TOC-Endung also **`_Camelot`** — nicht `_Forever`. Die
+0.8.2-Datei `WoWTaskManager_Forever.toc` wurde vom Client deshalb nie gelesen; er fiel
+auf `_Mainline.toc` (Interface `120100`) zurück und markierte das Addon als veraltet.
+Seit 0.8.3 gibt es `WoWTaskManager_Camelot.toc` (`16001`), und `_Mainline.toc` listet
+`16001` zusätzlich, damit auch der Fallback-Pfad passt. `release-check.sh` lehnt jetzt
+jede TOC-Endung ab, die keinem echten Game Type entspricht.
 
-* **Interface-Nummer:** unverifiziert. Wenn sie falsch ist, greift trotzdem
-  einer der bestehenden Zweige — entweder ein anderer bekannter Bereich, oder der
-  generische "unbekannter Client"-Fallback (behandelt wie Retail, Feature-Detection
-  übernimmt). Das Addon lädt in keinem Fall mit einer falschen Vermutung über sich
-  selbst; es probiert.
-* **Engine-Generation:** unbekannt. `isModernEngine` nimmt "ja" an, weil `16001`
-  weit über der alten 1.12-Engine liegt — eine begründete Vermutung, keine Prüfung.
-  Falls der Server tatsächlich auf der alten Engine läuft (Lua 5.0, kein `C_Timer`,
-  keine `C_AddOns`-Namespaces), würde das Addon trotzdem starten, weil jede
-  optionale API einzeln über `Compat.Resolve`/`SafeCall` geprüft wird statt aus der
-  Versionsnummer angenommen zu werden — aber wie viel davon dann tatsächlich
-  **funktioniert** statt nur **nicht abstürzt**, ist offen.
+Was belegt ist (Web-Quellen, Stand 2026-09): Interface `16001` (mehrere Addons
+tragen es bereits), Mainline-UI/API-Oberfläche (`C_Spell`, `C_UnitAuras` usw.), Produkt
+`wow_classic_beta`. Was **nicht** belegt ist:
+
+* **`WOW_PROJECT_ID`:** unbekannt — es gibt keine eigene `WOW_PROJECT_*`-Konstante.
+  Das Addon erkennt Forever ohnehin über die Interface-Nummer, nicht über die Projekt-ID.
+* **CPU-Profiling (`scriptProfile`, `GetAddOnCPUUsage`):** ob die Beta diese
+  Funktionen und die CVar freigibt, ist offen. Fehlen sie, zeigt das Addon "n/a" statt
+  zu raten (`Compat.Resolve`/`SafeCall`).
 * **Keine eigene `Compatibility/Forever.lua`:** bewusst nicht geschrieben. Jede
-  Angabe darin (welche CVars, welche Events, welche Grafik-Optionen fehlen) wäre
-  erfunden. Sobald der Nutzer selbst getestet hat, kann eine echte Datei aus echten
-  Beobachtungen entstehen — genau wie `Classic.lua`, `TBC.lua` und `Mists.lua` es
-  aus echten Lücken heraus wurden.
+  Angabe darin (welche CVars, welche Events fehlen) wäre erfunden, bis jemand im
+  echten Client nachgesehen hat.
 * **Was ein Test bestätigen müsste, bevor diese Zeile auf REAL CLIENT VERIFIED
-  wechselt:** Addon lädt und erscheint korrekt in der Addon-Liste (Interface-Zahl
-  stimmt tatsächlich), `/wtm` öffnet ohne Fehler, Dashboard zeigt plausible FPS/
-  Frametime, mindestens eine Grafikeinstellung (`scriptProfile` an/aus) funktioniert
-  wie erwartet.
+  wechselt:** Addon erscheint in der Addon-Liste **ohne** "veraltet"-Hinweis,
+  `/run print(select(4, GetBuildInfo()))` gibt `16001` aus, `/wtm` öffnet ohne Fehler,
+  Dashboard zeigt plausible FPS/Frametime, System-Seite nennt den Client
+  "World of Warcraft: Forever", `scriptProfile` an/aus verhält sich wie erwartet.
 
 ### Test 1 — Retail 12.1.0 (Build 69497), 2026-09-01
 

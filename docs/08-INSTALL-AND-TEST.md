@@ -25,6 +25,7 @@ Interface/AddOns/WoWTaskManager/
     WoWTaskManager_Mists.toc
     WoWTaskManager_TBC.toc
     WoWTaskManager_Vanilla.toc
+    WoWTaskManager_Camelot.toc
     Includes.xml
     Core/  Compatibility/  Monitoring/  History/  Analysis/  UI/  Utils/  Libs/
 ```

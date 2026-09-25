@@ -49,13 +49,12 @@ elseif tocVersion >= 30000 and tocVersion < 40000 then
 elseif tocVersion >= 20000 and tocVersion < 30000 then
     flavor, flavorName = "tbc", "Burning Crusade Classic"
 elseif tocVersion >= 16000 and tocVersion < 16100 then
-    -- WoW Forever: an unofficial community server, not a Blizzard build. Its
-    -- Interface number (patch 1.60.x, computed the same way Blizzard's own
-    -- numbers are: major*10000 + minor*100 + patch) sits in a gap none of
-    -- Blizzard's own clients ever used, so it gets its own bucket rather than
-    -- being mislabelled "Classic Era" - we do not actually know whether its
-    -- engine matches Classic Era's, only that it is not that.
-    flavor, flavorName = "forever", "WoW Forever (community server)"
+    -- World of Warcraft: Forever (Blizzard beta, game type "camelot", TOC
+    -- suffix _Camelot). Patch 1.60.x rides the classic progression line but
+    -- runs Mainline's UI/API surface, so it gets its own bucket: calling it
+    -- "Classic Era" would be wrong in both directions. Checked before the
+    -- generic 1.x range below, which would otherwise swallow it.
+    flavor, flavorName = "forever", "World of Warcraft: Forever"
 elseif tocVersion >= 10000 and tocVersion < 20000 then
     flavor, flavorName = "classic", "Classic Era"
 else
@@ -73,7 +72,7 @@ Compat.isMoP     = (flavor == "mop")
 Compat.isTBC     = (flavor == "tbc")
 Compat.isClassic = (flavor == "classic")
 Compat.isForever = (flavor == "forever")
--- "modern" == built on the post-8.0 engine.  All four target clients are.
+-- "modern" == built on the post-8.0 engine.  All five target clients are.
 Compat.isModernEngine = (tocVersion >= 11300)
 
 function Compat:GetClientLabel()
