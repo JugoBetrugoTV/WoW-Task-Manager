@@ -100,6 +100,13 @@ function M.HistogramPercentile(h, p)
     for i = 1, HIST_N do
         running = running + h[i]
         if running >= target then
+            -- The last bucket's upper bound is HIST_MAX itself, not
+            -- HistogramValue(HIST_N + 1) - that formula keeps growing past
+            -- index HIST_N and would report a percentile above the domain
+            -- max (e.g. ~516 ms instead of 500) whenever the target frame
+            -- falls in the worst bucket, which a session with real freezes
+            -- will do.
+            if i >= HIST_N then return HIST_MAX end
             return M.HistogramValue(i + 1)
         end
     end

@@ -755,6 +755,16 @@ do
     Theme:ApplyFromProfile()
     check("windowBg is restored once switched back to the default",
         Theme.hex.windowBg == before, Theme.hex.windowBg)
+
+    -- Bug found by review: Theme:Zone's fallback for an unrecognized kind
+    -- called C4("muted", alpha) directly instead of going through Theme:Tone,
+    -- and "muted" is not a HEX table key ("textMuted" is) - so it silently
+    -- rendered solid black instead of the intended muted grey.
+    local zr, zg, zb = Theme:Zone("__no_such_zone_kind__")
+    local tr, tg, tb = Theme:Tone("muted")
+    check("Theme:Zone's unknown-kind fallback resolves through Theme:Tone, not raw C4",
+        zr == tr and zg == tg and zb == tb,
+        ("zone=%.3f,%.3f,%.3f tone=%.3f,%.3f,%.3f"):format(zr, zg, zb, tr, tg, tb))
 end
 
 --------------------------------------------------------------------------
@@ -778,7 +788,7 @@ do
     -- true regardless of whether the feature actually works.
     ------------------------------------------------------------------
     local zoneValues, zoneTimes = {}, {}
-    for i = 1, 60 do zoneValues[i] = 20 + (i % 10); zoneTimes[i] = i end  -- 20-29 ms: ELEVATED band
+    for i = 1, 60 do zoneValues[i] = 35 + (i % 10); zoneTimes[i] = i end  -- 35-44 ms: ELEVATED band (33-50)
     local zoneGraph = NS.UI.Graph(MW.frame, { title = "probe: threshold zones", thresholdZones = true })
     zoneGraph:SetSize(300, 150)
     zoneGraph:Show()

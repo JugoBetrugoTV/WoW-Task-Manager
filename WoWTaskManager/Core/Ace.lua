@@ -371,6 +371,17 @@ end
 function Ace.Embed(obj)
     if Ace.AceEvent then
         Ace.AceEvent:Embed(obj)
+        -- Real AceEvent-3.0 registers unknown events with no guard at all,
+        -- unlike EventMixin above (see the SafeRegisterEvent call in its
+        -- RegisterEvent). A client that doesn't know an event (e.g.
+        -- ENCOUNTER_START on Classic Era) would otherwise throw straight out
+        -- of whichever module's OnEnable calls RegisterEvent, on any client
+        -- where some OTHER installed addon happens to load real Ace3.
+        local aceRegisterEvent = obj.RegisterEvent
+        obj.RegisterEvent = function(self, event, handler)
+            if not Compat.IsEventSupported(event) then return false end
+            return aceRegisterEvent(self, event, handler)
+        end
     else
         for k, v in pairs(EventMixin) do obj[k] = obj[k] or v end
     end

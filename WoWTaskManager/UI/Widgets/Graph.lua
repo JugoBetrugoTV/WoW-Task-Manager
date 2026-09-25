@@ -61,14 +61,14 @@ local function CurrentQuality()
     return (ui and ui.graphQuality) or "balanced"
 end
 
--- Real severity thresholds (33/50/100/250 ms), the same ones the spike
--- detector itself classifies against - never a second, invented set of
--- numbers for the graph to disagree with.
+-- Real severity thresholds (33/50/100 ms), the same ones the spike detector
+-- itself classifies against and the Settings tooltip advertises - never a
+-- second, invented set of numbers for the graph to disagree with.
 local ZONE_BANDS = {
-    { from = 0,   to = 16.7,                         kind = "good" },
-    { from = 16.7, to = WTM.C.SPIKE_DEFAULTS.minor.absMs, kind = "elevated" },
-    { from = WTM.C.SPIKE_DEFAULTS.minor.absMs, to = WTM.C.SPIKE_DEFAULTS.stutter.absMs, kind = "poor" },
-    { from = WTM.C.SPIKE_DEFAULTS.stutter.absMs, to = math.huge, kind = "stutter" },
+    { from = 0, to = WTM.C.SPIKE_DEFAULTS.minor.absMs, kind = "good" },
+    { from = WTM.C.SPIKE_DEFAULTS.minor.absMs, to = WTM.C.SPIKE_DEFAULTS.stutter.absMs, kind = "elevated" },
+    { from = WTM.C.SPIKE_DEFAULTS.stutter.absMs, to = WTM.C.SPIKE_DEFAULTS.heavy.absMs, kind = "poor" },
+    { from = WTM.C.SPIKE_DEFAULTS.heavy.absMs, to = math.huge, kind = "stutter" },
 }
 
 --------------------------------------------------------------------------

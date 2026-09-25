@@ -211,6 +211,54 @@ for key, cell in pairs(NS.UI.MainWindow.frame.topMetrics or {}) do
 end
 NS.UI.MainWindow:Close()
 
+--------------------------------------------------------------------------
+-- 7. Two bugs found by review, both about data silently going missing.
+--------------------------------------------------------------------------
+-- 7a. GetSeries(field, from, to, 0, ...) means "no decimation, every bucket" -
+-- Timeline's inspector relies on exactly this - but 0 is truthy in Lua, so
+-- `not maxPoints` used to let it fall into the decimation loop, where
+-- `step = n / 0` is inf and `for p = 1, 0 do` never runs: an empty series
+-- for any non-empty selection.
+local zeroValues, zeroTimes = NS.Recorder:GetSeries("frameMaxMs", base, GetTime())
+local zeroValues0 = NS.Recorder:GetSeries("frameMaxMs", base, GetTime(), 0)
+check("GetSeries with maxPoints=0 returns every bucket, same as maxPoints=nil",
+    #zeroValues0 == #zeroValues and #zeroValues0 > 0,
+    ("nil=%d zero=%d"):format(#zeroValues, #zeroValues0))
+
+-- 7b. ExportBuckets (what Sessions:Finalize persists at logout) used to copy
+-- only fields 1-9 of each bucket, dropping addonKB and wtmMs (fields 10-11)
+-- from every saved session - Sessions:GetStoredSeries reads those back by
+-- index, so Timeline's "ADDON MB" / "WTM MS/S" tracks had no data for any
+-- past session while working fine for the live one. It also skipped tier 1's
+-- still-open `pending` bucket, silently dropping up to the last second of a
+-- session, unlike GetRange which already flushes it for live graphs.
+tier.pending = { GetTime() + 1, 60, 9, 9, 5, 5, 500, 1, 0.1, 4242, 0.5 }
+local exported = NS.Recorder:ExportBuckets()
+local sawAddonKB, sawWtmMs, sawPending = false, false, false
+for i = 1, #exported do
+    local row = exported[i]
+    if row[F.addonKB] and row[F.addonKB] ~= 0 then sawAddonKB = true end
+    if row[F.wtmMs] and row[F.wtmMs] ~= 0 then sawWtmMs = true end
+    if row[1] == tier.pending[1] then sawPending = true end
+end
+check("ExportBuckets carries addonKB through to persisted sessions", sawAddonKB)
+check("ExportBuckets carries wtmMs through to persisted sessions", sawWtmMs)
+check("ExportBuckets includes the finest tier's still-open bucket", sawPending)
+tier.pending = nil
+
+--------------------------------------------------------------------------
+-- 8. HistogramPercentile must not report past the domain it was built over.
+--------------------------------------------------------------------------
+-- A target that falls in the very last bucket used to return
+-- HistogramValue(HIST_N + 1), which keeps extrapolating past HIST_MAX
+-- instead of clamping to it - reported as ~516 ms instead of the true 500 ms
+-- ceiling whenever a session's worst frames land in that bucket.
+local hist = NS.Math.NewHistogram()
+for i = 1, 100 do NS.Math.HistogramAdd(hist, 500) end  -- >= HIST_MAX: lands in the last bucket
+local p999 = NS.Math.HistogramPercentile(hist, 0.999)
+check("HistogramPercentile never reports above the histogram's own ceiling",
+    p999 <= 500, p999)
+
 print(("   %d passed, %d failed, %d lua errors"):format(passed, failed, #mock.errors))
 for i = 1, math.min(5, #mock.errors) do print("   error: " .. mock.errors[i]) end
 os.exit((failed == 0 and #mock.errors == 0) and 0 or 1)

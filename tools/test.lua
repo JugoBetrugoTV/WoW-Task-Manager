@@ -606,6 +606,40 @@ check("sessions capped", #NS.db.global.sessions <= NS.db.profile.retention.maxSe
 check("incidents capped", #NS.db.global.incidents <= NS.db.profile.retention.maxIncidents,
     #NS.db.global.incidents)
 
+-- Prune() must not silently trim data once Migrate() has already decided the
+-- database must be left untouched (future schema, or a failed migration
+-- step) - DescribeSchema() tells the user exactly that, and Prune() used to
+-- run anyway right after, from both Initialize() at login and
+-- Sessions:Finalize() at logout. Sessions are already at the cap from the
+-- block above, so the guard is pushed past it first - otherwise an unguarded
+-- Prune() would have nothing left to trim and the check would pass either way.
+do
+    for i = 1, 50 do
+        table.insert(NS.db.global.sessions, 1, { startedAt = 100000 + i, duration = 60 })
+    end
+    local inflated = #NS.db.global.sessions
+    check("test setup pushed sessions past the retention cap",
+        inflated > NS.db.profile.retention.maxSessions, inflated)
+
+    NS.Database.schemaFromFuture = true
+    NS.Database:Prune()
+    check("Prune() is a no-op once the database is marked schemaFromFuture",
+        #NS.db.global.sessions == inflated, #NS.db.global.sessions)
+    NS.Database.schemaFromFuture = nil
+
+    NS.Database.schemaError = "test migration failure"
+    NS.Database:Prune()
+    check("Prune() is a no-op once a migration has failed (schemaError set)",
+        #NS.db.global.sessions == inflated, #NS.db.global.sessions)
+    NS.Database.schemaError = nil
+
+    -- The guard must gate real pruning, not disable it outright.
+    NS.Database:Prune()
+    check("Prune() still prunes once both flags are clear",
+        #NS.db.global.sessions <= NS.db.profile.retention.maxSessions,
+        #NS.db.global.sessions)
+end
+
 --------------------------------------------------------------------------
 -- Live monitor
 --------------------------------------------------------------------------

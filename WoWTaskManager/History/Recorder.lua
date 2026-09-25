@@ -258,7 +258,10 @@ function Recorder:GetSeries(fieldName, fromTime, toTime, maxPoints, outValues, o
     -- newer field out of it yields nil. Zero is the honest substitute: it says
     -- "nothing was recorded here", and it keeps old history readable instead
     -- of forcing a migration that would have to invent values anyway.
-    if not maxPoints or n <= maxPoints then
+    -- maxPoints == 0 means "no decimation, give me every bucket" (Timeline's
+    -- inspector relies on this) - and 0 is truthy in Lua, so it must be
+    -- checked explicitly rather than folded into the `not maxPoints` guard.
+    if not maxPoints or maxPoints <= 0 or n <= maxPoints then
         for i = 1, n do
             outValues[i] = buckets[i][field] or 0
             outTimes[i]  = buckets[i][F_T]
@@ -318,12 +321,30 @@ end
 --- session cannot blow up the database.
 function Recorder:ExportBuckets()
     local out = {}
+    -- Copy every field the bucket actually has (BUCKET_FIELDS, not a
+    -- hardcoded 9): addonKB and wtmMs were appended after this loop was
+    -- first written, and a fixed 9-wide copy silently dropped both from
+    -- every stored session ever since - Sessions:GetStoredSeries reads them
+    -- back by index, so "ADDON MB" and "WTM MS/S" on Timeline had no data
+    -- for any past session while working fine for the live one.
+    local nFields = Recorder.BUCKET_FIELDS
     for tierIndex = #self.tiers, 1, -1 do
         local buckets = self.tiers[tierIndex].buckets
         for i = 1, #buckets do
             local b = buckets[i]
-            out[#out + 1] = { b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9] }
+            local row = {}
+            for f = 1, nFields do row[f] = b[f] end
+            out[#out + 1] = row
         end
+    end
+    -- The finest tier's still-open bucket too, so the last (up to) one second
+    -- of the session is not silently dropped - same reason GetRange surfaces
+    -- it for live graphs ("so the graph reaches 'now'").
+    local live = self.tiers[1].pending
+    if live then
+        local row = {}
+        for f = 1, nFields do row[f] = live[f] end
+        out[#out + 1] = row
     end
     table.sort(out, function(a, b) return a[1] < b[1] end)
 

@@ -399,6 +399,14 @@ end
 -- them cannot leave the database unbounded.
 
 function Database:Prune()
+    -- Migrate() already decided this database must be left untouched (it is
+    -- from a future schema version, or a migration step failed partway) and
+    -- DescribeSchema() tells the user exactly that - trimming it anyway,
+    -- silently, from the very next line would make that message a lie. Both
+    -- callers (Initialize() at login, Sessions:Finalize() at logout) go
+    -- through here, so the guard only needs to live in one place.
+    if self.schemaFromFuture or self.schemaError then return end
+
     local g = self.db.global
     local retention = self.db.profile.retention
 

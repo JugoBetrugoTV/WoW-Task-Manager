@@ -69,8 +69,9 @@ function M.Install()
         if not next(listeners[event]) then
             -- Ace3 does NOT guard against unknown events; it lets the error
             -- through, which is why the addon must never rely on it doing so.
-            local ok = pcall(eventFrame.RegisterEvent, eventFrame, event)
-            if not ok then listeners[event] = nil return false end
+            -- (No pcall here on purpose: a real client raises straight out of
+            -- this call, and a stub that swallows it stops being faithful.)
+            eventFrame:RegisterEvent(event)
         end
         listeners[event][self] = handler or event
         return true

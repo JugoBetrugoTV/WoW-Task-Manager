@@ -197,7 +197,10 @@ local ZONE_ALPHA = { good = 0, elevated = 0.05, poor = 0.07, stutter = 0.10 }
 local ZONE_TONE  = { good = "ok", elevated = "warn", poor = "warn", stutter = "crit" }
 function Theme:Zone(kind, alphaOverride)
     local tone = ZONE_TONE[kind] or "muted"
-    return C4(tone, alphaOverride or ZONE_ALPHA[kind] or 0.06)
+    -- Through Theme:Tone, not C4 directly: tone names and HEX table keys are
+    -- not the same strings ("muted" maps to HEX.textMuted), and only Tone
+    -- knows that mapping.
+    return Theme:Tone(tone, alphaOverride or ZONE_ALPHA[kind] or 0.06)
 end
 
 --- Rewrites the palette/accent tokens in place and drops the colour cache, so
