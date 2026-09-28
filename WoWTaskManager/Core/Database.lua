@@ -399,6 +399,7 @@ end
 -- them cannot leave the database unbounded.
 
 function Database:Prune()
+    self.sizeEstimateAt = nil
     -- Migrate() already decided this database must be left untouched (it is
     -- from a future schema version, or a migration step failed partway) and
     -- DescribeSchema() tells the user exactly that - trimming it anyway,
@@ -462,6 +463,7 @@ local function EstimateSize(value, depth)
     elseif t == "boolean" then return 4
     elseif t == "string" then return #value + 17
     elseif t ~= "table" then return 0 end
+    if not Compat.CanAccessTable(value) then return 0 end
 
     local total = 40
     for k, v in pairs(value) do
@@ -470,8 +472,20 @@ local function EstimateSize(value, depth)
     return total
 end
 
+-- Three pages show this on every refresh (twice a second). Walking the whole
+-- database that often is wasted work for a number that moves slowly, and any
+-- table the walk cannot read would raise an error at the same rate.
+local SIZE_CACHE_SEC = 30
+
 function Database:EstimateSizeBytes()
-    return EstimateSize(_G.WoWTaskManagerDB or {})
+    local now = GetTime()
+    if self.sizeEstimate and self.sizeEstimateAt and (now - self.sizeEstimateAt) < SIZE_CACHE_SEC then
+        return self.sizeEstimate
+    end
+    local ok, bytes = pcall(EstimateSize, _G.WoWTaskManagerDB or {})
+    self.sizeEstimate = ok and bytes or (self.sizeEstimate or 0)
+    self.sizeEstimateAt = now
+    return self.sizeEstimate
 end
 
 --------------------------------------------------------------------------
@@ -483,6 +497,7 @@ function Database:ResetRuntime()
 end
 
 function Database:WipeHistory()
+    self.sizeEstimateAt = nil
     local g = self.db.global
     for i = #g.sessions, 1, -1 do g.sessions[i] = nil end
     for i = #g.incidents, 1, -1 do g.incidents[i] = nil end
@@ -490,6 +505,7 @@ function Database:WipeHistory()
 end
 
 function Database:WipeAddonHistory(addonName)
+    self.sizeEstimateAt = nil
     local g = self.db.global
     for _, session in ipairs(g.sessions) do
         if session.topCPU then

@@ -2390,6 +2390,55 @@ do
 end
 
 --------------------------------------------------------------------------
+-- Midnight: tables and frames addon code may not touch
+--------------------------------------------------------------------------
+-- A live 12.x client reported "attempted to iterate a table that cannot be
+-- accessed while tainted" 877 times. The client refuses pairs() on protected
+-- tables and any field access on forbidden frames; the mock refuses the same
+-- way here, so every walker that crosses into data WTM does not own is shown
+-- to step around them instead of throwing.
+do
+    local protected = setmetatable({}, { __mode = "k" })
+    local function Protect(t) protected[t] = true return t end
+    local realPairs = pairs
+    canaccesstable = function(t) return not protected[t] end
+    pairs = function(t)
+        if protected[t] then
+            error("attempted to iterate a table that cannot be accessed while tainted", 2)
+        end
+        return realPairs(t)
+    end
+    local forbidden = setmetatable({}, { __index = function()
+        error("attempted to index a table that cannot be accessed while tainted", 2)
+    end })
+    mock.allFrames[#mock.allFrames + 1] = forbidden
+
+    NS.db.global.probeProtected = Protect({ a = 1 })
+    NS.Database.sizeEstimateAt = nil
+    local okSize, size = pcall(NS.Database.EstimateSizeBytes, NS.Database)
+    check("database size estimate steps over a protected table",
+        okSize and type(size) == "number" and size > 0, tostring(size))
+
+    WTMProbeSV = { plain = 1, nested = Protect({ b = 2 }), frame = forbidden }
+    local realMeta = NS.Compat.GetAddOnMetadata
+    NS.Compat.GetAddOnMetadata = function(_, field)
+        return field == "SavedVariables" and "WTMProbeSV" or nil
+    end
+    local okSV, bytes = pcall(NS.Memory.EstimateSavedVariables, NS.Memory, { index = 1 })
+    NS.Compat.GetAddOnMetadata = realMeta
+    check("SavedVariables estimate steps over protected tables and forbidden frames",
+        okSV and type(bytes) == "number" and bytes > 0, tostring(bytes))
+
+    local okScan, scanErr = pcall(NS.Processes.ScanFrames, NS.Processes, true)
+    check("frame scan steps over a forbidden frame", okScan, tostring(scanErr))
+
+    table.remove(mock.allFrames)
+    pairs, canaccesstable = realPairs, nil
+    NS.db.global.probeProtected, WTMProbeSV = nil, nil
+    NS.Database.sizeEstimateAt = nil
+end
+
+--------------------------------------------------------------------------
 print(("   %d passed, %d failed, %d lua errors"):format(passed, failed, #mock.errors))
 for i = 1, math.min(5, #mock.errors) do print("   error: " .. mock.errors[i]) end
 os.exit((failed == 0 and #mock.errors == 0) and 0 or 1)

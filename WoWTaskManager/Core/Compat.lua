@@ -109,6 +109,32 @@ end
 
 local SafeCall = Compat.SafeCall
 
+-- Midnight (12.x) protects some tables from tainted code: iterating or
+-- indexing one throws "cannot be accessed while tainted". canaccesstable is
+-- the client's own check where it exists; older clients have no such tables.
+
+--- True when addon code may iterate `t`. Never throws.
+function Compat.CanAccessTable(t)
+    if type(t) ~= "table" then return false end
+    local canaccesstable = _G.canaccesstable
+    if type(canaccesstable) == "function" then
+        local ok, allowed = pcall(canaccesstable, t)
+        return ok and allowed and true or false
+    end
+    return true
+end
+
+--- True for Blizzard frames addon code must not touch (IsForbidden). Never throws.
+function Compat.IsForbiddenObject(obj)
+    -- Even reading a field of a protected object can throw, so that counts too.
+    local ok, method = pcall(function() return obj.IsForbidden end)
+    if not ok then return true end
+    if type(method) ~= "function" then return false end
+    local ok2, isForbidden = pcall(method, obj)
+    if not ok2 then return true end
+    return isForbidden and true or false
+end
+
 --- Resolves the first existing function from a list of candidates.
 --- Candidates are given as {table, "key"} pairs; a nil table is skipped.
 local function Resolve(...)

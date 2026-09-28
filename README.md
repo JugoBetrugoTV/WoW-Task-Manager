@@ -6,7 +6,7 @@ Think Windows Task Manager plus Resource Monitor plus a profiler's timeline - bu
 for the WoW client, and built only out of things the addon API can actually
 measure.
 
-![status](https://img.shields.io/badge/status-v0.8.3-blue)
+![status](https://img.shields.io/badge/status-v0.8.4-blue)
 ![mock](https://img.shields.io/badge/mock-40%2F40%20scenarios-brightgreen)
 ![real client](https://img.shields.io/badge/real%20client-Retail%20verified-brightgreen)
 

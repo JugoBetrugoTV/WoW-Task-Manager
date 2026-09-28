@@ -152,10 +152,11 @@ function Options:Register()
     if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
         local ok, category = pcall(Settings.RegisterCanvasLayoutCategory, panel, C.ADDON_TITLE)
         if ok and category then
-            category.ID = category.ID or C.ADDON_TITLE
+            -- Read-only: the category is Blizzard's object and assigns its own
+            -- ID. Writing any field on it from addon code taints that field.
             pcall(Settings.RegisterAddOnCategory, category)
             self.category = category
-            self.categoryID = category.ID
+            self.categoryID = category.GetID and category:GetID() or category.ID
             self.method = "settings"
             self.registered = true
             return true

@@ -292,6 +292,9 @@ local function EstimateTable(value, depth, seen)
     elseif t ~= "table" then return 0 end
     if seen[value] then return 0 end
     seen[value] = true
+    -- Another addon's saved table can hold anything at runtime, including
+    -- frames and tables Midnight will not let addon code iterate.
+    if not Compat.CanAccessTable(value) or Compat.IsForbiddenObject(value) then return 0 end
 
     local total = 40
     for k, v in pairs(value) do
@@ -318,7 +321,11 @@ function Memory:EstimateSavedVariables(record)
     local total = 0
     for i = 1, #names do
         local value = _G[names[i]]
-        if value ~= nil then total = total + EstimateTable(value, 0, seen) end
+        if value ~= nil then
+            -- Last line of defence: a partial estimate beats an error per click.
+            local ok, bytes = pcall(EstimateTable, value, 0, seen)
+            if ok then total = total + bytes end
+        end
     end
     return total, names
 end

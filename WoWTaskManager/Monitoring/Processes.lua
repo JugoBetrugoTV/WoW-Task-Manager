@@ -276,8 +276,16 @@ function Processes:ScanFrames(force)
         -- Two guards, in order of cheapness: skip anything that cannot register
         -- events (which is the only property this scan actually needs), then
         -- require the name to really be a string.
-        local isFrame = type(rawget(frame, "IsEventRegistered")) == "function"
-            or type(frame.IsEventRegistered) == "function"
+        -- A forbidden frame (Midnight protects many Blizzard ones) throws on
+        -- any field access from addon code, rawget included, so it is
+        -- checked first and skipped like a non-frame.
+        local isFrame = false
+        if not Compat.IsForbiddenObject(frame) then
+            local okFrame, method = pcall(function()
+                return rawget(frame, "IsEventRegistered") or frame.IsEventRegistered
+            end)
+            isFrame = okFrame and type(method) == "function"
+        end
 
         local frameName
         if isFrame then
