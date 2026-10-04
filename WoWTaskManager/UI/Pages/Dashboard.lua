@@ -244,37 +244,15 @@ function Page:Build(frame)
         local card = UI.MetricCard(canvas, {
             label = spec.label, unit = spec.unit, colorIndex = spec.colorIndex,
             worstIsLow = spec.worstIsLow, tooltip = spec.tooltip,
-            height = 74, sparkHeight = 14,
+            height = 84, sparkHeight = 20,
         })
         self.cards[spec.key] = card
-        grid:Add(card, { span = 1, height = 74, key = "kpi" })
+        grid:Add(card, { span = 1, height = 84, key = "kpi" })
     end
 
     ------------------------------------------------------------------
-    -- Health, session, context
-    ------------------------------------------------------------------
-    self.healthGauge = UI.Gauge(canvas, "PERFORMANCE HEALTH", { suffix = "/ 100" })
-    grid:Add(self.healthGauge, { span = 2, height = 96, key = "health" })
-
-    self.healthStats = UI.StatCard(canvas, "SPIKES", {
-        "Last minute", "Last 5 minutes", "Session total", "Worst spike", "Time since last",
-    })
-    grid:Add(self.healthStats, { span = 2, height = 122, key = "health" })
-
-    self.sessionCard = UI.StatCard(canvas, "SESSION SUMMARY", {
-        "Duration", "Average FPS", "1% low", "0.1% low", "Worst frame",
-        "Incidents", "Event storms", "Latency spikes", "Memory growth",
-    })
-    grid:Add(self.sessionCard, { span = 2, height = 9 * 16 + 40, key = "session" })
-
-    self.contextCard = UI.StatCard(canvas, "SYSTEM AND CONTEXT", {
-        "Zone", "Instance", "Difficulty", "Combat", "Group size",
-        "Client", "scriptProfile",
-    })
-    grid:Add(self.contextCard, { span = 2, height = 7 * 16 + 40, key = "context" })
-
-    ------------------------------------------------------------------
-    -- Graphs
+    -- Graphs, straight under the KPI row: they are what this page is for,
+    -- so they get the space above the fold rather than the stat cards.
     ------------------------------------------------------------------
     for i, spec in ipairs(GRAPHS) do
         local graph = UI.Graph(canvas, {
@@ -301,10 +279,33 @@ function Page:Build(frame)
         self.series[spec.key] = { values = {}, times = {} }
         grid:Add(graph, {
             span = spec.wide and 6 or 2,
-            height = spec.wide and 190 or 150,
+            height = spec.wide and 220 or 170,
             key = "graphs",
         })
     end
+
+    ------------------------------------------------------------------
+    -- Health, session, context
+    ------------------------------------------------------------------
+    self.healthGauge = UI.Gauge(canvas, "PERFORMANCE HEALTH", { suffix = "/ 100" })
+    grid:Add(self.healthGauge, { span = 2, height = 96, key = "health" })
+
+    self.healthStats = UI.StatCard(canvas, "SPIKES", {
+        "Last minute", "Last 5 minutes", "Session total", "Worst spike", "Time since last",
+    })
+    grid:Add(self.healthStats, { span = 2, height = 122, key = "health" })
+
+    self.sessionCard = UI.StatCard(canvas, "SESSION SUMMARY", {
+        "Duration", "Average FPS", "1% low", "0.1% low", "Worst frame",
+        "Incidents", "Event storms", "Latency spikes", "Memory growth",
+    })
+    grid:Add(self.sessionCard, { span = 2, height = 9 * 16 + 40, key = "session" })
+
+    self.contextCard = UI.StatCard(canvas, "SYSTEM AND CONTEXT", {
+        "Zone", "Instance", "Difficulty", "Combat", "Group size",
+        "Client", "scriptProfile",
+    })
+    grid:Add(self.contextCard, { span = 2, height = 7 * 16 + 40, key = "context" })
 
     ------------------------------------------------------------------
     -- Top lists

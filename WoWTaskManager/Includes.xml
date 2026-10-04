@@ -63,6 +63,7 @@
 
     <!-- UI -->
     <Script file="UI\Theme.lua"/>
+    <Script file="UI\Media.lua"/>
     <Script file="UI\Widgets\Base.lua"/>
     <Script file="UI\Widgets\Icons.lua"/>
     <Script file="UI\Widgets\Layout.lua"/>

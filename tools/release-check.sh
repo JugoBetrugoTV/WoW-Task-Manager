@@ -67,6 +67,29 @@ for toc in "$ADDON_DIR"/WoWTaskManager_*.toc; do
 done
 
 #---------------------------------------------------------------------------
+section "Media"
+#---------------------------------------------------------------------------
+# WoW cannot ask whether a texture file exists, and a missing one renders as a
+# green square. UI/Media.lua's PRESENT list is the only thing the addon trusts,
+# so it must name exactly the .tga files that ship - no more, no fewer.
+declared=$(sed -n '/^Media.PRESENT = {/,/^}/p' "$ADDON_DIR/UI/Media.lua" | grep -v '^[[:space:]]*--' \
+    | grep -oE '\["[A-Za-z]+/[A-Za-z0-9_]+"\] *= *true' | sed -E 's/\["([^"]+)"\].*/\1/' | sort)
+ondisk=""
+if [ -d "$ADDON_DIR/Media" ]; then
+    ondisk=$(cd "$ADDON_DIR/Media" && find . -type f -iname '*.tga' | sed 's|^\./||; s|\.[tT][gG][aA]$||' | sort)
+fi
+if [ "$declared" = "$ondisk" ]; then
+    pass "UI/Media.lua lists exactly the $(printf '%s' "$ondisk" | grep -c .) shipped texture file(s)"
+else
+    fail "UI/Media.lua PRESENT does not match Media/*.tga"
+    diff <(printf '%s\n' "$declared") <(printf '%s\n' "$ondisk") | sed 's/^/          /'
+fi
+if [ -d "$ADDON_DIR/Media" ] && find "$ADDON_DIR/Media" -type f ! -iname '*.tga' | grep -q .; then
+    fail "Media/ holds files that are not .tga (PNG etc. may not load on every client):"
+    find "$ADDON_DIR/Media" -type f ! -iname '*.tga' | sed 's/^/          /'
+fi
+
+#---------------------------------------------------------------------------
 section "SavedVariables"
 #---------------------------------------------------------------------------
 

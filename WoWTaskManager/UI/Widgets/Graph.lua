@@ -50,6 +50,18 @@ local MIN_HEADROOM   = 1.15  -- keep the peak off the ceiling
 local MARKER_TICK_HEIGHT = 9
 local MAX_MARKERS_DRAWN  = 40
 
+-- The modern look: a fill that fades out towards the baseline, a slightly
+-- heavier line with a soft wide line under it as glow, and a dot on the
+-- latest value. The glow doubles the line segments, so like the minor grid it
+-- is skipped at Performance quality.
+local LINE_THICKNESS  = 2
+local GLOW_THICKNESS  = 6
+local GLOW_ALPHA      = 0.16
+local FILL_TOP_ALPHA  = 0.30
+local FILL_BASE_ALPHA = 0.02
+local NOW_DOT_SIZE    = 6
+local NOW_HALO_SIZE   = 16
+
 -- Graph Quality trades column width for draw cost: fewer, wider columns is
 -- fewer pooled textures acquired per redraw, which is the actual cost this
 -- setting controls. It also turns off the minor grid and forces area fill
@@ -135,7 +147,16 @@ function UI.Graph(parent, opts)
     graph.linePool = Theme:SupportsLines(plot) and RegionPool.New(plot,
         function(p)
             local line = p:CreateLine(nil, "OVERLAY")
-            line:SetThickness(1.6)
+            line:SetThickness(LINE_THICKNESS)
+            return line
+        end,
+        function(line) line:ClearAllPoints() end) or nil
+
+    -- Above the fill (ARTWORK sub-level 1), below the line itself (OVERLAY).
+    graph.glowPool = graph.linePool and RegionPool.New(plot,
+        function(p)
+            local line = p:CreateLine(nil, "ARTWORK", nil, 1)
+            line:SetThickness(GLOW_THICKNESS)
             return line
         end,
         function(line) line:ClearAllPoints() end) or nil
@@ -189,6 +210,19 @@ function UI.Graph(parent, opts)
             return texture
         end,
         function(texture) texture:ClearAllPoints() end)
+
+    -- The "now" dot sits on its own frame above the plot: the plot clips its
+    -- children, and a dot on the latest value lives right on its edge.
+    local overlay = CreateFrame("Frame", nil, graph)
+    overlay:SetAllPoints(graph)
+    overlay:SetFrameLevel((plot:GetFrameLevel() or 0) + 2)
+    graph.overlay = overlay
+    graph.nowHalo = overlay:CreateTexture(nil, "OVERLAY", nil, 1)
+    graph.nowHalo:SetSize(NOW_HALO_SIZE, NOW_HALO_SIZE)
+    graph.nowHalo:Hide()
+    graph.nowDot = overlay:CreateTexture(nil, "OVERLAY", nil, 2)
+    graph.nowDot:SetSize(NOW_DOT_SIZE, NOW_DOT_SIZE)
+    graph.nowDot:Hide()
 
     ------------------------------------------------------------------
     -- Axis labels (fixed count, created once)
@@ -438,6 +472,9 @@ function UI.Graph(parent, opts)
         self.referencePool:ReleaseAll()
         for i = 1, #self.referenceLabels do self.referenceLabels[i]:Hide() end
         if self.linePool then self.linePool:ReleaseAll() end
+        if self.glowPool then self.glowPool:ReleaseAll() end
+        self.nowDot:Hide()
+        self.nowHalo:Hide()
 
         local minValue, maxValue = self:ComputeScale()
         local range = math.max(self.minRange, maxValue - minValue)
@@ -481,7 +518,7 @@ function UI.Graph(parent, opts)
             for i = 0, GRID_LINES do
                 local fraction = i / GRID_LINES
                 local line = self.gridPool:Acquire()
-                line:SetColorTexture(T("borderSubtle", i == 0 and 0.9 or 0.45))
+                line:SetColorTexture(T("borderSubtle", i == 0 and 0.8 or 0.28))
                 line:SetPoint("LEFT", plot, "BOTTOMLEFT", 0, height * fraction)
                 line:SetPoint("RIGHT", plot, "BOTTOMRIGHT", 0, height * fraction)
 
@@ -540,6 +577,8 @@ function UI.Graph(parent, opts)
             end
         end
         local graphStyle = (quality == "performance") and "line" or (WTM.db.profile.ui.graphStyle or "auto")
+        local glow = self.glowPool and quality ~= "performance"
+        local nowPlaced = false
 
         for s = 1, #self.series do
             local series = self.series[s]
@@ -574,15 +613,21 @@ function UI.Graph(parent, opts)
                     local x = (i - 1) * columnWidth
                     local y = fraction * height
 
-                    -- Area fill: one column texture per sample, pooled.
+                    -- Area fill: one column texture per sample, pooled, fading
+                    -- out towards the baseline. The texture is white and the
+                    -- gradient carries the colour, so a reused column never
+                    -- keeps its previous tint.
                     if doFill then
                         local column = self.columnPool:Acquire()
+                        column:SetColorTexture(1, 1, 1, 1)
                         if over then
                             -- Clamped at the ceiling: coloured as an alert so a
                             -- clipped value never reads as a real one.
-                            column:SetColorTexture(Theme:Tone("crit", 0.35))
+                            local cr, cg, cb = Theme:Tone("crit")
+                            Theme:SetGradient(column, "VERTICAL", cr, cg, cb, 0.10, cr, cg, cb, 0.40)
                         else
-                            column:SetColorTexture(r, g, b, 0.13)
+                            Theme:SetGradient(column, "VERTICAL",
+                                r, g, b, FILL_BASE_ALPHA, r, g, b, FILL_TOP_ALPHA)
                         end
                         column:ClearAllPoints()
                         column:SetWidth(math.max(1, columnWidth + 0.5))
@@ -591,8 +636,15 @@ function UI.Graph(parent, opts)
                         segmentsDrawn = segmentsDrawn + 1
                     end
 
-                    -- Line segment on top.
+                    -- Line segment on top, with its glow underneath.
                     if self.linePool and previousX then
+                        if glow then
+                            local halo = self.glowPool:Acquire()
+                            halo:SetColorTexture(r, g, b, GLOW_ALPHA)
+                            halo:SetStartPoint("BOTTOMLEFT", plot, previousX, previousY)
+                            halo:SetEndPoint("BOTTOMLEFT", plot, x, y)
+                            segmentsDrawn = segmentsDrawn + 1
+                        end
                         local line = self.linePool:Acquire()
                         line:SetColorTexture(r, g, b, 0.95)
                         line:SetStartPoint("BOTTOMLEFT", plot, previousX, previousY)
@@ -602,7 +654,8 @@ function UI.Graph(parent, opts)
                         -- Column fallback: a bright cap on the fill reads as a
                         -- line without needing CreateLine at all.
                         local cap = self.columnPool:Acquire()
-                        cap:SetColorTexture(r, g, b, 0.95)
+                        cap:SetColorTexture(1, 1, 1, 1)
+                        Theme:SetGradient(cap, "VERTICAL", r, g, b, 0.95, r, g, b, 0.95)
                         cap:ClearAllPoints()
                         cap:SetWidth(math.max(1, columnWidth + 0.5))
                         cap:SetHeight(1.5)
@@ -611,6 +664,24 @@ function UI.Graph(parent, opts)
                     end
 
                     previousX, previousY = x, y
+                end
+
+                -- "Now": a dot on the latest value of the first series drawn,
+                -- round when the shipped dot texture exists, with a soft halo
+                -- when the glow texture does too.
+                if not nowPlaced and previousX then
+                    nowPlaced = true
+                    local nowDot, nowHalo = self.nowDot, self.nowHalo
+                    nowDot:ClearAllPoints()
+                    nowDot:SetPoint("CENTER", plot, "BOTTOMLEFT", previousX, previousY)
+                    UI.Media.Apply(nowDot, "UI/dot", r, g, b, 1)
+                    nowDot:Show()
+                    if quality ~= "performance" and UI.Media.Path("UI/glow") then
+                        nowHalo:ClearAllPoints()
+                        nowHalo:SetPoint("CENTER", plot, "BOTTOMLEFT", previousX, previousY)
+                        UI.Media.Apply(nowHalo, "UI/glow", r, g, b, 0.45)
+                        nowHalo:Show()
+                    end
                 end
 
                 -- Peak marker
@@ -625,6 +696,9 @@ function UI.Graph(parent, opts)
                     local fraction = (peakValue - minValue) / range
                     fraction = math.max(0, math.min(1, fraction))
                     local dot = self.markerPool:Acquire()
+                    -- Sized every time: the same pool also hands out event
+                    -- ticks, and a texture reused from a tick kept its 2x12.
+                    dot:SetSize(5, 5)
                     dot:SetColorTexture(r, g, b, 1)
                     dot:ClearAllPoints()
                     dot:SetPoint("CENTER", plot, "BOTTOMLEFT",
@@ -834,12 +908,15 @@ function UI.GetGraphPoolStats()
                 totals.free    = totals.free + free
             end
         end
-        if graph.linePool then
-            local created, active, free = graph.linePool:GetStats()
-            totals.lines = totals.lines + created
-            totals.created = totals.created + created
-            totals.active  = totals.active + active
-            totals.free    = totals.free + free
+        for _, lineField in ipairs({ "linePool", "glowPool" }) do
+            local pool = graph[lineField]
+            if pool then
+                local created, active, free = pool:GetStats()
+                totals.lines = totals.lines + created
+                totals.created = totals.created + created
+                totals.active  = totals.active + active
+                totals.free    = totals.free + free
+            end
         end
     end
     return totals

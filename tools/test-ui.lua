@@ -824,6 +824,41 @@ do
     check("High graph quality draws the minor grid",
         minorActiveAtHigh > 0, minorActiveAtHigh)
 
+    ------------------------------------------------------------------
+    -- The modern graph look: gradient fill, glow, "now" dot.
+    ------------------------------------------------------------------
+    NS.db.profile.ui.graphStyle = "area"
+    NS.db.profile.ui.graphQuality = "balanced"
+    zoneGraph.dirty = true
+    zoneGraph:Draw()
+    local fadesUp, columnsSeen = 0, 0
+    for _, texture in ipairs(zoneGraph.columnPool.active or {}) do
+        columnsSeen = columnsSeen + 1
+        local gr = texture._gradient
+        if gr and gr.orientation == "VERTICAL" and gr.min.a < gr.max.a then fadesUp = fadesUp + 1 end
+    end
+    check("area fill columns fade out towards the baseline",
+        columnsSeen > 0 and fadesUp == columnsSeen, ("%d of %d"):format(fadesUp, columnsSeen))
+    local _, glowAtBalanced = zoneGraph.glowPool:GetStats()
+    check("the line carries a glow at Balanced quality", glowAtBalanced > 0, glowAtBalanced)
+    check("a 'now' dot marks the latest value", zoneGraph.nowDot:IsShown())
+    check("no halo without the shipped glow texture", not zoneGraph.nowHalo:IsShown())
+
+    NS.db.profile.ui.graphQuality = "performance"
+    zoneGraph.dirty = true
+    zoneGraph:Draw()
+    local _, glowAtPerf = zoneGraph.glowPool:GetStats()
+    check("Performance quality drops the glow", glowAtPerf == 0, glowAtPerf)
+
+    zoneGraph:SetSeries(1, {}, {}, { label = "frame" })
+    zoneGraph.dirty = true
+    zoneGraph:Draw()
+    check("an empty graph shows no 'now' dot", not zoneGraph.nowDot:IsShown())
+    zoneGraph:SetSeries(1, zoneValues, zoneTimes, { label = "frame" })
+    NS.db.profile.ui.graphStyle = "auto"
+
+    check("an unshipped media file has no path", NS.UI.Media.Path("UI/dot") == nil)
+
     NS.db.profile.ui.graphQuality = "balanced"
     zoneGraph:Hide()
     zoneGraph:SetParent(nil)

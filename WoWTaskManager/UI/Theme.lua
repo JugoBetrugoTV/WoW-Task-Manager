@@ -339,14 +339,20 @@ Theme.WHITE = "Interface\\Buttons\\WHITE8X8"
 
 --- SetGradient changed signature in Retail 10.0 (it now takes colour objects
 --- instead of eight numbers) while SetGradientAlpha was removed.  Both shapes
---- exist across the four target clients, so this resolves once and caches.
+--- exist across the target clients, so this resolves once and caches.
+---
+--- The texture must already be white (SetColorTexture(1,1,1,1)): a gradient
+--- is vertex colour, multiplied with whatever the texture holds.
 local gradientMode
+-- Reused colour objects: the graph engine calls this once per column per
+-- redraw, and two fresh tables each time is pure garbage.
+local gradMin, gradMax
 function Theme:SetGradient(texture, orientation, r1, g1, b1, a1, r2, g2, b2, a2)
     if gradientMode == nil then
         if texture.SetGradient and _G.CreateColor then
             local ok = pcall(texture.SetGradient, texture, "VERTICAL",
                 CreateColor(0, 0, 0, 0), CreateColor(0, 0, 0, 0))
-            gradientMode = ok and "modern" or false
+            if ok then gradientMode = "modern" end
         end
         if gradientMode == nil then
             gradientMode = texture.SetGradientAlpha and "legacy" or false
@@ -354,8 +360,10 @@ function Theme:SetGradient(texture, orientation, r1, g1, b1, a1, r2, g2, b2, a2)
     end
 
     if gradientMode == "modern" then
-        pcall(texture.SetGradient, texture, orientation,
-            CreateColor(r1, g1, b1, a1), CreateColor(r2, g2, b2, a2))
+        if not gradMin then gradMin, gradMax = CreateColor(0, 0, 0, 0), CreateColor(0, 0, 0, 0) end
+        gradMin.r, gradMin.g, gradMin.b, gradMin.a = r1, g1, b1, a1
+        gradMax.r, gradMax.g, gradMax.b, gradMax.a = r2, g2, b2, a2
+        pcall(texture.SetGradient, texture, orientation, gradMin, gradMax)
     elseif gradientMode == "legacy" then
         pcall(texture.SetGradientAlpha, texture, orientation, r1, g1, b1, a1, r2, g2, b2, a2)
     else

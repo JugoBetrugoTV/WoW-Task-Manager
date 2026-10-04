@@ -111,6 +111,19 @@ end
 function Region:SetTextColor(...) checkColor("SetTextColor", self, ...) end
 function Region:SetColorTexture(...) checkColor("SetColorTexture", self, ...) end
 function Region:SetVertexColor(...) checkColor("SetVertexColor", self, ...) end
+-- Modern signature only (10.0+): two colour objects. Validated like the other
+-- colour setters, and recorded so a test can check which way a fill fades.
+function Region:SetGradient(orientation, minColor, maxColor)
+    if orientation ~= "VERTICAL" and orientation ~= "HORIZONTAL" then
+        error("SetGradient: orientation must be VERTICAL or HORIZONTAL, got " .. tostring(orientation), 2)
+    end
+    for _, c in ipairs({ minColor, maxColor }) do
+        if type(c) ~= "table" then error("SetGradient: expected colour objects, got " .. type(c), 2) end
+        checkColor("SetGradient", self, c.r, c.g, c.b, c.a)
+    end
+    self._gradient = { orientation = orientation,
+        min = { c = minColor.r, a = minColor.a }, max = { c = maxColor.r, a = maxColor.a } }
+end
 
 
 local methods = {
