@@ -50,20 +50,8 @@ local STATUS_WORD = { ok = "Stable", warn = "Elevated", crit = "Degraded" }
 local CARDS = {
     { key = "fps", label = "FPS", unit = "", colorIndex = 1, worstIsLow = true,
       tooltip = "Frames per second, computed from the real per-frame delta rather than the client's smoothed GetFramerate value." },
-    { key = "fpsAvg", label = "AVG FPS", unit = "", colorIndex = 1, worstIsLow = true,
-      tooltip = "Mean frames per second across the whole session. An average hides the individual bad frame, which is why frame time matters more." },
-    { key = "low1", label = "1% LOW", unit = "fps", colorIndex = 1, worstIsLow = true,
-      tooltip = "The speed of the worst 1% of frames this session, derived from the frame time histogram. The gap between this and the average is what a stutter actually feels like." },
-    { key = "low01", label = "0.1% LOW", unit = "fps", colorIndex = 1, worstIsLow = true,
-      tooltip = "The worst 0.1% of frames. On a session of any length this is a handful of frames, and it is where freezes show up." },
     { key = "frame", label = "FRAME TIME", unit = "ms", colorIndex = 2,
       tooltip = "Average time to render one frame in the current sample window. 60 FPS is 16.67 ms, 120 FPS is 8.33 ms. This is the measurement everything else is judged against." },
-    { key = "frameAvg", label = "AVG FRAME", unit = "ms", colorIndex = 2,
-      tooltip = "Mean frame time across the session." },
-    { key = "framePeak", label = "PEAK FRAME", unit = "ms", colorIndex = 2,
-      tooltip = "The single longest frame measured this session." },
-    { key = "latHome", label = "HOME LATENCY", unit = "ms", colorIndex = 3,
-      tooltip = "Latency to the realm server, from GetNetStats. The client only refreshes this roughly every 30 seconds, so it is never a live figure." },
     { key = "latWorld", label = "WORLD LATENCY", unit = "ms", colorIndex = 3,
       tooltip = "Latency to the world server, from GetNetStats. Same 30-second refresh caveat." },
     { key = "cpu", label = "ADDON CPU", unit = "%", colorIndex = 5,
@@ -72,6 +60,18 @@ local CARDS = {
       tooltip = "The whole Lua heap, which includes the default UI as well as addons. Per-addon attribution is on the Memory page." },
     { key = "events", label = "EVENTS/SEC", unit = "", colorIndex = 6,
       tooltip = "Every event the client fired, counted through a frame with RegisterAllEvents. Depends on the event monitoring mode." },
+    { key = "fpsAvg", label = "AVG FPS", unit = "", colorIndex = 1, worstIsLow = true,
+      tooltip = "Mean frames per second across the whole session. An average hides the individual bad frame, which is why frame time matters more." },
+    { key = "low1", label = "1% LOW", unit = "fps", colorIndex = 1, worstIsLow = true,
+      tooltip = "The speed of the worst 1% of frames this session, derived from the frame time histogram. The gap between this and the average is what a stutter actually feels like." },
+    { key = "low01", label = "0.1% LOW", unit = "fps", colorIndex = 1, worstIsLow = true,
+      tooltip = "The worst 0.1% of frames. On a session of any length this is a handful of frames, and it is where freezes show up." },
+    { key = "frameAvg", label = "AVG FRAME", unit = "ms", colorIndex = 2,
+      tooltip = "Mean frame time across the session." },
+    { key = "framePeak", label = "PEAK FRAME", unit = "ms", colorIndex = 2,
+      tooltip = "The single longest frame measured this session." },
+    { key = "latHome", label = "HOME LATENCY", unit = "ms", colorIndex = 3,
+      tooltip = "Latency to the realm server, from GetNetStats. The client only refreshes this roughly every 30 seconds, so it is never a live figure." },
 }
 
 --------------------------------------------------------------------------
@@ -106,7 +106,9 @@ local SMALL, MEDIUM, LARGE = "small", "medium", "large"
 local WIDGETS = {
     { key = "kpi",        label = "Live metrics",       default = LARGE,
       spans = { small = 3, medium = 6, large = 6 } },
-    { key = "health",     label = "Performance health", default = SMALL,
+    { key = "health",     label = "Performance health", default = LARGE,
+      spans = { small = 2, medium = 3, large = 6 } },
+    { key = "spikes",     label = "Spike counts",       default = SMALL,
       spans = { small = 2, medium = 3, large = 6 } },
     { key = "session",    label = "Session summary",    default = SMALL,
       spans = { small = 2, medium = 3, large = 6 } },
@@ -153,7 +155,7 @@ function Page:Build(frame)
     local scroll, canvas = UI.ScrollCanvas(frame, { padding = M.padding })
     self.scroll, self.canvas = scroll, canvas
 
-    local grid = UI.Grid(canvas, { minColumnWidth = 190, maxColumns = 6 })
+    local grid = UI.Grid(canvas, { minColumnWidth = 160, maxColumns = 6 })
     self.grid = grid
 
     ------------------------------------------------------------------
@@ -288,12 +290,12 @@ function Page:Build(frame)
     -- Health, session, context
     ------------------------------------------------------------------
     self.healthGauge = UI.Gauge(canvas, "PERFORMANCE HEALTH", { suffix = "/ 100" })
-    grid:Add(self.healthGauge, { span = 2, height = 96, key = "health" })
+    grid:Add(self.healthGauge, { span = 6, height = 96, key = "health" })
 
     self.healthStats = UI.StatCard(canvas, "SPIKES", {
         "Last minute", "Last 5 minutes", "Session total", "Worst spike", "Time since last",
     })
-    grid:Add(self.healthStats, { span = 2, height = 122, key = "health" })
+    grid:Add(self.healthStats, { span = 2, height = 122, key = "spikes" })
 
     self.sessionCard = UI.StatCard(canvas, "SESSION SUMMARY", {
         "Duration", "Average FPS", "1% low", "0.1% low", "Worst frame",
@@ -387,7 +389,51 @@ function Page:Build(frame)
     grid:Add(self.recentErrors, {
         span = 3, height = self.recentErrors.naturalHeight, key = "recenterrors" })
 
+    self:ArrangeSections(canvas)
     self:ApplyLayoutSettings()
+end
+
+--- The order above is the order things are built in; this is the order they
+--- are read in. Related boxes sit together under a heading, so the page reads
+--- as five named groups instead of one long list of boxes.
+local SECTIONS = {
+    { title = nil,                     keys = { "banner", "notice", "kpi", "health" } },
+    { title = "Trends",                keys = { "graphs" } },
+    { title = "Session",               keys = { "session", "context", "spikes" } },
+    { title = "Addons",                keys = { "topcpu", "topmemory", "topevents" } },
+    { title = "Incidents and errors",  keys = { "incidents", "recenterrors", "errors" } },
+    { title = "This addon",            keys = { "overhead" } },
+}
+
+function Page:ArrangeSections(canvas)
+    local grid = self.grid
+    local byKey, placed, ordered = {}, {}, {}
+    for _, cell in ipairs(grid.cells) do
+        local key = cell.key or ""
+        byKey[key] = byKey[key] or {}
+        byKey[key][#byKey[key] + 1] = cell
+    end
+
+    self.headings = {}
+    for _, section in ipairs(SECTIONS) do
+        if section.title then
+            local heading = UI.SectionHeading(canvas, section.title)
+            heading.sectionKeys = section.keys
+            self.headings[#self.headings + 1] = heading
+            ordered[#ordered + 1] = { frame = heading, span = 6, height = 22, key = "heading" }
+        end
+        for _, key in ipairs(section.keys) do
+            for _, cell in ipairs(byKey[key] or {}) do
+                ordered[#ordered + 1] = cell
+                placed[cell] = true
+            end
+        end
+    end
+    -- Anything a future edit adds without a section still shows, at the end.
+    for _, cell in ipairs(grid.cells) do
+        if not placed[cell] then ordered[#ordered + 1] = cell end
+    end
+    grid.cells = ordered
 end
 
 --------------------------------------------------------------------------
@@ -413,6 +459,17 @@ function Page:ApplyLayoutSettings()
                 end
             end
         end
+    end
+
+    -- A heading whose whole section is hidden would sit above nothing.
+    for _, heading in ipairs(self.headings or {}) do
+        local any = false
+        for _, cell in ipairs(self.grid.cells) do
+            for _, key in ipairs(heading.sectionKeys) do
+                if cell.key == key and cell.frame:IsShown() then any = true end
+            end
+        end
+        heading:SetShown(any)
     end
 
     self:OnLayout(true)

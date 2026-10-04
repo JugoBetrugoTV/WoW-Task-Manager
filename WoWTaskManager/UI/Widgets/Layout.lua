@@ -33,11 +33,13 @@ local M     = Theme.metrics
 ---   maxColumns      the most it will ever use, however wide the window is
 ---   gap             space between cells
 ---   padding         inset from the parent's edges
+---   justify         stretch every row to the full width (default true)
+---   equalHeights    give cells in a row the row's height (default true)
 ---
 --- Cells are added with :Add(frame, opts) where opts may carry:
 ---   span    how many columns the cell occupies (clamped to the column count)
 ---   height  the cell's height; defaults to the grid's rowHeight
----   fill    true to stretch the cell to the remaining width of its row
+---   key     a name for show/hide and lookups
 function UI.Grid(parent, opts)
     opts = opts or {}
     local grid = {
@@ -48,6 +50,8 @@ function UI.Grid(parent, opts)
         gap            = opts.gap or M.cardGap,
         padding        = opts.padding or 0,
         rowHeight      = opts.rowHeight or M.cardHeight,
+        justify        = opts.justify ~= false,
+        equalHeights   = opts.equalHeights ~= false,
         columns        = 0,
         height         = 0,
     }
@@ -69,7 +73,6 @@ function UI.Grid(parent, opts)
             frame  = frame,
             span   = cellOpts.span or 1,
             height = height,
-            fill   = cellOpts.fill,
             -- A cell can be hidden without being removed, which is what the
             -- dashboard's show/hide settings need.
             key    = cellOpts.key,
@@ -87,6 +90,61 @@ function UI.Grid(parent, opts)
         local usable = width - self.padding * 2
         local n = math.floor((usable + self.gap) / (self.minColumnWidth + self.gap))
         return math.max(1, math.min(self.maxColumns, n))
+    end
+
+    --- Splits the visible cells into rows.
+    ---
+    --- Two rules on top of plain left-to-right packing, both from what the
+    --- grid looked like at 1280 px with five columns:
+    ---   * a run of single-column tiles is spread evenly over the rows it
+    ---     needs - twelve tiles come out 4+4+4, never 5+5+2 with two orphans;
+    ---   * a cell that does not fit what is left of a row starts the next one
+    ---     rather than being squeezed.
+    function grid:BuildRows(columns)
+        local visible = {}
+        for _, cell in ipairs(self.cells) do
+            if cell.frame:IsShown() then visible[#visible + 1] = cell end
+        end
+
+        local rows, row, used = {}, {}, 0
+        local function close()
+            if #row > 0 then rows[#rows + 1] = { cells = row, used = used } end
+            row, used = {}, 0
+        end
+        local function spanOf(cell) return math.max(1, math.min(columns, cell.span)) end
+
+        local i = 1
+        while i <= #visible do
+            local cell = visible[i]
+            local runLength = 0
+            if used == 0 and spanOf(cell) == 1 then
+                local j = i
+                while j <= #visible and spanOf(visible[j]) == 1 do j = j + 1 end
+                runLength = j - i
+            end
+
+            if runLength > columns then
+                local rowCount = math.ceil(runLength / columns)
+                local base, extra = math.floor(runLength / rowCount), runLength % rowCount
+                for r = 1, rowCount do
+                    for _ = 1, base + (r <= extra and 1 or 0) do
+                        row[#row + 1] = visible[i]
+                        used = used + 1
+                        i = i + 1
+                    end
+                    close()
+                end
+            else
+                local span = spanOf(cell)
+                if used > 0 and used + span > columns then close() end
+                row[#row + 1] = cell
+                used = used + span
+                i = i + 1
+                if used >= columns then close() end
+            end
+        end
+        close()
+        return rows
     end
 
     --- Places every visible cell. Returns the total height used, so the caller
@@ -107,38 +165,46 @@ function UI.Grid(parent, opts)
         local usable = width - self.padding * 2
         local columnWidth = (usable - self.gap * (columns - 1)) / columns
 
-        local col, y, rowHeight = 0, self.padding, 0
-        for _, cell in ipairs(self.cells) do
-            if cell.frame:IsShown() then
-                local span = math.max(1, math.min(columns, cell.span))
-                -- A cell that does not fit in what is left of this row starts
-                -- a new one, rather than being squeezed.
-                if col > 0 and col + span > columns then
-                    y = y + rowHeight + self.gap
-                    col, rowHeight = 0, 0
-                end
+        local y = self.padding
+        for _, row in ipairs(self:BuildRows(columns)) do
+            local cells = row.cells
+            local rowHeight = 0
+            for _, cell in ipairs(cells) do rowHeight = math.max(rowHeight, cell.height) end
 
-                local cellWidth = columnWidth * span + self.gap * (span - 1)
-                if cell.fill then
-                    cellWidth = usable - (columnWidth + self.gap) * col
+            -- Justified, a row that does not use every column shares the
+            -- leftover between its cells in proportion to their spans, so no
+            -- row ends in an empty column.
+            local unit = columnWidth
+            if self.justify and row.used < columns then
+                unit = (usable - self.gap * (#cells - 1)) / row.used
+            end
+
+            local x = self.padding
+            for _, cell in ipairs(cells) do
+                local span = math.max(1, math.min(columns, cell.span))
+                local cellWidth = self.justify and row.used < columns
+                    and unit * span
+                    or (columnWidth * span + self.gap * (span - 1))
+
+                -- Equal heights make a row read as one band. A cell far
+                -- shorter than its neighbours keeps its own height instead:
+                -- a three-row card stretched to a list's height is mostly
+                -- empty box, which is worse than a gap.
+                local cellHeight = cell.height
+                if self.equalHeights and cell.height >= rowHeight * 0.6 then
+                    cellHeight = rowHeight
                 end
 
                 cell.frame:ClearAllPoints()
-                cell.frame:SetPoint("TOPLEFT", self.parent, "TOPLEFT",
-                    self.padding + col * (columnWidth + self.gap), -y)
+                cell.frame:SetPoint("TOPLEFT", self.parent, "TOPLEFT", x, -y)
                 cell.frame:SetWidth(cellWidth)
-                cell.frame:SetHeight(cell.height)
-
-                rowHeight = math.max(rowHeight, cell.height)
-                col = col + span
-                if col >= columns then
-                    y = y + rowHeight + self.gap
-                    col, rowHeight = 0, 0
-                end
+                cell.frame:SetHeight(cellHeight)
+                x = x + cellWidth + self.gap
             end
+            y = y + rowHeight + self.gap
         end
 
-        if col > 0 then y = y + rowHeight end
+        if y > self.padding then y = y - self.gap end
         self.height = y + self.padding
         return self.height
     end

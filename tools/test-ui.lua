@@ -1189,6 +1189,88 @@ do
 end
 
 --------------------------------------------------------------------------
+print("\n== layout: rows fill the width, tiles balance, sections hide ==")
+--------------------------------------------------------------------------
+-- At 1280 px the dashboard grid had five columns while its boxes were sized
+-- for six: every row of two-column boxes ended in an empty column, twelve KPI
+-- tiles came out 5 + 5 + 2, and four-card rows on other pages left one card
+-- alone. These hold the fix in place on every grid page at every size.
+do
+    local GRID_PAGES = { "dashboard", "overview", "network", "frames", "resources", "recording", "alerts" }
+    local SIZES = { { 940, 600 }, { 1280, 800 }, { 1920, 1080 } }
+    local ragged, orphans, checkedRows = {}, {}, 0
+
+    for _, size in ipairs(SIZES) do
+        MW.frame:SetSize(size[1], size[2])
+        MW:LayoutAllPages()
+        for _, key in ipairs(GRID_PAGES) do
+            MW:ShowPage(key)
+            MW:RefreshCurrentPage()
+            local grid = NS.UI.Pages[key] and NS.UI.Pages[key].grid
+            if grid then
+                grid:Layout(true)
+                local usable = grid.parent:GetWidth() - grid.padding * 2
+                for _, row in ipairs(grid:BuildRows(grid.columns)) do
+                    checkedRows = checkedRows + 1
+                    local last = row.cells[#row.cells].frame
+                    local _, _, _, x = last:GetPoint(1)
+                    local right = (x or 0) + last:GetWidth() - grid.padding
+                    if math.abs(right - usable) > 1 then
+                        ragged[#ragged + 1] = ("%s@%d: row ends at %.0f of %.0f"):format(key, size[1], right, usable)
+                    end
+                end
+                -- A run of single-column tiles never leaves a row much
+                -- shorter than the others.
+                local runSizes, run = {}, 0
+                for _, row in ipairs(grid:BuildRows(grid.columns)) do
+                    local allSingle = true
+                    for _, cell in ipairs(row.cells) do
+                        if math.min(grid.columns, cell.span) ~= 1 then allSingle = false end
+                    end
+                    if allSingle then run = run + 1; runSizes[run] = #row.cells
+                    else
+                        if run > 1 then
+                            local lo, hi = math.huge, 0
+                            for i = 1, run do lo = math.min(lo, runSizes[i]); hi = math.max(hi, runSizes[i]) end
+                            if hi - lo > 1 then
+                                orphans[#orphans + 1] = ("%s@%d: tile rows of %d and %d"):format(key, size[1], hi, lo)
+                            end
+                        end
+                        run = 0
+                    end
+                end
+            end
+        end
+    end
+    check("every grid row on every grid page fills the full width",
+        #ragged == 0 and checkedRows > 0, ragged[1] or (checkedRows .. " rows"))
+    check("single-column tiles spread evenly over their rows (no orphans)",
+        #orphans == 0, orphans[1])
+
+    MW.frame:SetSize(1280, 800)
+    MW:LayoutAllPages()
+    MW:ShowPage("dashboard")
+    local dash = NS.UI.Pages.dashboard
+    check("dashboard uses six columns at 1280 px", dash.grid.columns == 6, dash.grid.columns)
+
+    local hidden = NS.db.profile.dashboard.hidden
+    local function addonsHeading()
+        for _, h in ipairs(dash.headings or {}) do
+            if h.text:GetText() == "ADDONS" then return h end
+        end
+    end
+    check("the dashboard has section headings", addonsHeading() ~= nil)
+    hidden.topcpu, hidden.topmemory, hidden.topevents = true, true, true
+    dash:ApplyLayoutSettings()
+    check("a heading hides when its whole section is hidden",
+        addonsHeading() and not addonsHeading():IsShown())
+    hidden.topcpu, hidden.topmemory, hidden.topevents = nil, nil, nil
+    dash:ApplyLayoutSettings()
+    check("and comes back when a box in it is shown again",
+        addonsHeading() and addonsHeading():IsShown())
+end
+
+--------------------------------------------------------------------------
 print(("\n   %d passed, %d failed, %d lua errors"):format(passed, failed, #mock.errors))
 for i = 1, math.min(6, #mock.errors) do print("   error: " .. mock.errors[i]) end
 os.exit((failed == 0 and #mock.errors == 0) and 0 or 1)

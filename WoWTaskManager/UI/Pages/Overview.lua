@@ -56,7 +56,8 @@ function Page:Build(frame)
     -- Observations: the part people actually read
     ------------------------------------------------------------------
     self.observations = UI.ObservationList(canvas, "TOP OBSERVATIONS", { rows = 8 })
-    grid:Add(self.observations, { span = 2, height = 8 * 40 + 44, key = "observations" })
+    -- Full width: beside it, any single card was a short box next to a tall list.
+    grid:Add(self.observations, { span = 3, height = 8 * 40 + 44, key = "observations" })
 
     ------------------------------------------------------------------
     -- Per-area summaries

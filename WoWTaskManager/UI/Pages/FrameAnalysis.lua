@@ -75,7 +75,7 @@ function Page:Build(frame)
     self.bands = UI.BucketBars(canvas, "PACING BANDS", C.FRAME_PACING_BANDS, {
         labelWidth = 92, valueWidth = 96,
     })
-    grid:Add(self.bands, { span = 2, height = self.bands.naturalHeight, key = "bands" })
+    grid:Add(self.bands, { span = 1, height = self.bands.naturalHeight, key = "bands" })
 
     ------------------------------------------------------------------
     -- Clusters
@@ -103,7 +103,7 @@ function Page:Build(frame)
         "1% low is the average of the worst 1% of frames, expressed as FPS. The gap between it and the average is what a stutter feels like.\n\n" ..
         "Clusters group bad frames that arrived close together: several slow frames in a row are experienced as one stutter, not as five.\n\n" ..
         "The bands are groupings of measured frame times. Where a frame landed is measured; whether you noticed it is not something this addon can see.")
-    grid:Add(self.pacingNote, { span = 2, height = self.clusters.naturalHeight, key = "note" })
+    grid:Add(self.pacingNote, { span = 1, height = self.clusters.naturalHeight, key = "note" })
 
     self:OnLayout()
 end
