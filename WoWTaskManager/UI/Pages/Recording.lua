@@ -70,9 +70,7 @@ function Page:Build(frame)
     self.controls = controls
 
     self.startStop = UI.Button(controls.content, "", function()
-        local sampling = WTM.db.profile.sampling
-        sampling.enabled = not sampling.enabled
-        if sampling.enabled then WTM.Scheduler:Start() else WTM.Scheduler:Stop() end
+        WTM.Scheduler:SetSamplingEnabled(not WTM.db.profile.sampling.enabled)
         self:Refresh()
     end, { height = 26, primary = true, minWidth = 150 })
     self.startStop:SetPoint("TOPLEFT", 0, 0)

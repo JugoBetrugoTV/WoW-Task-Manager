@@ -645,6 +645,10 @@ end
 --------------------------------------------------------------------------
 
 do
+    -- Recording is started here: after the logout above the scheduler is
+    -- stopped, and a paused panel shows "-" and "paused" rather than values.
+    local wasRunning = NS.Scheduler:IsRunning()
+    NS.Scheduler:SetSamplingEnabled(true)
     NS.UI.LiveMonitor:Show()
     check("the live monitor opens", NS.UI.LiveMonitor:IsShown())
     NS.UI.LiveMonitor:Refresh()
@@ -668,6 +672,98 @@ do
     check("the live monitor closes", NS.UI.LiveMonitor:IsShown() == false)
     check("the UI task stops once nothing is visible",
         NS.Scheduler:GetTask("ui").enabled == false)
+    if not wasRunning then NS.Scheduler:Stop() end
+end
+
+--------------------------------------------------------------------------
+-- Live monitor: recording indicator and REC button, expanded and collapsed
+--------------------------------------------------------------------------
+-- Asked for by a user: start recording from the collapsed panel, and see
+-- that it is recording. Pausing stops the scheduler, so nothing refreshes the
+-- panel afterwards - the indicator has to be set by the toggle itself.
+
+do
+    local LM, Theme = NS.UI.LiveMonitor, NS.UI.Theme
+    local function dotIs(tone)
+        local r, g, b = Theme:Tone(tone)
+        local m = LM.header.mark
+        return m._cr == r and m._cg == g and m._cb == b
+    end
+    local function click(button) button:GetScript("OnClick")(button) end
+    local function rect(region)
+        local l, r = region:GetLeft(), region:GetRight()
+        return l, r
+    end
+    local function leftOf(a, b)   -- a ends before b begins
+        local _, ar = rect(a)
+        local bl = rect(b)
+        return ar and bl and ar <= bl + 0.01
+    end
+
+    -- By this point in the file a logout has already stopped the scheduler,
+    -- so the starting state is set here rather than assumed, and put back at
+    -- the end for the tests that follow.
+    local wasRunning = NS.Scheduler:IsRunning()
+    NS.Scheduler:SetSamplingEnabled(true)
+
+    LM:SetCollapsed(false)
+    LM:Show()
+    check("recording after SetSamplingEnabled(true)", NS.Scheduler:IsRecording())
+    check("the indicator dot is green while recording", dotIs("ok"))
+    check("the button offers to pause while recording", LM.header.rec.text:GetText() == "pause",
+        LM.header.rec.text:GetText())
+
+    NS.UI.MainWindow:Open("dashboard")
+    click(LM.header.rec)
+    check("clicking REC pauses recording", not NS.Scheduler:IsRecording())
+    check("pausing is saved in the profile", NS.db.profile.sampling.enabled == false)
+    check("the dot turns amber when paused", dotIs("warn"))
+    check("the button then offers to record", LM.header.rec.text:GetText() == "rec",
+        LM.header.rec.text:GetText())
+    check("the open main window's sidebar footer follows at once",
+        NS.UI.Sidebar.footer.state:GetText():find("Paused") ~= nil, NS.UI.Sidebar.footer.state:GetText())
+
+    LM:SetCollapsed(true)
+    check("collapsed and paused, the readout says paused instead of stale numbers",
+        LM.header.summary:GetText() == "paused", LM.header.summary:GetText())
+    LM:Refresh()
+    check("a refresh does not paint numbers over 'paused'",
+        LM.header.summary:GetText() == "paused", LM.header.summary:GetText())
+    check("the REC button is still there when collapsed", LM.header.rec:IsShown())
+
+    click(LM.header.rec)
+    check("REC works from the collapsed panel", NS.Scheduler:IsRecording())
+    check("the dot is green again", dotIs("ok"))
+    check("the readout shows numbers again", LM.header.summary:GetText() ~= "paused",
+        LM.header.summary:GetText())
+    check("the open main window's footer says Recording again",
+        NS.UI.Sidebar.footer.state:GetText():find("Recording") ~= nil, NS.UI.Sidebar.footer.state:GetText())
+    NS.UI.MainWindow:Close()
+
+    -- Nothing in the header may overlap, in either state, at either title.
+    local h = LM.header
+    for _, width in ipairs({ 210, 260 }) do
+        NS.db.profile.liveMonitor.width = width
+        LM:ApplySettings()
+        LM:SetCollapsed(false)
+        check(("expanded header at %d px: title, - , rec, cfg, open do not overlap"):format(width),
+            leftOf(h.title, h.collapse) and leftOf(h.collapse, h.rec)
+            and leftOf(h.rec, h.config) and leftOf(h.config, h.open))
+        LM:SetCollapsed(true)
+        check(("collapsed header at %d px: readout, - , rec, open do not overlap"):format(width),
+            leftOf(h.summary, h.collapse) and leftOf(h.collapse, h.rec) and leftOf(h.rec, h.open))
+        local _, summaryRight = rect(h.summary)
+        local summaryLeft = rect(h.summary)
+        check(("collapsed readout at %d px has room for a value"):format(width),
+            summaryRight - summaryLeft >= 60, summaryRight - summaryLeft)
+    end
+    NS.db.profile.liveMonitor.width = 210
+    LM:ApplySettings()
+    LM:SetCollapsed(false)
+    LM:Hide()
+    NS.Scheduler:SetSamplingEnabled(true)
+    if not wasRunning then NS.Scheduler:Stop() end
+    check("the profile is left with sampling switched on", NS.db.profile.sampling.enabled == true)
 end
 
 --------------------------------------------------------------------------
@@ -1076,6 +1172,11 @@ end
 
 do
     local lm = NS.UI.LiveMonitor
+    -- A stopped scheduler now shows "paused" in the collapsed readout instead
+    -- of stale numbers, and a logout earlier in this file leaves it stopped -
+    -- so this test, which is about the numbers, starts recording itself.
+    local wasRunning = NS.Scheduler:IsRunning()
+    NS.Scheduler:SetSamplingEnabled(true)
     lm:Show()
     local fullHeight = lm.frame:GetHeight()
     check("the rows are visible when expanded", lm.rows.fps:IsShown())
@@ -1102,6 +1203,7 @@ do
     check("the header has a settings button", lm.header.config ~= nil)
     lm:Hide()
     check("it closes", not lm:IsShown())
+    if not wasRunning then NS.Scheduler:Stop() end
 end
 
 --------------------------------------------------------------------------

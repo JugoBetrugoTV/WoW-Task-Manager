@@ -1149,12 +1149,27 @@ print("\n== design overhaul: incident timeline strip ==")
 -- plain textures, specifically so a spotted cluster can be clicked open.
 
 do
+    -- Two clusters of DIFFERENT kinds, made here. This block used to take
+    -- whatever clusters earlier tests happened to leave behind: often none
+    -- (so its cluster assertions never ran), and once two of the same kind,
+    -- where "heights differ" is simply false.
+    -- (The test baseline is 100 ms, so 1000 classifies as a freeze and 300
+    -- as a stutter; 120 would not classify at all.)
+    NS.SpikeDetector:Reset()
+    NS.Dev:InjectFrameSpike(1000)
+    mock.Advance(5)
+    NS.Dev:InjectFrameSpike(300)
+    mock.Advance(0.5)
+
     MW.frame:SetSize(1280, 800)
     MW:ShowPage("incidents")
     MW:RefreshCurrentPage()
     mock.Tick(0.1)
 
     local page = NS.UI.Pages.incidents
+    check("the fixture made two clusters of different kinds",
+        #page.list.data == 2 and page.list.data[1].kind ~= page.list.data[2].kind,
+        #page.list.data == 2 and (page.list.data[1].kind .. "/" .. page.list.data[2].kind) or #page.list.data)
     check("the strip sits clear above the cluster list, not overlapping it",
         (page.timelineStrip:GetBottom() or 0) > (page.listCard:GetTop() or math.huge) - 1,
         ("strip bottom %.0f vs list top %.0f")
@@ -1173,7 +1188,7 @@ do
         local allSame = true
         for i = 2, #heights do if heights[i] ~= heights[1] then allSame = false end end
         check("severity actually changes the tick height when clusters differ in kind",
-            not allSame or clusterCount < 2, table.concat(heights, ","))
+            clusterCount == 2 and not allSame, table.concat(heights, ","))
 
         -- Clicking a tick selects its cluster, same as clicking its row.
         local tick = page.timelinePool.active[1]

@@ -6,7 +6,7 @@ Think Windows Task Manager plus Resource Monitor plus a profiler's timeline - bu
 for the WoW client, and built only out of things the addon API can actually
 measure.
 
-![status](https://img.shields.io/badge/status-v0.8.6-blue)
+![status](https://img.shields.io/badge/status-v0.8.7-blue)
 ![mock](https://img.shields.io/badge/mock-40%2F40%20scenarios-brightgreen)
 ![real client](https://img.shields.io/badge/real%20client-Retail%20verified-brightgreen)
 
@@ -168,6 +168,12 @@ firing something the help text has never heard of, is not possible.
 The live monitor can be **collapsed to a single line** that keeps the frame time
 and FPS, from its own `-` button or from the Settings page. Its header also
 carries `cfg` (settings) and `open` (full window).
+
+Its header also shows whether anything is being recorded: a **green dot** while
+recording, **amber** while paused, and a `pause` / `rec` button that switches it,
+expanded or collapsed. Paused, the collapsed line reads `paused` instead of
+showing numbers that are no longer live. (Collapsed, the `cfg` button gives way
+to make room; `/wtm settings` and the expanded panel still reach Settings.)
 
 Developer commands live in their own `DEVELOPER / ADVANCED` section behind a
 switch, because they write simulated samples into the real history. Everything

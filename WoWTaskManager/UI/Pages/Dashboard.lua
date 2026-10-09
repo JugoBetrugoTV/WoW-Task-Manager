@@ -177,8 +177,7 @@ function Page:Build(frame)
 
     -- One click back to recording, on the page where the problem is visible.
     banner.resume = UI.Button(banner, "Start recording", function()
-        WTM.db.profile.sampling.enabled = true
-        WTM.Scheduler:Start()
+        WTM.Scheduler:SetSamplingEnabled(true)
         WTM:Print("Recording again.")
         Page:Refresh()
     end, { height = 22, width = 118, primary = true })

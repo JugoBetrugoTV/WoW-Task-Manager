@@ -74,10 +74,12 @@ function LiveMonitor:Build()
     header:SetPoint("TOPRIGHT")
     self.header = header
 
+    -- The recording indicator. Same colours as the sidebar footer so the two
+    -- never disagree about what a colour means: green recording, amber paused.
     header.mark = header:CreateTexture(nil, "ARTWORK")
-    header.mark:SetSize(6, 6)
+    header.mark:SetSize(8, 8)
     header.mark:SetPoint("LEFT", 8, 0)
-    header.mark:SetColorTexture(T("accent"))
+    header.mark:SetColorTexture(Theme:Tone("ok"))
 
     header.title = UI.Text(header, "small", "textSecondary")
     header.title:SetPoint("LEFT", header.mark, "RIGHT", 6, 0)
@@ -94,23 +96,28 @@ function LiveMonitor:Build()
     ------------------------------------------------------------------
     header.open = UI.Button(header, "open", function()
         UI.MainWindow:Open()
-    end, { height = 16, style = "tiny", minWidth = 30 })
+    end, { height = 16, style = "tiny", width = 34 })
     header.open:SetPoint("RIGHT", -4, 0)
     header.open.tooltip = "Open the full window."
 
     header.config = UI.Button(header, "cfg", function()
         UI.MainWindow:Open("settings")
-    end, { height = 16, style = "tiny", minWidth = 26 })
+    end, { height = 16, style = "tiny", width = 28 })
     header.config:SetPoint("RIGHT", header.open, "LEFT", -3, 0)
     header.config.tooltip = "Open the Settings page, where every option and every command has a button."
+
+    -- Starts or pauses recording, collapsed or not: this is the one control
+    -- that has to survive the panel shrinking to a single line.
+    header.rec = UI.Button(header, "rec", function()
+        WTM.Scheduler:SetSamplingEnabled(not WTM.Scheduler:IsRecording())
+    end, { height = 16, style = "tiny", width = 38 })
+    header.rec:SetPoint("RIGHT", header.config, "LEFT", -3, 0)
 
     header.collapse = UI.Button(header, "-", function()
         LiveMonitor:SetCollapsed(not WTM.db.profile.liveMonitor.collapsed)
     end, { width = 18, height = 16, style = "tiny" })
-    header.collapse:SetPoint("RIGHT", header.config, "LEFT", -3, 0)
+    header.collapse:SetPoint("RIGHT", header.rec, "LEFT", -3, 0)
     header.collapse.tooltip = "Collapse to a single line. The panel stays on screen and keeps recording."
-    header.summary:SetPoint("RIGHT", header.collapse, "LEFT", -6, 0)
-    header.summary:SetPoint("LEFT", header.title, "RIGHT", 6, 0)
 
     UI.MakeMovable(frame, header, function()
         local point, _, _, x, y = frame:GetPoint()
@@ -152,6 +159,7 @@ function LiveMonitor:Build()
         UI.TooltipLine("Drag", "the header to move")
         UI.TooltipLine("open", "the full window")
         UI.TooltipLine("cfg", "the settings page")
+        UI.TooltipLine("rec / pause", "start or pause recording")
         UI.TooltipLine("- / +", "collapse or expand")
         UI.TooltipLine("/wtm mini", "hide it again")
         local warning = WTM.Overhead:GetWarning()
@@ -161,6 +169,7 @@ function LiveMonitor:Build()
     frame:SetScript("OnLeave", UI.HideTooltip)
 
     self:ApplySettings()
+    self:ApplyRecordingState()
     return frame
 end
 
@@ -203,7 +212,24 @@ function LiveMonitor:ApplyCollapsed()
     for _, row in pairs(self.rows) do
         row:SetShown(not collapsed)
     end
-    self.header.summary:SetShown(collapsed)
+
+    -- One line is 210 px wide: dot, readout, REC, +, open. The title and the
+    -- settings button give way, because REC and the readout are what a
+    -- collapsed panel is for. (Settings is still one click away once it is
+    -- expanded, and /wtm settings works either way.)
+    local header = self.header
+    -- Four buttons take 131 px; the full title needs room beyond that. Below
+    -- 230 px wide it would run into them, so the short name stands in.
+    header.title:SetText(WTM.db.profile.liveMonitor.width >= 230 and "Task Manager" or C.ADDON_SHORT)
+    header.title:SetShown(not collapsed)
+    header.config:SetShown(not collapsed)
+    header.summary:SetShown(collapsed)
+    header.rec:ClearAllPoints()
+    header.rec:SetPoint("RIGHT", collapsed and header.open or header.config, "LEFT", -3, 0)
+    header.summary:ClearAllPoints()
+    header.summary:SetPoint("LEFT", header.mark, "RIGHT", 6, 0)
+    header.summary:SetPoint("RIGHT", header.collapse, "LEFT", -6, 0)
+    header.summary:SetJustifyH("LEFT")
     self.header.collapse:SetText(collapsed and "+" or "-")
     self.header.collapse.tooltip = collapsed
         and "Expand back to the full readout."
@@ -231,6 +257,13 @@ end
 function LiveMonitor:Refresh()
     local frame = self.frame
     if not frame or not frame:IsShown() then return end
+
+    -- Paused means every number below is old. Say so rather than showing
+    -- them as if they were live.
+    if not WTM.Scheduler:IsRecording() then
+        self:ShowPaused()
+        return
+    end
 
     local ft  = WTM.FrameTime.current
     local net = WTM.Network.current
@@ -296,8 +329,41 @@ end
 
 --------------------------------------------------------------------------
 
+--- Dot, button label and tooltip for the current recording state. Called when
+--- the state changes and when the panel is built or shown - never from the
+--- tick, because pausing stops the tick.
+function LiveMonitor:ApplyRecordingState()
+    if not self.frame then return end
+    local header = self.header
+    local recording = WTM.Scheduler:IsRecording()
+    header.mark:SetColorTexture(Theme:Tone(recording and "ok" or "warn"))
+    header.rec:SetText(recording and "pause" or "rec")
+    header.rec.tooltip = recording
+        and "Recording. Click to pause: nothing new is measured until you resume. Data already recorded is kept."
+        or "Paused - nothing is being measured. Click to start recording again."
+end
+
+function LiveMonitor:ShowPaused()
+    if self:IsCollapsed() then
+        self.header.summary:SetText("paused")
+        self.header.summary:SetTextColor(Theme:Tone("warn"))
+        return
+    end
+    for _, row in pairs(self.rows) do
+        if (row.value:GetText() or "") == "" then row.value:SetText("-") end
+        row.value:SetTextColor(T("textMuted"))
+    end
+end
+
+--- WTM_SAMPLING_CHANGED: repaint at once, since a paused panel gets no ticks.
+function LiveMonitor:OnSamplingChanged()
+    self:ApplyRecordingState()
+    self:Refresh()
+end
+
 function LiveMonitor:Show()
     self:Build()
+    self:ApplyRecordingState()
     self.frame:Show()
     -- Refresh below runs outside the scheduler tick, so nobody has opened a
     -- graph pass for it. Open one, or the panel appears with empty sparklines
@@ -329,6 +395,7 @@ end
 --------------------------------------------------------------------------
 
 function LiveMonitor:OnEnable()
+    self:RegisterMessage("WTM_SAMPLING_CHANGED", "OnSamplingChanged")
     if WTM.db.profile.liveMonitor.shown then
         self:Show()
     end

@@ -109,7 +109,12 @@ local function checkColor(name, self, r, g, b, a, ...)
 end
 
 function Region:SetTextColor(...) checkColor("SetTextColor", self, ...) end
-function Region:SetColorTexture(...) checkColor("SetColorTexture", self, ...) end
+-- The last colour is kept as four scalars, not a table: this runs on every
+-- colour set and the harness's allocation numbers are asserted on.
+function Region:SetColorTexture(r, g, b, a, ...)
+    checkColor("SetColorTexture", self, r, g, b, a, ...)
+    self._cr, self._cg, self._cb, self._ca = r, g, b, a
+end
 function Region:SetVertexColor(...) checkColor("SetVertexColor", self, ...) end
 -- Modern signature only (10.0+): two colour objects. Validated like the other
 -- colour setters, and recorded so a test can check which way a fill fades.

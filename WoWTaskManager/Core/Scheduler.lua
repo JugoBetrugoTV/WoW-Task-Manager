@@ -280,6 +280,25 @@ end
 
 function Scheduler:IsRunning() return running end
 
+--- The one way to switch recording on or off. Four places used to flip
+--- `sampling.enabled` and call Start/Stop themselves; a fifth (the compact
+--- monitor's REC button) would have been a fifth copy, and none of them told
+--- the others. Stopping also halts the "ui" task, so nothing on screen
+--- refreshes afterwards - which is why this announces the change instead of
+--- leaving every surface to notice on its next tick.
+function Scheduler:SetSamplingEnabled(enabled)
+    enabled = enabled and true or false
+    WTM.db.profile.sampling.enabled = enabled
+    if enabled then self:Start() else self:Stop() end
+    WTM:SendMessage("WTM_SAMPLING_CHANGED", enabled)
+    return enabled
+end
+
+--- True when samples are actually being taken: switched on AND the driver runs.
+function Scheduler:IsRecording()
+    return running and WTM.db.profile.sampling.enabled and true or false
+end
+
 --- Why nothing is being sampled, in a sentence, or nil when it is.
 ---
 --- A monitor showing zeroes is indistinguishable from a monitor showing a very

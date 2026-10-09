@@ -320,10 +320,7 @@ function Page:Build(frame)
     AddSection("MONITORING")
     Add(Checkbox(host, "Enable sampling",
         function() return profile.sampling.enabled end,
-        function(v)
-            profile.sampling.enabled = v
-            if v then WTM.Scheduler:Start() else WTM.Scheduler:Stop() end
-        end,
+        function(v) WTM.Scheduler:SetSamplingEnabled(v) end,
         "Stops every sampling task. The addon keeps its data but records nothing new."))
 
     Add(Checkbox(host, "Adaptive sampling around spikes",

@@ -674,7 +674,16 @@ end
 -- Lifecycle
 --------------------------------------------------------------------------
 
+--- Pausing stops the scheduler, and the scheduler is what refreshes this
+--- window - so a pause or resume from somewhere else (the compact monitor's
+--- REC button) would leave the sidebar footer and the page showing the old
+--- state until the next click.
+function MainWindow:OnSamplingChanged()
+    if self:IsOpen() then self:Refresh() end
+end
+
 function MainWindow:OnEnable()
+    self:RegisterMessage("WTM_SAMPLING_CHANGED", "OnSamplingChanged")
     WTM.Scheduler:Register("ui", function() MainWindow:Refresh() end,
         WTM.db.profile.sampling.intervals.ui, C.SAMPLE_DEFAULTS.ui.burst, 0.05, "ui")
     WTM.Scheduler:SetEnabled("ui", false)
