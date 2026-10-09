@@ -1,0 +1,12 @@
+## Interface: 120100, 120105, 16001
+## Title: WoW |cff4c8dffTask Manager|r
+## Notes: Performance, diagnostics and addon profiling.|nBuilt for Retail / Midnight 12.1.0 and 12.1.5.
+## Author: JugoBetrugoTV
+## Version: 0.8.7
+## SavedVariables: WoWTaskManagerDB
+## X-Category: Development Tools
+## X-Target-Client: Retail / Midnight 12.1.0, 12.1.5
+## OptionalDeps: Ace3
+## DefaultState: enabled
+
+Includes.xml
