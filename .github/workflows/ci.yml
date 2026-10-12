@@ -1,0 +1,92 @@
+name: CI
+
+# A branch with an open pull request was matching BOTH triggers, so every push
+# ran the whole seven-minute matrix twice, on two runners, against the same
+# commit. Pushes are gated to the default branch; a branch under review is
+# covered by the pull_request trigger, and a branch without one is covered as
+# soon as a pull request opens.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push supersedes the run before it. Without this the older run keeps a
+# runner busy producing a verdict about a commit nobody is looking at any more.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lua 5.1 test matrix
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.1 luarocks
+          lua5.1 -v
+          luac5.1 -v
+
+      # The addon targets Lua 5.1, the same version WoW runs, so the syntax
+      # check is a real compatibility gate rather than a formality: anything
+      # that fails here would fail to load in the client.
+      - name: Syntax check every Lua file
+        run: |
+          fail=0
+          for f in $(find WoWTaskManager -name '*.lua' | sort); do
+            if ! luac5.1 -p "$f"; then
+              echo "::error file=$f::does not parse under Lua 5.1"
+              fail=1
+            fi
+          done
+          echo "checked $(find WoWTaskManager -name '*.lua' | wc -l) files"
+          exit $fail
+
+      # Four clients x profiling on/off x full or stripped API surface.
+      - name: Test matrix (16 scenarios)
+        run: ./tools/run-tests.sh
+
+      - name: Downsampling regression test
+        run: lua5.1 tools/test-downsample.lua
+
+      - name: Flight recorder and migration tests
+        run: lua5.1 tools/test-recorder.lua
+
+      - name: Error monitor and handler chaining tests
+        run: lua5.1 tools/test-errors.lua
+
+      - name: UI stress test
+        run: lua5.1 tools/test-ui.lua
+
+      - name: Six-hour long-run memory test
+        run: lua5.1 tools/test-longrun.lua
+
+      - name: Scale and empty-state tests
+        run: lua5.1 tools/test-scale.lua
+
+      - name: Release checks
+        run: ./tools/release-check.sh
+
+  luacheck:
+    name: luacheck (advisory)
+    runs-on: ubuntu-latest
+    # Advisory only: luacheck's view of WoW globals is never complete, and a
+    # false positive there must not block a correct change.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install luacheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.1 luarocks
+          sudo luarocks install luacheck
+
+      - name: Run luacheck
+        run: luacheck WoWTaskManager tools --codes || true
