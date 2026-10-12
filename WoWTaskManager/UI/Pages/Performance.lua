@@ -75,7 +75,7 @@ function Page:Build(frame)
     -- Analyzer strip
     ------------------------------------------------------------------
     local analyzer = UI.Panel(frame, {})
-    analyzer:SetHeight(104)
+    analyzer:SetHeight(Theme:ScaleText(104))
     analyzer:SetPoint("TOPLEFT", toolbar, "BOTTOMLEFT", 0, -10)
     analyzer:SetPoint("TOPRIGHT", toolbar, "BOTTOMRIGHT", 0, -10)
     self.analyzer = analyzer

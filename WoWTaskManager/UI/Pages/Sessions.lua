@@ -109,7 +109,7 @@ function Page:Build(frame)
     end
     -- Sized from the rows rather than by hand: sixteen keys in two columns is
     -- eight rows, and the hand-written 150 fitted seven of them.
-    local ROW_PITCH, ROW_HEIGHT = 16, 18
+    local ROW_PITCH, ROW_HEIGHT = Theme:ScaleRow(16), Theme:ScaleRow(18)
     stats:SetContentHeight(
         (math.ceil(#STAT_KEYS / 2) - 1) * ROW_PITCH + ROW_HEIGHT)
 

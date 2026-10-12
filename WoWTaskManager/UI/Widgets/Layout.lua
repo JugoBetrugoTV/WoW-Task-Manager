@@ -67,6 +67,11 @@ function UI.Grid(parent, opts)
         -- with nothing to say they existed. The call sites keep their numbers
         -- as the intent; this is the floor.
         local natural = frame.naturalHeight
+        -- A bare font string has no naturalHeight, but its own height is
+        -- already text-size aware (UI.Text scales it), so it is the floor.
+        if not natural and frame.GetObjectType and frame:GetObjectType() == "FontString" then
+            natural = frame:GetHeight()
+        end
         if natural and natural > height then height = natural end
 
         self.cells[#self.cells + 1] = {
@@ -198,7 +203,10 @@ function UI.Grid(parent, opts)
                 cell.frame:ClearAllPoints()
                 cell.frame:SetPoint("TOPLEFT", self.parent, "TOPLEFT", x, -y)
                 cell.frame:SetWidth(cellWidth)
-                cell.frame:SetHeight(cellHeight)
+                -- A bare font string scales heights it is given; this one is
+                -- already final.
+                local setHeight = cell.frame.SetExactHeight or cell.frame.SetHeight
+                setHeight(cell.frame, cellHeight)
                 x = x + cellWidth + self.gap
             end
             y = y + rowHeight + self.gap

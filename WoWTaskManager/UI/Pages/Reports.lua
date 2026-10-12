@@ -105,7 +105,7 @@ function Page:Build(frame)
     self.noteBox = UI.SearchBox(side, "e.g. froze opening the bags")
     self.noteBox:SetPoint("TOPLEFT", self.noteHeading, "BOTTOMLEFT", 0, -6)
     self.noteBox:SetPoint("TOPRIGHT", self.noteHeading, "BOTTOMRIGHT", 0, -6)
-    self.noteBox:SetHeight(24)
+    self.noteBox:SetHeight(Theme:ScaleText(24))
 
     self.noteHint = UI.Text(side, "tiny", "textMuted", "LEFT")
     self.noteHint:SetPoint("TOPLEFT", self.noteBox, "BOTTOMLEFT", 0, -6)
@@ -122,7 +122,7 @@ function Page:Build(frame)
     })
     self.summary:SetPoint("BOTTOMLEFT")
     self.summary:SetPoint("BOTTOMRIGHT")
-    self.summary:SetHeight(122)
+    self.summary:SetHeight(Theme:ScaleText(122))
 
     ------------------------------------------------------------------
     -- Right: the report itself
@@ -168,7 +168,7 @@ function Page:Build(frame)
     self.footer = UI.Text(panel, "tiny", "textMuted", "LEFT")
     self.footer:SetPoint("BOTTOMLEFT", 12, 6)
     self.footer:SetPoint("BOTTOMRIGHT", -12, 6)
-    self.footer:SetHeight(22)
+    self.footer:SetHeight(24)
     UI.Wrap(self.footer, 2)
     self.footer:SetText("WoW gives addons no access to the system clipboard, in either direction. \"Open selectable copy\" puts the text in a box with everything selected, ready for Ctrl+C.")
 

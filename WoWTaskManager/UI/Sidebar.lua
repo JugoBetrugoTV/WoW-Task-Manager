@@ -301,8 +301,13 @@ function Sidebar:Refresh()
         :format(WTM.Overhead.current.totalMsPerSec))
     footer.overhead:SetTextColor(Theme:Tone(tone))
 
-    footer.budget:SetText(("%.2f%% of a frame at %s fps")
-        :format(WTM.Overhead:GetFrameBudgetPercent(), Fmt.FPS(WTM.FrameTime.current.fps)))
+    -- The sidebar is a fixed width, so at a larger text size the long form no
+    -- longer fits; FitBest takes the longest phrasing that does.
+    local percent = WTM.Overhead:GetFrameBudgetPercent()
+    UI.FitBest(footer.budget,
+        ("%.2f%% of a frame at %s fps"):format(percent, Fmt.FPS(WTM.FrameTime.current.fps)),
+        ("%.2f%% of a frame"):format(percent),
+        ("%.2f%%"):format(percent))
     footer.budget:SetTextColor(Theme:Tone(tone))
 
     footer.coverage:SetText(("recorder %s")

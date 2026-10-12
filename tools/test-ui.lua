@@ -91,11 +91,54 @@ local function check(name, ok, detail)
     else failed = failed + 1; print(("   FAIL  %s  (%s)"):format(name, tostring(detail))) end
 end
 
+-- lua5.1 tools/test-ui.lua [normal|large|xlarge]
+-- Text size changes nothing but font sizes, and widgets bake their font in
+-- when they are built - so it has to be chosen before the first page exists.
+-- release-check runs this file once per size; every layout audit below then
+-- applies to that size.
+local TEXT_SIZE = arg and arg[1] or "normal"
+
 WoWTaskManagerDB = nil
 mock.Fire("ADDON_LOADED", "WoWTaskManager")
+NS.db.profile.ui.textSize = TEXT_SIZE
+NS.UI.Theme:ApplyFromProfile()
 mock.Fire("PLAYER_LOGIN")
 
 local MW = NS.UI.MainWindow
+
+--------------------------------------------------------------------------
+print("\n== text size (" .. TEXT_SIZE .. ") ==")
+--------------------------------------------------------------------------
+do
+    local Theme = NS.UI.Theme
+    local expected = ({ normal = 1.0, large = 1.15, xlarge = 1.3 })[TEXT_SIZE]
+    check("the text size setting reached the theme",
+        Theme.currentTextSize == TEXT_SIZE and Theme.textScale == expected,
+        ("%s / %s"):format(tostring(Theme.currentTextSize), tostring(Theme.textScale)))
+
+    local body = NS.UI.Text(UIParent, "body")
+    local _, bodySize = body:GetFont()
+    check("body text is drawn at the scaled size",
+        bodySize == Theme:ScaledFontSize(12) and (TEXT_SIZE == "normal") == (bodySize == 12), bodySize)
+
+    -- A height written beside a wrapped font string is for 100% text, and
+    -- both its line cap and its height follow the size.
+    local note = NS.UI.Text(UIParent, "small")
+    note:SetHeight(30)
+    NS.UI.Wrap(note, 2)
+    check("a wrapped note's height follows the text size",
+        (TEXT_SIZE == "normal" and note:GetHeight() == 30) or (TEXT_SIZE ~= "normal" and note:GetHeight() > 30),
+        note:GetHeight())
+
+    -- Built at 100% whatever the setting: its widths are fixed.
+    local LM = NS.UI.LiveMonitor
+    LM:Show()
+    local _, titleSize = LM.header.title:GetFont()
+    check("the live monitor keeps 100% text at every text size", titleSize == 11, titleSize)
+    check("and building it leaves the text size setting as it was",
+        Theme.textScale == expected, Theme.textScale)
+    LM:Hide()
+end
 MW:Open()
 
 -- Give the addon something to draw. An empty session hides most layout bugs,
@@ -986,10 +1029,19 @@ do
     MW:LayoutAllPages()
     local topbar = MW.frame.topbar
     local metrics = MW.frame.topMetrics
-    local rightmost = 0
+    local rightmost, shown = 0, 0
     for _, cell in pairs(metrics) do
-        rightmost = math.max(rightmost, cell:GetRight() or 0)
+        -- A cell that did not fit is hidden (MainWindow:FitTopbarCells), and
+        -- a hidden cell is not running under the Reload button.
+        if cell:IsShown() then
+            shown = shown + 1
+            rightmost = math.max(rightmost, cell:GetRight() or 0)
+        end
     end
+    -- FPS, frame time, latency and memory are what the strip is for; at the
+    -- largest text size the later cells may give way, those four may not.
+    check("at least the four essential cells still fit at the minimum window width",
+        shown >= 4 and metrics.fps:IsShown() and metrics.frame:IsShown(), shown)
     check("the last live-metric cell stays inside the topbar at the minimum window width",
         rightmost <= (topbar:GetRight() or 0),
         ("cell right %.0f vs topbar right %.0f"):format(rightmost, topbar:GetRight() or 0))
@@ -1153,12 +1205,24 @@ do
     -- whatever clusters earlier tests happened to leave behind: often none
     -- (so its cluster assertions never ran), and once two of the same kind,
     -- where "heights differ" is simply false.
-    -- (The test baseline is 100 ms, so 1000 classifies as a freeze and 300
-    -- as a stutter; 120 would not classify at all.)
+    -- Which spike sizes land in different kinds depends on the baseline, which
+    -- earlier tests move (it was 100 ms here until a block above it changed),
+    -- so the two sizes are chosen from what the detector actually says rather
+    -- than written down.
     NS.SpikeDetector:Reset()
-    NS.Dev:InjectFrameSpike(1000)
+    local baseline = NS.FrameTime:GetBaseline()
+    local function kindOf(ms) return NS.SpikeDetector:Classify(ms, baseline) end
+    local highMs, highKind = 5000, kindOf(5000)
+    local lowMs, lowKind
+    for _, ms in ipairs({ 40, 60, 100, 150, 250, 400, 800, 1500, 3000 }) do
+        local kind = kindOf(ms)
+        if kind and kind ~= highKind then lowMs, lowKind = ms, kind break end
+    end
+    check("two spike sizes of different kinds exist for this baseline",
+        highKind ~= nil and lowKind ~= nil, ("baseline %.0f, %s / %s"):format(baseline, tostring(highKind), tostring(lowKind)))
+    NS.Dev:InjectFrameSpike(highMs)
     mock.Advance(5)
-    NS.Dev:InjectFrameSpike(300)
+    NS.Dev:InjectFrameSpike(lowMs or 60)
     mock.Advance(0.5)
 
     MW.frame:SetSize(1280, 800)

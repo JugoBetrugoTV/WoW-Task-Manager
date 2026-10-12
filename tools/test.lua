@@ -2492,6 +2492,33 @@ do
 end
 
 --------------------------------------------------------------------------
+-- Text size: one multiplier on every font, never below 8 px
+--------------------------------------------------------------------------
+do
+    local Theme = NS.UI.Theme
+    local was = Theme.currentTextSize
+    local cases = { { "normal", 1.0, 12 }, { "large", 1.15, 14 }, { "xlarge", 1.3, 16 } }
+    for _, case in ipairs(cases) do
+        Theme:ApplyTextSize(case[1])
+        check(("text size '%s' scales body text to %d px"):format(case[1], case[3]),
+            Theme.textScale == case[2] and Theme:ScaledFontSize(12) == case[3],
+            Theme:ScaledFontSize(12))
+    end
+    Theme:ApplyTextSize("no such size")
+    check("an unknown text size falls back to normal",
+        Theme.currentTextSize == "normal" and Theme.textScale == 1)
+    Theme:ApplyTextSize("xlarge")
+    local smallest = math.huge
+    for _, font in pairs(Theme.fonts) do smallest = math.min(smallest, Theme:ScaledFontSize(font.size)) end
+    check("no font is ever smaller than 8 px", smallest >= 8, smallest)
+    -- Rounded up to a whole line, not a fractional one.
+    check("a two-line note at +17% needs three lines, not 2.34",
+        math.abs(Theme:WrapGrowth(2, 14 / 12) - (3 / 2) * (14 / 12)) < 1e-9)
+    check("an unbounded wrap grows by the square", math.abs(Theme:WrapGrowth(0, 1.2) - 1.44) < 1e-9)
+    Theme:ApplyTextSize(was)
+end
+
+--------------------------------------------------------------------------
 -- Midnight: tables and frames addon code may not touch
 --------------------------------------------------------------------------
 -- A live 12.x client reported "attempted to iterate a table that cannot be

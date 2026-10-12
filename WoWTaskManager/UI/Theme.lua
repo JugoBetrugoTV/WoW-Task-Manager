@@ -228,6 +228,7 @@ function Theme:ApplyFromProfile()
     local ui = WTM.db and WTM.db.profile and WTM.db.profile.ui
     self:ApplyPreset(ui and ui.theme, ui and ui.accent)
     self:ApplyDensity(ui and ui.density)
+    self:ApplyTextSize(ui and ui.textSize)
 end
 
 --------------------------------------------------------------------------
@@ -321,9 +322,76 @@ Theme.fonts = {
     tiny      = { path = FONT_TEXT,    size = 10, flags = "" },
 }
 
+-- Text size is one multiplier on every font above, nothing else: heights and
+-- widths are not scaled with it, which is why the sizes offered are the ones
+-- tools/test-ui.lua's layout audits pass at (run once per size by
+-- release-check). Like palette and density it is baked into a font string
+-- when the widget is built, so a change applies after /reload.
+Theme.TEXT_SIZES = {
+    { key = "normal", label = "Normal",      scale = 1.00 },
+    { key = "large",  label = "Large",       scale = 1.15 },
+    { key = "xlarge", label = "Extra large", scale = 1.30 },
+}
+Theme.textScale = 1
+Theme.currentTextSize = "normal"
+
+function Theme:ApplyTextSize(key)
+    for _, size in ipairs(self.TEXT_SIZES) do
+        if size.key == key then
+            self.textScale, self.currentTextSize = size.scale, size.key
+            return
+        end
+    end
+    self.textScale, self.currentTextSize = 1, "normal"
+end
+
+--- A pixel size at the current text size. Never below 8: smaller than that is
+--- not text any more, whatever the multiplier.
+function Theme:ScaledFontSize(size)
+    return math.max(8, math.floor(size * self.textScale + 0.5))
+end
+
+--- A layout dimension that exists to hold text - a row, a note, a card that
+--- is mostly sentences - at the current text size. Dimensions that are not
+--- about text (borders, bars, spacing, graph plots) stay as they are.
+function Theme:ScaleText(pixels)
+    -- By what body text actually grew, not by the nominal factor: sizes are
+    -- whole pixels, so 12 px at 115% is 14 px (+17%) and 10 px is 12 (+20%).
+    return math.ceil(pixels * self:ScaledFontSize(12) / 12)
+end
+
+--- A row that holds ONE line of text. Padding does not grow with the glyphs,
+--- so the row grows by what the text did (12 px body text at 130% is 16 px:
+--- +4), not by 30%: a 13-row card stays 13 rows tall instead of 30% taller.
+function Theme:ScaleRow(pixels)
+    return pixels + (self:ScaledFontSize(12) - 12)
+end
+
+--- A dimension that holds WRAPPED text. Larger glyphs make each line taller
+--- AND make the same sentence need more lines, so the box grows with the
+--- square of the ratio, not the ratio.
+function Theme:ScaleWrapped(pixels)
+    local ratio = self:ScaledFontSize(12) / 12
+    return math.ceil(pixels * ratio * ratio)
+end
+
+--- How much a wrapped box of `lines` lines grows when the text grows by
+--- `ratio`: the line count rises (and is a whole number: 2 lines at +17% is
+--- 3, not 2.34), and each line is taller.
+function Theme:WrapGrowth(lines, ratio)
+    if not lines or lines <= 0 then return ratio * ratio end
+    return (math.ceil(lines * ratio) / lines) * ratio
+end
+
+--- By what a given font style actually grew at the current text size.
+function Theme:FontRatio(style)
+    local font = self.fonts[style] or self.fonts.body
+    return self:ScaledFontSize(font.size) / font.size
+end
+
 function Theme:SetFont(fontString, style, colorKey, alpha)
     local font = self.fonts[style] or self.fonts.body
-    ApplyFont(fontString, font.path, font.size, font.flags)
+    ApplyFont(fontString, font.path, self:ScaledFontSize(font.size), font.flags)
     if colorKey then
         fontString:SetTextColor(C4(colorKey, alpha))
     end

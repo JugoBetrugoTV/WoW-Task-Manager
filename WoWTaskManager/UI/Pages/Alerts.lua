@@ -28,7 +28,7 @@ local Page = UI.RegisterPage("alerts", {})
 
 local function BuildRuleRow(parent, rule)
     local row = UI.Panel(parent, {})
-    row:SetHeight(58)
+    row:SetHeight(Theme:ScaleWrapped(58))
 
     row.check = CreateFrame("Button", nil, row)
     row.check:SetSize(16, 16)
@@ -132,7 +132,7 @@ function Page:Build(frame)
     self.ruleRows = {}
     for _, rule in ipairs(WTM.Alerts.RULES) do
         local row = BuildRuleRow(canvas, rule)
-        grid:Add(row, { span = 1, height = 58, key = rule.key })
+        grid:Add(row, { span = 1, height = Theme:ScaleWrapped(58), key = rule.key })
         self.ruleRows[rule.key] = row
 
         -- Threshold control, built after the row so it can anchor into it.

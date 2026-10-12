@@ -237,9 +237,33 @@ end
 --- silently pushes itself over whatever is beneath it - which is exactly how a
 --- dashboard ends up with text running through its own graphs. Anything that
 --- genuinely needs to flow asks for it with `wrap = true`.
+-- A height written beside a font string was always worked out for 100% text:
+-- "30" means two lines of body text. At a larger text size those lines are
+-- taller, so the same number clips the last one. Every explicit height on a
+-- font string made by UI.Text therefore means "at 100%" and is scaled by the
+-- text size - one rule here instead of a multiplier at each of the call sites.
+-- (Only installed when the size is not 100%, so the default path is untouched.)
+local baseSetHeight
+local function ScaledSetHeight(fontString, height)
+    fontString.baseHeight = height
+    local ratio = fontString.textRatio
+    -- Wrapped text needs more lines as well as taller ones (Theme:ScaleWrapped),
+    -- and the line count is a whole number: 2 lines at +17% is 3, not 2.34.
+    if fontString.wrapGrowth then ratio = fontString.wrapGrowth end
+    return baseSetHeight(fontString, math.ceil(height * ratio))
+end
+
 function UI.Text(parent, style, colorKey, justify, wrap)
     local fs = parent:CreateFontString(nil, "OVERLAY")
     Theme:SetFont(fs, style or "body", colorKey or "textPrimary")
+    if Theme.textScale ~= 1 then
+        baseSetHeight = baseSetHeight or fs.SetHeight
+        fs.textRatio = Theme:FontRatio(style or "body")
+        -- For code that already has a final pixel height (the grid, once it
+        -- has placed a cell) and must not have it scaled a second time.
+        fs.SetExactHeight = baseSetHeight
+        fs.SetHeight = ScaledSetHeight
+    end
     fs:SetJustifyH(justify or "LEFT")
     if wrap then
         UI.Wrap(fs)
@@ -264,8 +288,18 @@ end
 --- point).
 function UI.Wrap(fontString, maxLines)
     fontString:SetWordWrap(true)
+    maxLines = maxLines or 4
+    -- At a larger text size the same sentence wraps onto more lines. Capping
+    -- it at the 100% count would cut the end off every note, so the cap (and
+    -- the height, which was usually written down before this call) follow.
+    local ratio = fontString.textRatio
+    if ratio and ratio ~= 1 then
+        fontString.wrapGrowth = Theme:WrapGrowth(maxLines, ratio)
+        if maxLines > 0 then maxLines = math.ceil(maxLines * ratio) end
+        if fontString.baseHeight then fontString:SetHeight(fontString.baseHeight) end
+    end
     if fontString.SetMaxLines then
-        pcall(fontString.SetMaxLines, fontString, maxLines or 4)
+        pcall(fontString.SetMaxLines, fontString, maxLines)
     end
     return fontString
 end
@@ -360,7 +394,7 @@ function UI.LabeledValue(parent, label, valueStyle)
     group.unit = UI.Text(group, "small", "textMuted")
     group.unit:SetPoint("BOTTOMLEFT", group.value, "BOTTOMRIGHT", 3, 2)
 
-    group:SetHeight(46)
+    group:SetHeight(Theme:ScaleText(46))
 
     function group:Set(value, unit, colorKey)
         self.value:SetText(value)
@@ -400,8 +434,17 @@ function UI.Button(parent, text, onClick, opts)
     button.bg:SetAllPoints()
 
     button.text = UI.Text(button, opts.style or "body", "textSecondary", "CENTER")
-    button.text:SetPoint("CENTER")
+    -- Anchored to both edges, so the label has the button's width to fit in
+    -- whatever the button is later sized to, and an over-long one is trimmed
+    -- with an ellipsis (the tooltip title carries the full text).
+    button.text:SetPoint("LEFT", 4, 0)
+    button.text:SetPoint("RIGHT", -4, 0)
+    button.label = text
     button.text:SetText(text)
+    function button:FitLabel()
+        self.text:SetText(UI.FitText(self.text, self.label))
+    end
+    button:SetScript("OnSizeChanged", function(self) self:FitLabel() end)
 
     button.isPrimary = opts.primary
     UI.Border(button, "TLBR", opts.primary and "accentDim" or "borderSubtle")
@@ -409,7 +452,8 @@ function UI.Button(parent, text, onClick, opts)
     if not opts.width then
         button:SetWidth(math.max(opts.minWidth or 64, button.text:GetStringWidth() + 24))
     else
-        button:SetWidth(opts.width)
+        -- An explicit width was chosen for text at 100%.
+        button:SetWidth(Theme:ScaleText(opts.width))
     end
 
     button:SetScript("OnEnter", function(self)
@@ -437,7 +481,9 @@ function UI.Button(parent, text, onClick, opts)
         StyleButtonState(self)
     end
     function button:SetText(newText)
+        self.label = newText
         self.text:SetText(newText)
+        self:FitLabel()
     end
 
     StyleButtonState(button)

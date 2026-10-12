@@ -629,7 +629,13 @@ function Region:SetMaxLines(n) self._maxLines = n end
 function Region:SetNonSpaceWrap(v) self._nonSpaceWrap = v and true or false end
 function Region:GetText() return self._text end
 function Region:SetFont(path, size, flags) self._font = { path, size, flags } return true end
-function Region:GetFont() return self._font and self._font[1] or "Fonts\\FRIZQT__.TTF" end
+-- The real GetFont returns path, size, flags; the size is what text-size
+-- tests need.
+function Region:GetFont()
+    local font = self._font
+    if font then return font[1], font[2], font[3] end
+    return "Fonts\\FRIZQT__.TTF", 12, ""
+end
 --- Colour codes and texture escapes are markup, not glyphs. Measuring them as
 --- text made every coloured label look twice as wide as it renders.
 local function visibleText(text)

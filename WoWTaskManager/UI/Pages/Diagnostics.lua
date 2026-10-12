@@ -71,7 +71,12 @@ function Page:Build(frame)
     self.findingsCard:SetPoint("TOPLEFT")
     self.findingsCard:SetPoint("BOTTOMLEFT")
 
-    self.findingsList = UI.ScrollList(self.findingsCard.content, 58,
+    -- A row is: 6 above, a title line, 3, a two-line detail, 2 below. At a
+    -- larger text size each of those grows by its own rule, so the row is
+    -- built from the parts rather than scaled as a lump.
+    local DETAIL_HEIGHT = math.ceil(32 * Theme:WrapGrowth(2, Theme:FontRatio("small")))
+    local ROW_HEIGHT = 6 + Theme:ScaleText(15) + 3 + DETAIL_HEIGHT + 2
+    self.findingsList = UI.ScrollList(self.findingsCard.content, ROW_HEIGHT,
         function(parent)
             local row = CreateFrame("Button", nil, parent)
             row.accent = row:CreateTexture(nil, "ARTWORK")

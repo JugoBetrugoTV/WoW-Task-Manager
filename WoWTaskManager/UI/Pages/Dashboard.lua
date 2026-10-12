@@ -353,15 +353,16 @@ function Page:Build(frame)
     local overhead = UI.Card(canvas, "THIS ADDON'S MEASURED OVERHEAD", {})
     self.overheadCard = overhead
     self.overheadRows = {}
+    local overheadRow = Theme:ScaleRow(OVERHEAD_ROW_HEIGHT)
     for i = 1, MAX_OVERHEAD_ROWS + 1 do
         local row = UI.StatRow(overhead.content, "")
-        row:SetPoint("TOPLEFT", 0, -(i - 1) * OVERHEAD_ROW_HEIGHT)
-        row:SetPoint("TOPRIGHT", 0, -(i - 1) * OVERHEAD_ROW_HEIGHT)
+        row:SetPoint("TOPLEFT", 0, -(i - 1) * overheadRow)
+        row:SetPoint("TOPRIGHT", 0, -(i - 1) * overheadRow)
         self.overheadRows[i] = row
     end
     grid:Add(overhead, {
         span = 3,
-        height = OVERHEAD_ROW_HEIGHT * (MAX_OVERHEAD_ROWS + 1) + 40,
+        height = overheadRow * (MAX_OVERHEAD_ROWS + 1) + 40,
         key = "overhead",
     })
 

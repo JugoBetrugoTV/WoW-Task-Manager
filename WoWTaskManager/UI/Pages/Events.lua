@@ -126,7 +126,7 @@ function Page:Build(frame)
     local rateRow = CreateFrame("Frame", nil, frame)
     -- Tall enough for the cards inside it. This was 120, and the storm card
     -- needs 124, so its fourth row was clipped away.
-    rateRow:SetHeight(124)
+    rateRow:SetHeight(Theme:ScaleText(124))
     rateRow:SetPoint("TOPLEFT", toolbar, "BOTTOMLEFT", 0, -10)
     rateRow:SetPoint("TOPRIGHT", toolbar, "BOTTOMRIGHT", 0, -10)
     self.rateRow = rateRow

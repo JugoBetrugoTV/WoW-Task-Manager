@@ -43,8 +43,20 @@ local ROW_HEIGHT = 17
 
 --------------------------------------------------------------------------
 
+--- The panel is built at 100% text whatever the text size setting says: its
+--- widths are fixed (210 px holds a dot, four buttons and a readout) and it
+--- has a size setting of its own, which scales the whole panel together.
 function LiveMonitor:Build()
     if self.frame then return self.frame end
+    local previous = Theme.textScale
+    Theme.textScale = 1
+    local ok, result = pcall(self.BuildFrame, self)
+    Theme.textScale = previous
+    if not ok then error(result, 0) end
+    return result
+end
+
+function LiveMonitor:BuildFrame()
 
     local settings = WTM.db.profile.liveMonitor
 

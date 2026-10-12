@@ -212,6 +212,7 @@ local defaults = {
             theme          = "wtmdark",
             accent         = "blue",
             density        = "comfortable",
+            textSize       = "normal",     -- normal | large | xlarge (UI/Theme.lua)
             graphStyle     = "auto",       -- line | area | auto
             showThresholdZones = false,
             graphQuality   = "balanced",   -- performance | balanced | high

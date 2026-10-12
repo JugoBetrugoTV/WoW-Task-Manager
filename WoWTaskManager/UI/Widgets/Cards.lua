@@ -41,7 +41,7 @@ function UI.StatCard(parent, title, labels, opts)
     local card = UI.Card(parent, title, {})
     card.rows = {}
 
-    local rowHeight = opts.rowHeight or 16
+    local rowHeight = Theme:ScaleRow(opts.rowHeight or 16)
     local host = card.content
     if opts.scroll then
         local scroll, canvas = UI.ScrollCanvas(card.content, { step = rowHeight * 3 })
@@ -93,7 +93,7 @@ end
 function UI.TopList(parent, title, opts)
     opts = opts or {}
     local rows = opts.rows or 5
-    local rowHeight = opts.rowHeight or 20
+    local rowHeight = Theme:ScaleRow(opts.rowHeight or 20)
     local card = UI.Card(parent, title, {})
     card.rows = {}
     card.naturalHeight = rows * rowHeight + 44
@@ -271,7 +271,7 @@ end
 --- histogram would hide them.
 function UI.BucketBars(parent, title, buckets, opts)
     opts = opts or {}
-    local rowHeight = opts.rowHeight or 18
+    local rowHeight = Theme:ScaleRow(opts.rowHeight or 18)
     local card = UI.Card(parent, title, {})
     card.bars = {}
     card.naturalHeight = #buckets * rowHeight + 44
@@ -387,7 +387,7 @@ end
 --- everything else is a table.
 function UI.ComparisonCard(parent, title, metrics, opts)
     opts = opts or {}
-    local rowHeight = opts.rowHeight or 18
+    local rowHeight = Theme:ScaleRow(opts.rowHeight or 18)
     local card = UI.Card(parent, title, {})
     card.rows = {}
     card.naturalHeight = (#metrics + 1) * rowHeight + 44
@@ -474,7 +474,7 @@ end
 function UI.ObservationList(parent, title, opts)
     opts = opts or {}
     local rows = opts.rows or 6
-    local rowHeight = opts.rowHeight or 40
+    local rowHeight = Theme:ScaleWrapped(opts.rowHeight or 40)
     local card = UI.Card(parent, title, {})
     card.rows = {}
     card.naturalHeight = rows * rowHeight + 44
@@ -501,7 +501,8 @@ function UI.ObservationList(parent, title, opts)
         row.detail = UI.Text(row, "tiny", "textMuted", "LEFT")
         row.detail:SetPoint("TOPLEFT", row.title, "BOTTOMLEFT", 0, -2)
         row.detail:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-        row.detail:SetHeight(rowHeight - 20)
+        -- Font string heights scale themselves, so this is the 100% number.
+        row.detail:SetHeight((opts.rowHeight or 40) - 20)
         UI.Wrap(row.detail, 2)
         row.detail:SetJustifyV("TOP")
 
@@ -549,7 +550,7 @@ function UI.StatusCard(parent, title, labels, opts)
     opts = opts or {}
     local card = UI.Card(parent, title, {})
     card.rows = {}
-    local rowHeight = opts.rowHeight or 16
+    local rowHeight = Theme:ScaleRow(opts.rowHeight or 16)
     card.naturalHeight = #labels * rowHeight + 66
 
     card.state = UI.Text(card.content, "title", "textPrimary", "LEFT")

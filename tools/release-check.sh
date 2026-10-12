@@ -318,14 +318,18 @@ if [ -f tools/test-errors.lua ]; then
     fi
 fi
 
-# Every page, at three window sizes, put through what a player does to it.
+# Every page, at three window sizes, put through what a player does to it -
+# and once per text size, because text size changes nothing but fonts and is
+# baked in when a widget is built: only a fresh run lays the pages out at it.
 if [ -f tools/test-ui.lua ]; then
-    if lua5.1 tools/test-ui.lua >/tmp/wtm-ui.log 2>&1; then
-        pass "UI stress test passes"
-    else
-        fail "UI stress test failed"
-        tail -25 /tmp/wtm-ui.log | sed 's/^/          /'
-    fi
+    for textsize in normal large xlarge; do
+        if lua5.1 tools/test-ui.lua "$textsize" >/tmp/wtm-ui-$textsize.log 2>&1; then
+            pass "UI stress test passes (text size: $textsize)"
+        else
+            fail "UI stress test failed (text size: $textsize)"
+            tail -25 /tmp/wtm-ui-$textsize.log | sed 's/^/          /'
+        fi
+    done
 fi
 
 # Six simulated hours. Everything here is supposed to be bounded; this is where

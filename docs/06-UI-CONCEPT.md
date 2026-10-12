@@ -51,8 +51,34 @@ wirkt nach `/reload`.**
 zurück — spürbar vor allem auf Listenseiten (Processes, Events, Errors,
 Sessions). Auch das wirkt erst nach `/reload`.
 
-Einstellbar unter **Settings → APPEARANCE**: Theme, Accent, Density, Graph
-Style, Threshold-Zonen, Graph Quality, Reduce Motion.
+### Textgröße (seit 0.8.8)
+
+`Theme:ApplyTextSize("normal"|"large"|"xlarge")` — 100 %, 115 %, 130 % — ist
+ein einziger Multiplikator auf jede Schrift in `Theme.fonts`. Auch das wird beim
+Bauen eines Widgets eingebacken und wirkt nach `/reload`. Das Live-Monitor-Fenster
+wird bewusst immer mit 100 % gebaut (feste Breiten, eigene Größen-Einstellung).
+
+Schrift wächst in ganzen Pixeln (12 px → 14 → 16; 10 px → 12 → 13), also zählt
+das **tatsächliche** Verhältnis der jeweiligen Schrift, nicht der Nennwert. Daraus
+folgen die Regeln, nach denen Layout-Maße mitwachsen:
+
+| Maß | Regel | Warum |
+|---|---|---|
+| Höhe eines Textfelds (`UI.Text` + `SetHeight`) | × Schrift-Verhältnis | die Zahl war für 100 % gedacht |
+| Höhe eines **umbrechenden** Textfelds | × `WrapGrowth` (Zeilenzahl nach oben gerundet × Zeilenhöhe) | grössere Zeichen = mehr Zeilen **und** höhere Zeilen: 2 Zeilen bei +17 % sind 3, nicht 2,34 |
+| Zeilenhöhe mit einer Textzeile (`Theme:ScaleRow`) | + Schriftzuwachs in px | Innenabstand wächst nicht mit |
+| Container mit Fliesstext (`Theme:ScaleWrapped`) | × Verhältnis² | dasselbe wie oben, für den Kasten drumherum |
+| Knopf mit fester Breite | × Verhältnis; zu lange Beschriftung wird mit „…" gekürzt, der Tooltip trägt den vollen Text | |
+| Kopfzeilen-Zellen | passt eine nicht mehr, werden sie von hinten ausgeblendet (FPS, Frame, Latenz, Speicher zuletzt) | |
+
+`tools/test-ui.lua <normal|large|xlarge>` legt jede Seite bei jeder Größe und
+jedem der drei Fenstermaße unter die Layout-Prüfungen (Text läuft über den Rand,
+Text läuft unten aus dem Kasten, Beschriftungen überlappen); `release-check.sh`
+führt alle drei Läufe aus. Größen, bei denen diese Prüfungen nicht sauber sind,
+werden nicht angeboten.
+
+Einstellbar unter **Settings → APPEARANCE**: Theme, Accent, Text size, Density,
+Graph Style, Threshold-Zonen, Graph Quality, Reduce Motion.
 
 ## Layout
 

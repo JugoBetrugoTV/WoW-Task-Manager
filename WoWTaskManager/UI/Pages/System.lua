@@ -53,7 +53,7 @@ function Page:Build(frame)
     -- The card is sized from the rows rather than the other way round. It used
     -- to carry a hand-tuned height, and adding one row to the list above left
     -- the last two rows clipped off the bottom with nothing to say so.
-    local ROW_PITCH, ROW_HEIGHT = 17, 18
+    local ROW_PITCH, ROW_HEIGHT = Theme:ScaleRow(17), Theme:ScaleRow(18)
     for i, label in ipairs(INFO_KEYS) do
         local row = UI.StatRow(self.infoCard.content, label)
         row:SetPoint("TOPLEFT", 0, -(i - 1) * ROW_PITCH)

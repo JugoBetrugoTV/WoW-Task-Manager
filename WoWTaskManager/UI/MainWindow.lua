@@ -99,6 +99,8 @@ local function BuildTopbar(window)
     strip:SetPoint("BOTTOM")
 
     window.topMetrics = {}
+    window.topStrip = strip
+    window.topCells = {}
     local previous
     for i, spec in ipairs(TOPBAR_METRICS) do
         local cell = CreateFrame("Frame", nil, strip)
@@ -133,10 +135,36 @@ local function BuildTopbar(window)
 
         cell.spec = spec
         window.topMetrics[spec.key] = cell
+        window.topCells[#window.topCells + 1] = cell
     end
+
+    strip:SetScript("OnSizeChanged", function() MainWindow:FitTopbarCells() end)
 
     window.topbar = topbar
     return topbar
+end
+
+--- Shows as many metric cells as fit in the strip, in order, and hides the
+--- rest. Seven cells at a larger text size, or at the narrowest window, are
+--- wider than the space between the title and the buttons; a cell past the
+--- edge is worse than a missing one - it runs under the Reload button. The
+--- cells that go first are the last in the list, the least essential.
+function MainWindow:FitTopbarCells()
+    local window = self.frame
+    if not window or not window.topStrip then return end
+    local available = window.topStrip:GetWidth() or 0
+    if available <= 0 then return end
+
+    local used, fitting = 0, true
+    for _, cell in ipairs(window.topCells) do
+        local width = cell:GetWidth() + (used > 0 and 10 or 0)
+        if fitting and used + width <= available then
+            used = used + width
+        else
+            fitting = false
+        end
+        cell:SetShown(fitting)
+    end
 end
 
 local function RefreshTopbar(window)
@@ -261,6 +289,7 @@ function MainWindow:Build()
     window:SetScript("OnSizeChanged", function()
         if MainWindow.currentPage then MainWindow:LayoutPage(MainWindow.currentPage) end
         MainWindow:MarkGraphsDirty()
+        MainWindow:FitTopbarCells()
     end)
 
     -- Sidebar

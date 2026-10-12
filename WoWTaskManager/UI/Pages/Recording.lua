@@ -66,7 +66,7 @@ function Page:Build(frame)
     -- Controls
     ------------------------------------------------------------------
     local controls = UI.Card(canvas, "CONTROLS", {})
-    grid:Add(controls, { span = 3, height = 96, key = "controls" })
+    grid:Add(controls, { span = 3, height = Theme:ScaleWrapped(96), key = "controls" })
     self.controls = controls
 
     self.startStop = UI.Button(controls.content, "", function()

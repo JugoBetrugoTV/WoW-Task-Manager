@@ -300,6 +300,11 @@ function Page:Build(frame)
     end
 
     local function Add(control, height)
+        -- A note's own height already follows the text size; the slot given
+        -- here is the 100% number and must not be smaller than the text.
+        if control.GetObjectType and control:GetObjectType() == "FontString" then
+            height = math.max(height or 0, (control:GetHeight() or 0) + 4)
+        end
         control:ClearAllPoints()
         control:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -section.contentHeight)
         control:SetPoint("TOPRIGHT", host, "TOPRIGHT", 0, -section.contentHeight)
@@ -557,6 +562,15 @@ function Page:Build(frame)
     function() return profile.ui.accent end,
     function(v) profile.ui.accent = v end,
     "Independent of the theme above: any accent works with any palette. Takes effect after a reload."), 48)
+
+    Add(Segmented(host, "Text size", {
+        { key = "normal", label = "Normal",      detail = "100%" },
+        { key = "large",  label = "Large",       detail = "115%" },
+        { key = "xlarge", label = "Extra large", detail = "130%" },
+    },
+    function() return profile.ui.textSize end,
+    function(v) profile.ui.textSize = v end,
+    "Scales every piece of text in the window and its tooltips. Boxes keep their size, so long labels may be shortened with an ellipsis (the full text is in the tooltip). The live monitor is not affected: it has its own size setting further down. Takes effect after a reload."), 48)
 
     Add(Segmented(host, "Density", {
         { key = "comfortable", label = "Comfortable" },
